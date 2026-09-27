@@ -902,13 +902,13 @@ void BackgroundSlicingProcess::prepare_arc_support_preview_gcode()
 	} catch (CanceledException&) {
 		throw;
 	} catch (const std::exception& ex) {
-		BOOST_LOG_TRIVIAL(warning) << "TinManX1 Arc Overhang preview post-process skipped; leaving unprocessed slice preview: " << ex.what();
+		BOOST_LOG_TRIVIAL(warning) << "Tinman Arc Overhang preview post-process skipped; leaving unprocessed slice preview: " << ex.what();
 		if (preview_path != m_temp_output_path) {
 			boost::system::error_code ec;
 			boost::filesystem::remove(preview_path, ec);
 		}
 	} catch (...) {
-		BOOST_LOG_TRIVIAL(warning) << "TinManX1 Arc Overhang preview post-process skipped; leaving unprocessed slice preview due to an unknown error.";
+		BOOST_LOG_TRIVIAL(warning) << "Tinman Arc Overhang preview post-process skipped; leaving unprocessed slice preview due to an unknown error.";
 		if (preview_path != m_temp_output_path) {
 			boost::system::error_code ec;
 			boost::filesystem::remove(preview_path, ec);
@@ -927,7 +927,7 @@ void BackgroundSlicingProcess::reload_arc_support_preview_from_gcode(const std::
 		processor.process_file(gcode_path, [this]() { this->throw_if_canceled(); });
 		const GCodeProcessorResult& exported_result = processor.get_result();
 		if (!exported_gcode_has_arc_support_transform(exported_result)) {
-			BOOST_LOG_TRIVIAL(warning) << "TinManX1 Arc Overhang preview reload skipped: G-code has no successful arc transform metadata at " << gcode_path;
+			BOOST_LOG_TRIVIAL(warning) << "Tinman Arc Overhang preview reload skipped: G-code has no successful arc transform metadata at " << gcode_path;
 			return;
 		}
 
@@ -938,9 +938,9 @@ void BackgroundSlicingProcess::reload_arc_support_preview_from_gcode(const std::
 		wxCommandEvent evt(m_event_slicing_completed_id);
 		evt.SetInt((int)(m_fff_print->step_state_with_timestamp(PrintStep::psSlicingFinished).timestamp));
 		wxQueueEvent(GUI::wxGetApp().mainframe->m_plater, evt.Clone());
-		BOOST_LOG_TRIVIAL(info) << "TinManX1 Arc Overhang preview reloaded from post-processed G-code " << gcode_path;
+		BOOST_LOG_TRIVIAL(info) << "Tinman Arc Overhang preview reloaded from post-processed G-code " << gcode_path;
 	} catch (const std::exception& ex) {
-		BOOST_LOG_TRIVIAL(error) << "TinManX1 Arc Overhang preview reload failed for " << gcode_path << ": " << ex.what();
+		BOOST_LOG_TRIVIAL(error) << "Tinman Arc Overhang preview reload failed for " << gcode_path << ": " << ex.what();
 	}
 }
 

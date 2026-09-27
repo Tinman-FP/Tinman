@@ -1,5 +1,5 @@
-# Generates the MSIX package logo assets from the TinManX1 master bitmap
-# (resources\images\TinManX1_1024.png). Each PNG is rendered at its exact target
+# Generates the MSIX package logo assets from the Tinman master bitmap
+# (resources\images\Tinman_1024.png). Each PNG is rendered at its exact target
 # size and preserves alpha transparency in the corners.
 #
 # Run once locally on Windows (re-run only if the logo changes), then commit
@@ -12,7 +12,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$source   = Join-Path $repoRoot 'resources\images\TinManX1_1024.png'
+$source   = Join-Path $repoRoot 'resources\images\Tinman_1024.png'
 $outDir   = Join-Path $PSScriptRoot 'assets'
 New-Item -ItemType Directory -Force $outDir | Out-Null
 

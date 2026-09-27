@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" xmlns:asmv3="urn:schemas-microsoft-com:asm.v3" manifestVersion="1.0">
-  <assemblyIdentity version="@TINMANX1_PACKAGE_VERSION@" name="TinManX1" type="Win32" />
-  <description>TinManX1</description>
+  <assemblyIdentity version="@TINMANX1_PACKAGE_VERSION@" name="Tinman" type="Win32" />
+  <description>Tinman</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>

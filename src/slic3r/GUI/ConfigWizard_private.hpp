@@ -73,7 +73,8 @@ struct Bundle
 
 	// Returns false if not loaded. Reason for that is logged as boost::log error.
 	//BBS: set BBL as default
-	bool load(fs::path source_path, bool is_in_resources, bool is_bbl_bundle = false);
+	bool load(fs::path source_path, bool is_in_resources, bool is_bbl_bundle = false,
+	          const PresetBundle *base_bundle = nullptr);
 
 	const std::string& vendor_id() const { return vendor_profile->id; }
 };
@@ -559,6 +560,7 @@ struct ConfigWizard::priv
     //PagePrinters     *page_msla = nullptr;
     PageMaterials    *page_filaments = nullptr;
     PageMaterials    *page_sla_materials = nullptr;
+    PageWelcome      *page_welcome = nullptr;
     PageCustom       *page_custom = nullptr;
     //PageReloadFromDisk *page_reload_from_disk = nullptr;
 //#ifdef _WIN32
@@ -572,6 +574,9 @@ struct ConfigWizard::priv
     PageBedShape     *page_bed = nullptr;
     PageDiameters    *page_diams = nullptr;
     PageTemperatures *page_temps = nullptr;
+
+    std::vector<PagePrinters*> pages_fff;
+    std::vector<PagePrinters*> pages_sla;
 
     // Pointers to all pages (regardless or whether currently part of the ConfigWizardIndex)
     std::vector<ConfigWizardPage*> all_pages;

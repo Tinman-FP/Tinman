@@ -523,9 +523,6 @@ void PresetBundle::copy_files(const std::string& from)
 PresetsConfigSubstitutions PresetBundle::load_presets(AppConfig &config, ForwardCompatibilitySubstitutionRule substitution_rule,
                                                       const PresetPreferences& preferred_selection/* = PresetPreferences()*/)
 {
-    tinmanx_apply_machine_catalog(config);
-    config.save();
-
     // First load the vendor specific system presets.
     PresetsConfigSubstitutions substitutions;
     std::string errors_cummulative;
@@ -1080,9 +1077,6 @@ PresetsConfigSubstitutions PresetBundle::load_user_presets(AppConfig &          
                                                            std::map<std::string, std::map<std::string, std::string>> &my_presets,
                                                            ForwardCompatibilitySubstitutionRule                       substitution_rule)
 {
-    tinmanx_apply_machine_catalog(config);
-    config.save();
-
     // First load the vendor specific system presets.
     PresetsConfigSubstitutions substitutions;
     std::string errors_cummulative;

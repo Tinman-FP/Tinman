@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Plan FibreSeek continuous-fiber paths from TinManX1 G-code.
+"""Plan FibreSeek continuous-fiber paths from Tinman G-code.
 
-This is TinManX1's native continuous-fiber planner. It reads the polymer
+This is Tinman's native continuous-fiber planner. It reads the polymer
 G-code that the slicer already generated, reconstructs layer geometry from
 extrusion moves, and emits FibreSeek-style continuous-fiber command blocks
 plus a JSON summary. The planner prefers already validated wall and infill
@@ -242,7 +242,7 @@ class FiberRoute:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--in-gcode", required=True, type=Path, help="Input TinManX1 polymer G-code.")
+    parser.add_argument("--in-gcode", required=True, type=Path, help="Input Tinman polymer G-code.")
     parser.add_argument("--out", required=True, type=Path, help="Output G-code path.")
     parser.add_argument("--summary-out", type=Path, help="Optional JSON planner summary.")
     parser.add_argument(
@@ -1163,7 +1163,7 @@ def validate_fiberseek_process_contract(comments: dict[str, str], cfg: PlannerCo
     process_id = comments.get("print_settings_id") or "<missing>"
     raise SystemExit(
         "FibreSeek continuous-fiber planning is enabled, but the selected process profile "
-        f"is not FibreSeek-compatible: {process_id}. Select a TinManX1 process named "
+        f"is not FibreSeek-compatible: {process_id}. Select a Tinman process named "
         "'0.20mm Plastic + Continuous Fiber Light/Medium/Heavy @FibreSeek Seeker 3 ...' "
         "and reslice."
     )
@@ -3468,7 +3468,7 @@ def emit_fiber_block(
         lines.extend(
             [
                 "; ORCA_CODEX_NATIVE_FIBER_PLANNER_START",
-                "; Generated with TinManX1 native FibreSeek planner",
+                "; Generated with Tinman native FibreSeek planner",
                 f"; generated_at = {datetime.now(timezone.utc).isoformat()}",
                 f"; ORCA_CODEX_NATIVE_FIBER_INPUT source={cfg.input_source} mode={cfg.reinforcement_mode} perimeters={int(cfg.generate_perimeters)} infill={int(cfg.generate_infill)} pattern={cfg.pattern}",
                 f"; fiber_reinforcement_mode = {cfg.reinforcement_mode}",
@@ -3622,7 +3622,7 @@ def emit_append_after_layer(parsed: ParsedGCode, routes: Sequence[FiberRoute], c
             output.extend(
                 [
                     "; ORCA_CODEX_NATIVE_FIBER_PLANNER_START",
-                    "; Generated with TinManX1 native FibreSeek planner",
+                    "; Generated with Tinman native FibreSeek planner",
                     f"; generated_at = {datetime.now(timezone.utc).isoformat()}",
                     "G21",
                     "G90",

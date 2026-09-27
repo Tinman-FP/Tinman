@@ -128,7 +128,7 @@ static std::string sanitize_legacy_k2_cfs_start_gcode(const std::string& gcode)
     }
 
     BOOST_LOG_TRIVIAL(warning)
-        << "TinManX1: migrated obsolete embedded K2 CFS startup to the native firmware handoff";
+        << "Tinman: migrated obsolete embedded K2 CFS startup to the native firmware handoff";
     return output.str();
 }
 
@@ -336,7 +336,7 @@ static std::string tinman_native_fiber_merged_header(const Print &print, const D
     const TinmanNativeFiberGCodeSummary summary = tinman_native_fiber_gcode_summary(print);
     std::string out;
     out += "; ORCA_CODEX_NATIVE_FIBER_PLANNER_MERGED\n";
-    out += "; Generated with TinManX1 native FibreSeek composite-road planner\n";
+    out += "; Generated with Tinman native FibreSeek composite-road planner\n";
     out += tinman_native_composite_only_export_requested(config) ?
         "; PRINTING_MODE: Composite Only\n" :
         "; PRINTING_MODE: Plastic + Continuous Fiber Composite Roads\n";
@@ -2841,7 +2841,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
 
     const bool tinman_native_composite_export = tinman_native_composite_only_export_requested(print.full_print_config());
     if (tinman_native_composite_export) {
-        BOOST_LOG_TRIVIAL(info) << "TinManX1 FibreSeek native composite export: ensuring route diagnostics before G-code export.";
+        BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek native composite export: ensuring route diagnostics before G-code export.";
         for (PrintObject *object : print.objects()) {
             if (object != nullptr)
                 object->ensure_fiberseek_composite_diagnostics_for_export();
@@ -6805,7 +6805,7 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
 
     if (!m_tinman_native_fiber_planner_started) {
         gcode += "; ORCA_CODEX_NATIVE_FIBER_PLANNER_START\n";
-        gcode += "; Generated with TinManX1 native FibreSeek composite-road planner\n";
+        gcode += "; Generated with Tinman native FibreSeek composite-road planner\n";
         gcode += "G21\n";
         gcode += "G90\n";
         gcode += "M83 ; use relative distances for extrusion\n";

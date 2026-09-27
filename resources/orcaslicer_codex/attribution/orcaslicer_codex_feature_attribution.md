@@ -1,6 +1,6 @@
-# TinManX1 Feature Attribution
+# Tinman Feature Attribution
 
-This note tracks external feature sources ported into the TinManX1 source branch.
+This note tracks external feature sources ported into the Tinman source branch.
 
 ## Wave Overhangs
 
@@ -11,7 +11,7 @@ This note tracks external feature sources ported into the TinManX1 source branch
 - Algorithm credit: Janis A. Andersons (`andersonsjanis`) for the wavefront generator used by the current implementation.
 - OrcaSlicer port credit: Dennis Klappe (`dennisklappe`) and WaveOverhangs contributors.
 
-The TinManX1 port keeps Wave Overhangs disabled by default, follows the upstream `v0.4.0` single-wavefront contract, and emits firmware-safe `WAVE_OVERHANG_*` diagnostics outside the G-code header when debug output is enabled. TinManX1 retains its hybrid-support remainder handling, fringe filtering, reinforcement, fallback seeding, and route diagnostics while adding upstream solid backing floors for angled overhangs, gradual floor-speed recovery, independent main/auxiliary cooling, temperature restoration, travel control, dwell timing, and end retraction.
+The Tinman port keeps Wave Overhangs disabled by default, follows the upstream `v0.4.0` single-wavefront contract, and emits firmware-safe `WAVE_OVERHANG_*` diagnostics outside the G-code header when debug output is enabled. Tinman retains its hybrid-support remainder handling, fringe filtering, reinforcement, fallback seeding, and route diagnostics while adding upstream solid backing floors for angled overhangs, gradual floor-speed recovery, independent main/auxiliary cooling, temperature restoration, travel control, dwell timing, and end retraction.
 
 ## Arc Overhangs
 
@@ -23,7 +23,7 @@ The TinManX1 port keeps Wave Overhangs disabled by default, follows the upstream
 - Integration credit: Nicolai Wachenschwan PrusaSlicer integration.
 - OrcaSlicer integration credit: Kelsch OrcaSlicer integration.
 
-The TinManX1 port keeps the upstream bridge/overhang-infill model: bridge-derived overhang source paths are replaced by guarded `Arc infill` output. Ordinary support extrusion is not a source path and must not be exported as Arc Overhang output.
+The Tinman port keeps the upstream bridge/overhang-infill model: bridge-derived overhang source paths are replaced by guarded `Arc infill` output. Ordinary support extrusion is not a source path and must not be exported as Arc Overhang output.
 
 ## Strength Lens
 
@@ -37,7 +37,7 @@ The TinManX1 port keeps the upstream bridge/overhang-infill model: bridge-derive
 - Reference credit: FDM anisotropy literature, including open-access additive-manufacturing studies on build orientation and layer-driven mechanical-property directionality (`https://www.mdpi.com/2504-4494/3/3/64`, `https://pmc.ncbi.nlm.nih.gov/articles/PMC11207998/`).
 - Reference credit: Oak Ridge National Laboratory extrusion-anisotropy summary (`https://www.ornl.gov/publication/reducing-mechanical-anisotropy-extrusion-based-printed-parts`) for the practical assumption that printed X/Y-plane roads are usually stronger than Z-direction layer bonds in extrusion-based printing.
 
-The TinManX1 port emits advisory-only viewport metadata. The Prepare view now supports a selectable Strength Lens load axis (`Auto`, `X`, `Y`, `Z`) and treats normal FDM as stronger in X/Y than through the Z layer stack. It does not modify slicing, emit G-code, certify FEA, approve prints, or claim structural safety factors.
+The Tinman port emits advisory-only viewport metadata. The Prepare view now supports a selectable Strength Lens load axis (`Auto`, `X`, `Y`, `Z`) and treats normal FDM as stronger in X/Y than through the Z layer stack. It does not modify slicing, emit G-code, certify FEA, approve prints, or claim structural safety factors.
 
 ## FibreSeek / Continuous Fiber Metadata
 
@@ -45,22 +45,22 @@ The TinManX1 port emits advisory-only viewport metadata. The Prepare view now su
 - Port source note: sanitized local TinManX FibreSeek metadata sidecar source.
 - Ported Codex entrypoint: `scripts/source-helpers/orcaslicer_codex_fiber_metadata_sidecar.py`
 
-The TinManX1 port preserves continuous-fiber lane metadata and review gates for Preview/Summary use. It does not emit machine commands, start uploads, or mark hardware validation as complete.
+The Tinman port preserves continuous-fiber lane metadata and review gates for Preview/Summary use. It does not emit machine commands, start uploads, or mark hardware validation as complete.
 
 ## Auto Pressure Advance / Max Flow Preflight
 
-- Source: TinManX1 same-print calibration requirements from William Tinney's Qidi Plus 4, Max EZ, RatRig V-Core 4 IDEX, and Prusa Core One workflows.
+- Source: Tinman same-print calibration requirements from William Tinney's Qidi Plus 4, Max EZ, RatRig V-Core 4 IDEX, and Prusa Core One workflows.
 - Reference credit: CNC Kitchen pressure-advance and volumetric-flow testing methodology, Klipper pressure-advance documentation, Marlin Linear Advance documentation, and Prusa pressure-advance behavior as calibration references.
 - Project credit: William Tinney / Tinman-FP for printer fleet requirements, calibration-region constraints, Beacon-assisted measurement direction, and live G-code export validation.
-- Implementation credit: OpenAI Codex / GPT-5 for the TinManX1 postprocessor wrapper, real-score gating, RatRig T0/T1 detection, max-flow governor integration path, visible calibration-lane gate, profile hook, and verification scaffolding.
+- Implementation credit: OpenAI Codex / GPT-5 for the Tinman postprocessor wrapper, real-score gating, RatRig T0/T1 detection, max-flow governor integration path, visible calibration-lane gate, profile hook, and verification scaffolding.
 
-The TinManX1 auto-PA path only applies PA, adaptive PA, or max-flow changes when real same-print calibration score files are available for the detected target printer and a named TinMan calibration lane is visible in the sliced object list. Without real scores or a visible edge-strip lane, it preserves the model G-code and emits an audit stamp rather than applying hidden or synthetic calibration data.
+The Tinman auto-PA path only applies PA, adaptive PA, or max-flow changes when real same-print calibration score files are available for the detected target printer and a named TinMan calibration lane is visible in the sliced object list. Without real scores or a visible edge-strip lane, it preserves the model G-code and emits an audit stamp rather than applying hidden or synthetic calibration data.
 
 ## Machine Capability Envelopes
 
-- Source: William Tinney / Tinman-FP requirements for measured, conservative per-printer motion limits that preserve TinManX1's Tank, Quality, Fast, and Draft process intent.
-- Research credit: Anonoei's MIT-licensed Klipper Auto Speed project for the missed-step search concept. No Klipper Auto Speed source code is vendored or copied into TinManX1.
+- Source: William Tinney / Tinman-FP requirements for measured, conservative per-printer motion limits that preserve Tinman's Tank, Quality, Fast, and Draft process intent.
+- Research credit: Anonoei's MIT-licensed Klipper Auto Speed project for the missed-step search concept. No Klipper Auto Speed source code is vendored or copied into Tinman.
 - Method references: official Klipper resonance-compensation and motion-limit documentation, Andrew Ellis' Print Tuning Guide, and Frix-x's GPL-3.0 Shake&Tune vibration-profile methodology.
 - Implementation credit: OpenAI Codex / GPT-5 for the fail-closed envelope schema, coupled-point validation, conservative profile compiler, catalog integration, and regression tests.
 
-TinManX1 treats synthetic no-skip results only as mechanical evidence. An envelope cannot affect profiles until a coupled point passes at least 50 heated iterations with zero minimum cruise ratio and a separate quality limit is recorded. Active envelopes only lower existing profile values; they do not replace volumetric-flow, pressure-advance, cooling, adhesion, or inspected-print calibration.
+Tinman treats synthetic no-skip results only as mechanical evidence. An envelope cannot affect profiles until a coupled point passes at least 50 heated iterations with zero minimum cruise ratio and a separate quality limit is recorded. Active envelopes only lower existing profile values; they do not replace volumetric-flow, pressure-advance, cooling, adhesion, or inspected-print calibration.

@@ -1,147 +1,33 @@
 {
-    "type": "filament",
-    "name": "Fiberon PET-CF17 @BBL X1",
-    "inherits": "Fiberon PET-CF17 @base",
-    "from": "system",
-    "setting_id": "GFSL60_00",
-    "instantiation": "true",
-    "compatible_printers": [
-        "Bambu Lab X1 0.4 nozzle",
-        "Bambu Lab X1 Carbon 0.4 nozzle",
-        "Bambu Lab P1S 0.4 nozzle",
-        "Bambu Lab X1E 0.4 nozzle"
-    ],
-    "filament_start_gcode": [
-        "; filament start gcode\n{if (bed_temperature[current_extruder] >80)||(bed_temperature_initial_layer[current_extruder] >80)}M106 P3 S255\n{elsif (bed_temperature[current_extruder] >60)||(bed_temperature_initial_layer[current_extruder] >60)}M106 P3 S180\n{endif}\n\n{if activate_air_filtration[current_extruder] && support_air_filtration}\nM106 P3 S{during_print_exhaust_fan_speed_num[current_extruder]} \n{endif}"
-    ],
-    "required_nozzle_HRC": [
-        "40"
-    ],
-    "supertack_plate_temp": [
-        "80",
-        "80"
-    ],
-    "supertack_plate_temp_initial_layer": [
-        "80",
-        "80"
-    ],
-    "filament_adhesiveness_category": [
-        "800"
-    ],
-    "filament_extruder_variant": [
-        "Direct Drive Standard",
-        "Direct Drive High Flow"
-    ],
-    "filament_flow_ratio": [
-        "1.00",
-        "1.00"
-    ],
-    "filament_max_volumetric_speed": [
-        "6",
-        "6"
-    ],
-    "nozzle_temperature": [
-        "280",
-        "280"
-    ],
-    "nozzle_temperature_initial_layer": [
-        "285",
-        "285"
-    ],
-    "nozzle_temperature_range_low": [
-        "260",
-        "260"
-    ],
-    "nozzle_temperature_range_high": [
-        "300",
-        "300"
-    ],
-    "textured_plate_temp": [
-        "80",
-        "80"
-    ],
-    "textured_plate_temp_initial_layer": [
-        "80",
-        "80"
-    ],
-    "hot_plate_temp": [
-        "80",
-        "80"
-    ],
-    "hot_plate_temp_initial_layer": [
-        "80",
-        "80"
-    ],
-    "eng_plate_temp": [
-        "80",
-        "80"
-    ],
-    "eng_plate_temp_initial_layer": [
-        "80",
-        "80"
-    ],
-    "cool_plate_temp": [
-        "0",
-        "0"
-    ],
-    "cool_plate_temp_initial_layer": [
-        "0",
-        "0"
-    ],
-    "fan_min_speed": [
-        "0",
-        "0"
-    ],
-    "fan_max_speed": [
-        "40",
-        "40"
-    ],
-    "overhang_fan_speed": [
-        "70",
-        "70"
-    ],
-    "filament_retraction_length": [
-        "0.8",
-        "0.8"
-    ],
-    "filament_notes": [
-        "TinManX1 X1C HF PET-CF refinement 2026-08-18: based on the 0.6 mm Built Plate Alignment Blocks print, retain 285C first layer / 280C print, 80C bed, flow 1.00, and pressure advance 0.028; use a 6 mm3/s HF ceiling, 40% normal fan after layer 3, 70% overhang fan from 10% overlap, and a 35 s small-layer target. This targets curled upper posts and nozzle pickup without weakening the proven bulk-wall tune. Dry at 100C for 10h and print from a dry box."
-    ],
-    "tinmanx_petcf17_x1c_tune": [
-        "2026-07-11 Bambu X1C PET-CF17 anti-starvation tune"
-    ],
-    "enable_pressure_advance": [
-        "1",
-        "1"
-    ],
-    "pressure_advance": [
-        "0.028",
-        "0.028"
-    ],
-    "tinmanx_petcf17_x1c_pressure_advance": [
-        "2026-07-11 enable_pressure_advance=1 pressure_advance=0.026"
-    ],
-    "slow_down_layer_time": [
-        "35",
-        "35"
-    ],
-    "slow_down_min_speed": [
-        "6",
-        "6"
-    ],
-    "tinmanx_petcf_rescue_tune": [
-        "2026-07-11 all PET-CF rescue tune with pressure advance"
-    ],
-    "overhang_fan_threshold": [
-        "10%"
-    ],
-    "activate_chamber_temp_control": [
-        "0"
-    ],
-    "chamber_temperature": [
-        "0"
-    ],
-    "chamber_temperatures": [
-        "0"
-    ]
+	"type": "filament",
+	"name": "Fiberon PET-CF17 @BBL X1",
+	"inherits": "Fiberon PET-CF17 @base",
+	"from": "system",
+	"setting_id": "GFSL60_00",
+	"instantiation": "true",
+	"compatible_printers": [
+		"Bambu Lab X1 0.4 nozzle",
+		"Bambu Lab X1 Carbon 0.4 nozzle",
+		"Bambu Lab P1S 0.4 nozzle",
+		"Bambu Lab X1E 0.4 nozzle"
+	],
+	"filament_start_gcode": [
+		"; filament start gcode\n{if (bed_temperature[current_extruder] >80)||(bed_temperature_initial_layer[current_extruder] >80)}M106 P3 S255\n{elsif (bed_temperature[current_extruder] >60)||(bed_temperature_initial_layer[current_extruder] >60)}M106 P3 S180\n{endif}\n\n{if activate_air_filtration[current_extruder] && support_air_filtration}\nM106 P3 S{during_print_exhaust_fan_speed_num[current_extruder]} \n{endif}"
+	],
+	"required_nozzle_HRC": [
+		"40"
+	],
+	"supertack_plate_temp": [
+		"80"
+	],
+	"supertack_plate_temp_initial_layer": [
+		"80"
+	],
+	"filament_adhesiveness_category": [
+		"800"
+	],
+	"filament_extruder_variant": [
+		"Direct Drive Standard",
+		"Direct Drive High Flow"
+	]
 }

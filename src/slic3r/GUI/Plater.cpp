@@ -1229,7 +1229,7 @@ static bool sidebar_is_tinmanx1_matrix_material(const std::string& material)
 static std::string sidebar_material_from_tinmanx1_preset_name(const std::string& preset_name)
 {
     std::string name = Preset::remove_suffix_modified(preset_name);
-    const std::string prefix = "TinManX1 ";
+    const std::string prefix = "Tinman ";
     const std::string machine_suffix = " @FibreSeek Seeker 3";
 
     if (boost::starts_with(name, prefix))
@@ -1387,8 +1387,8 @@ static bool sidebar_composite_filament_profile_exists(const std::string& target_
 {
     const fs::path data_dir = Slic3r::data_dir();
     const std::array<fs::path, 2> roots = {
-        data_dir / "system" / "TinManX1" / "filament",
-        fs::path(Slic3r::resources_dir()) / "profiles" / "TinManX1" / "filament",
+        data_dir / "system" / "Tinman" / "filament",
+        fs::path(Slic3r::resources_dir()) / "profiles" / "Tinman" / "filament",
     };
 
     for (const fs::path& root : roots) {
@@ -3271,14 +3271,14 @@ bool Sidebar::apply_continuous_fiber_material_to_slot(const SidebarContinuousFib
         selected_name = target_name;
     if (selected_name.empty() && std::string(material.profile_suffix) == "X-CCF") {
         const std::string legacy_carbon_name =
-            (boost::format("TinManX1 %1% + X-CCF @FibreSeek Seeker 3") % matrix_material).str();
+            (boost::format("Tinman %1% + X-CCF @FibreSeek Seeker 3") % matrix_material).str();
         const std::string legacy_carbon_alias =
-            (boost::format("TinManX1 %1% + X-CCF") % matrix_material).str();
+            (boost::format("Tinman %1% + X-CCF") % matrix_material).str();
         selected_name = sidebar_resolve_loaded_composite_filament_name(preset_bundle, legacy_carbon_name, legacy_carbon_alias);
     }
     if (selected_name.empty()) {
         BOOST_LOG_TRIVIAL(warning) << __FUNCTION__
-            << boost::format(": no TinManX1 composite filament found for material %1% and fiber %2%")
+            << boost::format(": no Tinman composite filament found for material %1% and fiber %2%")
             % matrix_material % material.profile_suffix;
         return false;
     }
@@ -6436,7 +6436,7 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
             std::string last_backup = last;
             std::string originfile;
             if (Slic3r::has_restore_data(last_backup, originfile)) {
-                auto result = MessageDialog(this->q, _L("Previous unsaved project detected, do you want to restore it?"), _L("TinManX1") + " - " + _L("Restore"), wxYES_NO | wxYES_DEFAULT | wxCENTRE).ShowModal();
+                auto result = MessageDialog(this->q, _L("Previous unsaved project detected, do you want to restore it?"), _L("Tinman") + " - " + _L("Restore"), wxYES_NO | wxYES_DEFAULT | wxCENTRE).ShowModal();
                 if (result == wxID_YES) {
                     this->q->load_project(from_path(last_backup), from_path(originfile));
                     Slic3r::backup_soon();
@@ -12152,7 +12152,7 @@ void Plater::priv::set_project_name(const wxString& project_name)
     if (!m_project_name.IsEmpty())
         wxGetApp().mainframe->update_title_colour_after_set_title();
 #else
-    wxGetApp().mainframe->SetTitle(m_project_name + " - TinManX1");
+    wxGetApp().mainframe->SetTitle(m_project_name + " - Tinman");
     wxGetApp().mainframe->topbar()->SetTitle(m_project_name);
 #endif
 }
@@ -12172,7 +12172,7 @@ void Plater::priv::update_title_dirty_status()
     wxGetApp().mainframe->SetTitle(title);
     wxGetApp().mainframe->update_title_colour_after_set_title();
 #else
-    wxGetApp().mainframe->SetTitle(title + " - TinManX1");
+    wxGetApp().mainframe->SetTitle(title + " - Tinman");
     wxGetApp().mainframe->topbar()->SetTitle(title);
 #endif    
 }

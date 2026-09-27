@@ -22,7 +22,7 @@ static void orcaslicer_codex_enforce_arc_support(DynamicPrintConfig &config)
     config.set_key_value("support_type", new ConfigOptionEnum<SupportType>(support_type->value));
     config.set_key_value("tinman_support_strategy", new ConfigOptionEnum<TinmanSupportStrategy>(TinmanSupportStrategy::Arc));
     config.set_key_value("arc_support_experimental", new ConfigOptionBool(true));
-    BOOST_LOG_TRIVIAL(info) << "TinManX1 Arc Overhang: disabled normal supports for selected Arc process.";
+    BOOST_LOG_TRIVIAL(info) << "Tinman Arc Overhang: disabled normal supports for selected Arc process.";
 }
 
 // Add or remove support modifier ModelVolumes from model_object_dst to match the ModelVolumes of model_object_new

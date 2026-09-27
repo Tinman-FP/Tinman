@@ -206,7 +206,7 @@ static TinmanRocketSolidFiberPayload tinman_parse_rocket_solid_payload(const Dyn
         if (!payload.has_route_stitch_transition_length_mm)
             payload.has_route_stitch_transition_length_mm = tinman_json_float(json, "component_stitch_transition_length_mm", payload.route_stitch_transition_length_mm);
     } catch (const std::exception &ex) {
-        BOOST_LOG_TRIVIAL(warning) << "TinManX1 FibreSeek solid payload parse failed: " << ex.what();
+        BOOST_LOG_TRIVIAL(warning) << "Tinman FibreSeek solid payload parse failed: " << ex.what();
     }
 
     return payload;
@@ -1235,7 +1235,7 @@ void PrintObject::infill()
 void PrintObject::ensure_fiberseek_composite_diagnostics_for_export()
 {
     BOOST_LOG_TRIVIAL(info)
-        << "TinManX1 FibreSeek export diagnostics: object " << this->get_id()
+        << "Tinman FibreSeek export diagnostics: object " << this->get_id()
         << " has " << m_layers.size() << " layers before route regeneration.";
     this->generate_fiberseek_composite_diagnostics();
 }
@@ -1260,7 +1260,7 @@ void PrintObject::generate_fiberseek_composite_diagnostics()
         !fiber_enabled ||
         (!generate_fiber_infill && !generate_fiber_perimeters)) {
         BOOST_LOG_TRIVIAL(info)
-            << "TinManX1 FibreSeek composite-road diagnostic skipped: mode="
+            << "Tinman FibreSeek composite-road diagnostic skipped: mode="
             << manufacturing_mode << " fiber_enabled=" << fiber_enabled
             << " perimeters=" << generate_fiber_perimeters
             << " infill=" << generate_fiber_infill << ".";
@@ -1432,7 +1432,7 @@ void PrintObject::generate_fiberseek_composite_diagnostics()
     }
 
     BOOST_LOG_TRIVIAL(info)
-        << "TinManX1 FibreSeek composite-road diagnostic planned "
+        << "Tinman FibreSeek composite-road diagnostic planned "
         << total_routes << " routes from " << total_candidates
         << " candidates with " << total_fallbacks
         << " fallbacks across " << selected_layers << " selected layers, "

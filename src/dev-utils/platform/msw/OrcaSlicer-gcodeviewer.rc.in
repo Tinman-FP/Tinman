@@ -13,7 +13,7 @@ PRODUCTVERSION @TINMANX1_PACKAGE_VERSION_RESOURCE@
    VALUE "ProductVersion", "@TINMANX1_PACKAGE_VERSION@"
    VALUE "InternalName", "@SLIC3R_APP_NAME@ G-code Viewer"
    VALUE "LegalCopyright", ""
-   VALUE "OriginalFilename", "TinManX1-gcodeviewer.exe"
+   VALUE "OriginalFilename", "Tinman-gcodeviewer.exe"
   }
  }
  BLOCK "VarFileInfo"
@@ -21,5 +21,5 @@ PRODUCTVERSION @TINMANX1_PACKAGE_VERSION_RESOURCE@
    VALUE "Translation", 0x409, 1252
  }
 }
-2 ICON "@SLIC3R_RESOURCES_DIR@/images/TinManX1.ico"
+2 ICON "@SLIC3R_RESOURCES_DIR@/images/Tinman.ico"
 1 24 "OrcaSlicer.manifest" 

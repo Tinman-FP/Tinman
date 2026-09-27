@@ -18,12 +18,12 @@ do
     exec "${PYTHON}" "$0" "$@"
   fi
 done
-echo "TinManX1 Arc Overhang transform could not find a usable Python interpreter." >&2
+echo "Tinman Arc Overhang transform could not find a usable Python interpreter." >&2
 exit 127
 ':'''
 from __future__ import annotations
 
-"""Safe TinManX1 wrapper for the vendored Arc Overhang transform.
+"""Safe Tinman wrapper for the vendored Arc Overhang transform.
 
 The upstream Kelsch script overwrites its input file and pauses for interactive
 prompts. This wrapper keeps the experimental feature available while preserving
@@ -504,7 +504,7 @@ def _patch_engine_support_sources(engine: Any) -> None:
 
     Arc Overhangs are not ordinary supports. The upstream script detects bridge
     infill, validates it against overhang walls, and injects `Arc infill`.
-    TinManX1 keeps that behavior; an opt-in debug environment variable
+    Tinman keeps that behavior; an opt-in debug environment variable
     may still expose old support-source experiments, but production defaults do
     not consume or relabel support-material toolpaths.
     """
@@ -782,7 +782,7 @@ def transform_gcode(input_path: Path, output_path: Path, audit_path: Path, engin
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the experimental TinManX1 Arc Overhang transform safely.")
+    parser = argparse.ArgumentParser(description="Run the experimental Tinman Arc Overhang transform safely.")
     parser.add_argument("input_gcode", type=Path)
     parser.add_argument("output_gcode", type=Path)
     parser.add_argument("--audit", type=Path, required=True, help="Path for JSON audit output.")

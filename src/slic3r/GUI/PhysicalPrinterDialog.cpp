@@ -921,7 +921,7 @@ void PhysicalPrinterDialog::OnOK(wxEvent& event)
             tinmanx_remember_machine_connection(*wxGetApp().app_config, m_preset_name, *m_config)) {
             wxGetApp().app_config->save();
             if (wxGetApp().app_config->dirty())
-                show_error(this, _L("The printer profile was saved, but the application connection backup could not be saved. TinManX1 will retry saving the application settings."));
+                show_error(this, _L("The printer profile was saved, but the application connection backup could not be saved. Tinman will retry saving the application settings."));
         }
     } catch (const std::exception &error) {
         show_error(this, _L("The printer profile was saved, but its application connection backup could not be saved.") + "\n\n" + wxString::FromUTF8(error.what()));

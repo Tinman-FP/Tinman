@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and apply TinManX1 machine motion capability envelopes.
+"""Validate and apply Tinman machine motion capability envelopes.
 
 This module deliberately treats a no-skip motion test as one input, not as a
 print-speed recommendation. An envelope becomes active only after a coupled

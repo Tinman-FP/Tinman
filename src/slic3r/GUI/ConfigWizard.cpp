@@ -66,7 +66,8 @@ using Config::SnapshotDB;
 
 // Configuration data structures extensions needed for the wizard
 //BBS: set BBL as default
-bool Bundle::load(fs::path source_path, bool ais_in_resources, bool ais_bbl_bundle)
+bool Bundle::load(fs::path source_path, bool ais_in_resources, bool ais_bbl_bundle,
+                  const PresetBundle *base_bundle)
 {
     this->preset_bundle = std::make_unique<PresetBundle>();
     this->is_in_resources = ais_in_resources;
@@ -86,7 +87,8 @@ bool Bundle::load(fs::path source_path, bool ais_in_resources, bool ais_bbl_bund
     // Throw when parsing invalid configuration. Only valid configuration is supposed to be provided over the air.
     //BBS: add json logic for vendor bundles
     auto [config_substitutions, presets_loaded] = preset_bundle->load_vendor_configs_from_json(
-        parent_path, vendor_name, PresetBundle::LoadConfigBundleAttribute::LoadSystem, ForwardCompatibilitySubstitutionRule::Disable);
+        parent_path, vendor_name, PresetBundle::LoadConfigBundleAttribute::LoadSystem,
+        ForwardCompatibilitySubstitutionRule::Disable, base_bundle);
     UNUSED(config_substitutions);
     // No substitutions shall be reported when loading a system config bundle, no substitutions are allowed.
     assert(config_substitutions.empty());
@@ -118,6 +120,7 @@ Bundle::Bundle(Bundle &&other)
 BundleMap BundleMap::load()
 {
     BundleMap res;
+    const PresetBundle *base_bundle = wxGetApp().preset_bundle;
 
     //BBS: change directories by design
     const auto vendor_dir = (boost::filesystem::path(Slic3r::data_dir()) / PRESET_SYSTEM_DIR).make_preferred();
@@ -133,7 +136,7 @@ BundleMap BundleMap::load()
     }
     {
         Bundle bbl_bundle;
-        if (bbl_bundle.load(std::move(orca_bundle_path), orca_bundle_rsrc, true))
+        if (bbl_bundle.load(std::move(orca_bundle_path), orca_bundle_rsrc, true, base_bundle))
             res.emplace(PresetBundle::ORCA_DEFAULT_BUNDLE, std::move(bbl_bundle));
     }
 
@@ -150,7 +153,7 @@ BundleMap BundleMap::load()
                 if (res.find(id) != res.end()) { continue; }
 
                 Bundle bundle;
-                if (bundle.load(dir_entry.path(), is_in_resources))
+                if (bundle.load(dir_entry.path(), is_in_resources, false, base_bundle))
                     res.emplace(std::move(id), std::move(bundle));
             }
         }
@@ -1484,7 +1487,7 @@ void PageTemperatures::apply_custom_config(DynamicPrintConfig& config)
 
 ConfigWizardIndex::ConfigWizardIndex(wxWindow *parent)
     : wxPanel(parent)
-    , bg(ScalableBitmap(parent, "TinManX1_192px_transparent.png", 192))
+    , bg(ScalableBitmap(parent, "Tinman_192px_transparent.png", 192))
     , bullet_black(ScalableBitmap(parent, "bullet_black.png"))
     , bullet_blue(ScalableBitmap(parent, "bullet_blue.png"))
     , bullet_white(ScalableBitmap(parent, "bullet_white.png"))
@@ -1785,6 +1788,8 @@ void ConfigWizard::priv::load_pages()
 
     index->clear();
 
+    index->add_page(page_welcome);
+
     // Printers
     if (!only_sla_mode) {
         index->add_page(page_custom);
@@ -1794,10 +1799,15 @@ void ConfigWizard::priv::load_pages()
             index->add_page(page_diams);
             //index->add_page(page_temps);
         }
-   
+
+        for (PagePrinters *page : pages_fff)
+            index->add_page(page);
+
     // Filaments & Materials
         if (any_fff_selected) { index->add_page(page_filaments); }
     }
+    for (PagePrinters *page : pages_sla)
+        index->add_page(page);
     if (any_sla_selected) { index->add_page(page_sla_materials); }
 
     // there should to be selected at least one printer
@@ -1908,6 +1918,15 @@ void ConfigWizard::priv::enable_next(bool enable)
 void ConfigWizard::priv::set_start_page(ConfigWizard::StartPage start_page)
 {
     switch (start_page) {
+        case ConfigWizard::SP_WELCOME:
+            index->go_to(page_welcome);
+            btn_next->SetFocus();
+            break;
+        case ConfigWizard::SP_PRINTERS:
+            index->go_to(pages_fff.empty() ? static_cast<ConfigWizardPage*>(page_custom)
+                                           : static_cast<ConfigWizardPage*>(pages_fff.front()));
+            btn_next->SetFocus();
+            break;
         case ConfigWizard::SP_CUSTOM:
             index->go_to(page_custom);
             btn_next->SetFocus();
@@ -1951,11 +1970,13 @@ void ConfigWizard::priv::create_3rdparty_pages()
         if (is_fff_technology) {
             pageFFF = new PagePrinters(q, vendor->name + " " +_L("FFF Technology Printers"), vendor->name+" FFF", *vendor, 1, T_FFF);
             add_page(pageFFF);
+            pages_fff.push_back(pageFFF);
         }
 
         if (is_sla_technology) {
             pageSLA = new PagePrinters(q, vendor->name + " " + _L("SLA Technology Printers"), vendor->name+" MSLA", *vendor, 1, T_SLA);
             add_page(pageSLA);
+            pages_sla.push_back(pageSLA);
         }
 
         //pages_3rdparty.insert({vendor->id, {pageFFF, pageSLA}});
@@ -2694,12 +2715,14 @@ ConfigWizard::ConfigWizard(wxWindow *parent)
     const VendorProfile * vendor_bbl = bbl_it->second.vendor_profile;
     
     p->only_sla_mode = false;
+    p->any_fff_selected = p->check_fff_selected();
     p->any_sla_selected = p->check_sla_selected();
-    if (p->only_sla_mode)
-        p->any_fff_selected = p->check_fff_selected();
 
+	p->add_page(p->page_welcome = new PageWelcome(this));
 	p->add_page(p->page_custom = new PageCustom(this));
     p->custom_printer_selected = p->page_custom->custom_wanted();
+
+    p->create_3rdparty_pages();
 
     p->add_page(p->page_firmware = new PageFirmware(this));
     p->add_page(p->page_bed      = new PageBedShape(this));

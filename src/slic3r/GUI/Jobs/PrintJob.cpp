@@ -28,7 +28,7 @@ static auto file_over_size_str = _u8L("The print file exceeds the maximum allowa
 static auto print_canceled_str    = _u8L("Task canceled.");
 static auto send_print_failed_str = _u8L("Failed to send the print job. Please try again.");
 static auto upload_ftp_failed_str = _u8L("Failed to upload file to ftp. Please try again.");
-static auto mqtt_publish_failed_str = _u8L("The printer control connection was lost before the print could start. TinManX1 tried to reconnect; please verify the printer is online and try again.");
+static auto mqtt_publish_failed_str = _u8L("The printer control connection was lost before the print could start. Tinman tried to reconnect; please verify the printer is online and try again.");
 
 static auto     desc_network_error          = _u8L("Check the current status of the bambu server by clicking on the link above.");
 static auto     desc_file_too_large         = _u8L("The size of the print file is too large. Please adjust the file size and try again.");

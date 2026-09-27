@@ -489,7 +489,7 @@ bool CrealityPrint::start_print(wxString &msg, const std::string &filename, cons
                     BOOST_LOG_TRIVIAL(error) << "CrealityPrint: Refusing CFS start for " << filename
                                              << ": " << validation_error;
                     msg = wxString::FromUTF8(validation_error) +
-                          _L(" Reslice with the current TinManX1 build and verify the filament mapping; the printer was not started.");
+                          _L(" Reslice with the current Tinman build and verify the filament mapping; the printer was not started.");
                     return false;
                 }
 

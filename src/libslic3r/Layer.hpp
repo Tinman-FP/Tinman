@@ -77,7 +77,7 @@ public:
     // (this collection contains only ExtrusionEntityCollection objects)
     ExtrusionEntityCollection   fills;
 
-    // TinManX1 FibreSeek native composite-route diagnostics. This is populated
+    // Tinman FibreSeek native composite-route diagnostics. This is populated
     // before G-code emission once the composite-only planner is enabled.
     FiberseekComposite::CompositeLayerDiagnostic fiberseek_composite_diagnostic;
 
@@ -171,7 +171,7 @@ public:
     // Footprint used to construct authoritative solid backing floors above waves.
     Polygons                wave_overhang_floor_polygons;
 
-    // TinManX1: footprint covered by native Wave Overhang paths on this layer.
+    // Tinman: footprint covered by native Wave Overhang paths on this layer.
     // Support generation subtracts this so normal/Arc support only handles
     // residual unsupported regions.
     Polygons                wave_overhang_covered_polygons;

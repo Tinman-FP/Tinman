@@ -1,96 +1,64 @@
-# TinManX1
+# Tinman
 
-Unified public source branch, documentation, and credit ledger for TinManX1, a FibreSeek-focused Orca Slicer fork maintained by William Tinney / Tinman-FP with OpenAI Codex engineering assistance.
+Tinman is a profile-neutral desktop slicer derived from TinManX1 and OrcaSlicer
+2.4.2. It is intended for people who want Tinman's application improvements
+without William Tinney's lab printer, filament, or process profiles.
 
-This branch is the canonical TinManX1 source line. It carries the full Orca Slicer 2.4.2-derived source tree plus the public release-package ledgers and helpers that used to live on smaller packaging branches. It does not contain private printer credentials, app-support data, committed app binaries, native networking plugins, or local machine history.
+## Tinman vs. TinManX1
 
-## What Is Included
+| Tinman | TinManX1 |
+| --- | --- |
+| Ships only the standard public vendor catalog | Includes Tinman-FP lab and FibreSeek profiles |
+| Starts with a separate user-data directory | Uses the TinManX1 lab data directory |
+| Users select or create their own printers | Maintained around William's tested machines |
+| Repository: Tinman-FP/Tinman | Repository: Tinman-FP/TinManX1 |
 
-- Full TinManX1 source on the Orca Slicer 2.4.2 source line, plus a current source patch artifact:
-  - `patches/tinmanx1-v2.4.2-houseclean-native-fiber.patch`
-- A generated TinManX1 FibreSeek profile pack under `resources/profiles/TinManX1`.
-- Helper scripts for the native FibreSeek planner, G-code contract audit, Rocket/TinManX1 comparison reports, wiring checks, Arc Support, Strength Lens, fibre metadata sidecars, and smoke checks.
-- Manifest helper notes and validation scripts for the local TinManX1 app workflow.
-- Feature notes for native continuous fibre, Strength Lens, Wave Overhangs, Arc Supports, and backend printer/app improvements.
-- A public FibreSeek layup editor contract for future UI work around layer/Z-specific reinforcement bands.
-- Source credit ledgers and research snapshots used to keep attribution traceable.
+No Codex or TinManX1 profile bundle is packaged in Tinman. The distribution
+check fails if either bundle is accidentally reintroduced.
 
-## Feature Lanes
+## Add A Printer
 
-| Lane | Status | Notes |
-| --- | --- | --- |
-| Native FibreSeek planner | Experimental / active | Standalone continuous-fiber G-code generation path with light/medium/heavy reinforcement modes, fiber start-layer guard controls, generated-rib density/angle controls, fiber-only seam placement, 55 mm minimum route filtering, isolated small-hole expanded orbits, disabled cluster-halo emission pending a stronger containment model, printable-path guards, rendered fiber preview support, and release wiring checks. |
-| Strength Lens | Advisory / experimental | Prepare-view strength evidence, material model hints, load-axis selection, and sidecar metadata. Not FEA and not certified engineering output. |
-| Wave Overhangs | Experimental source port | Opt-in Wave Overhangs scaffold from the OrcaSlicer Wave Overhangs lineage with audit markers and smoke coverage. |
-| Arc Supports | Experimental operator-test path | Arc-overhang transform adapter and runtime glue with guarded metadata. Printer-bound trust still requires local validation. |
-| Backend improvements | Local app and device integration | TinManX1 app separation, upgrade verification, profile-boundary notes, and proprietary-plugin exclusion policy. |
+1. Open **Prepare**.
+2. Open the printer preset menu.
+3. Choose **Select/Remove printers (system presets)**.
+4. Select a manufacturer and printer model, then finish the assistant.
 
-## Upstream Baseline
+Choose **Create printer** from the same menu for a machine that is not in the
+public catalog. Tinman restores OrcaSlicer's native printer assistant for these
+user-invoked commands instead of routing them through the Bambu-only guide.
 
-- Primary upstream: [OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)
-- TinManX1 application display version: based on Orca Slicer `2.4.2`
-- Source base commit used to generate this patch: `8500fcdccaa10b5099ac20d252af3a7c560046f1`
-- License family: AGPL-3.0-or-later, following OrcaSlicer and its upstream lineage
+See [Getting Started](docs/GETTING_STARTED.md) for installation and first-run
+details.
 
-## Repository Boundaries
+## Build
 
-Included:
+Tinman uses the OrcaSlicer build system. On macOS, after dependencies are
+available:
 
-- source patches
-- public documentation
-- helper scripts
-- manifest helper notes
-- attribution and research notes
+    cmake -S . -B build/arm64 -G "Ninja Multi-Config" \
+      -DCMAKE_OSX_ARCHITECTURES=arm64 \
+      -DCMAKE_OSX_DEPLOYMENT_TARGET=11.3 \
+      -DCMAKE_PREFIX_PATH=/path/to/OrcaSlicer_dep/usr/local
+    cmake --build build/arm64 --config Release --target Tinman -j 8
+    python3 scripts/package_tinman_macos.py
 
-Excluded:
+Run the distribution guard before publishing:
 
-- `.app`, `.dmg`, `.deb`, `.AppImage`, `.dylib`, and other binary payloads committed into the repository
-- private printer credentials, access codes, passwords, API keys, cloud tokens, and private keys
-- full `Application Support` trees or private printer profile dumps
-- proprietary Bambu networking plugin binaries
-- proprietary Rocket or FibreSeek assets and private validation data
+    python3 checks/verify_tinman_distribution.py
 
-## Quick Review
+## Data Separation
 
-Run the public release check before publishing changes:
+Tinman uses its own application identity and user-data directory:
 
-```bash
-python3 checks/verify_release.py
-```
+- macOS: ~/Library/Application Support/Tinman
+- Windows: the Tinman folder under the user's roaming application data
+- Linux: the Tinman folder under XDG_CONFIG_HOME, or ~/.config/Tinman
 
-Run the public synthetic FibreSeek planner checks before changing route logic:
+It does not import TinManX1 or OrcaSlicer settings automatically.
 
-```bash
-python3 scripts/source-helpers/smoke_orcaslicer_codex_native_fiber_planner.py
-python3 scripts/source-helpers/golden_orcaslicer_codex_native_fiber_planner.py
-python3 scripts/source-helpers/build_tinmanx1_fiber_layup_payload.py --self-test
-python3 scripts/source-helpers/validate_tinmanx1_fiber_layup_editor_contract.py
-```
+## Upstream And License
 
-Build a validated advanced FibreSeek layup payload for the `fiber_reinforcement_payload` process field:
-
-```bash
-python3 scripts/source-helpers/build_tinmanx1_fiber_layup_payload.py --template tetragrid-core --as-gcode-comment
-```
-
-Generate and lint the FibreSeek profile pack with an advanced layup template:
-
-```bash
-python3 scripts/source-helpers/generate_tinmanx1_fiberseek_profiles.py --fiber-layup-template first-layer-off-tetragrid
-python3 scripts/source-helpers/lint_tinmanx1_fiberseek_profiles.py
-```
-
-For local installed-app validation, see:
-
-```bash
-python3 scripts/verify_orcaslicer_codex.py --expected-version 2.4.2 --codesign
-python3 scripts/collect_baseline_manifest.py --output manifests/current-local.json
-```
-
-Review generated manifests before committing them. They can contain local paths or machine details if collected directly from a workstation.
-
-## Credits
-
-The short version: this work stands on OrcaSlicer/SoftFever, Bambu Studio, PrusaSlicer, Slic3r, Arc Overhang, Wave Overhangs, Klipper, Moonraker, FibreSeek hardware context, Rocket/FibreSeek private interoperability comparison, and the 3D-printing research community. The project-specific coordination, requirements, testing, and release ownership are credited to William Tinney / Tinman-FP, with OpenAI Codex credited for engineering assistance, implementation support, documentation, verification tooling, and review.
-
-See [ATTRIBUTION.md](ATTRIBUTION.md) for the full source-credit ledger.
+Tinman is based on [OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer), with
+work inherited from Bambu Studio, PrusaSlicer, and Slic3r. The project remains
+AGPL-3.0-or-later. See [ATTRIBUTION.md](ATTRIBUTION.md) for the full credit
+ledger.

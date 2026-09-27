@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a FibreSeek metadata sidecar for TinManX1 integration.
+"""Build a FibreSeek metadata sidecar for Tinman integration.
 
 This sidecar keeps continuous-fiber work visible to Preview/Summary without
 making hardware-ready claims or emitting machine commands. If the full Codex
@@ -108,8 +108,8 @@ MATERIAL_FAMILY_ALIASES = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config-json", type=Path, help="Optional Orca/TinManX1 dynamic config JSON.")
-    parser.add_argument("--plan", type=Path, help="Optional TinManX1 fiber reinforcement plan JSON.")
+    parser.add_argument("--config-json", type=Path, help="Optional Orca/Tinman dynamic config JSON.")
+    parser.add_argument("--plan", type=Path, help="Optional Tinman fiber reinforcement plan JSON.")
     parser.add_argument("--audit", type=Path, help="Optional G-code audit JSON.")
     parser.add_argument("--bundle", type=Path, help="Optional compiled fiber toolpath bundle JSON.")
     parser.add_argument("--integrity", type=Path, help="Optional composite-candidate integrity report JSON.")

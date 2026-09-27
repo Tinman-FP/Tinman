@@ -3,19 +3,19 @@
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>TinManX1</string>
+  <string>Tinman</string>
   <key>CFBundleGetInfoString</key>
   <string>@SLIC3R_APP_NAME@ based on Orca Slicer Version @SoftFever_VERSION@</string>
   <key>CFBundleIconFile</key>
-  <string>images/TinManX1.icns</string>
+  <string>images/Tinman.icns</string>
   <key>CFBundleDisplayName</key>
-  <string>TinManX1</string>
+  <string>Tinman</string>
   <key>CFBundleName</key>
-  <string>TinManX1</string>
+  <string>Tinman</string>
   <key>CFBundleShortVersionString</key>
   <string>@SoftFever_VERSION@</string>
   <key>CFBundleIdentifier</key>
-  <string>com.tinmanfp.TinManX1</string>
+  <string>com.tinmanfp.Tinman</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundlePackageType</key>
@@ -30,11 +30,11 @@
   <array>
     <dict>
       <key>CFBundleURLName</key>
-      <string>orcasliceropen url</string>
+      <string>tinmanopen url</string>
       <key>CFBundleURLSchemes</key>
       <array>
-        <string>orcasliceropen</string>
-        <string>orcaslicer</string>
+        <string>tinmanopen</string>
+        <string>tinman</string>
       </array>
     </dict>
   </array>
@@ -64,7 +64,7 @@
         <string>OBJ</string>
       </array>
       <key>CFBundleTypeIconFile</key>
-      <string>images/TinManX1.icns</string>
+      <string>images/Tinman.icns</string>
       <key>CFBundleTypeName</key>
       <string>STL</string>
       <key>CFBundleTypeRole</key>
@@ -81,7 +81,7 @@
         <string>AMF</string>
       </array>
       <key>CFBundleTypeIconFile</key>
-      <string>images/TinManX1.icns</string>
+      <string>images/Tinman.icns</string>
       <key>CFBundleTypeName</key>
       <string>AMF</string>
       <key>CFBundleTypeRole</key>
@@ -98,7 +98,7 @@
         <string>3MF</string>
       </array>
       <key>CFBundleTypeIconFile</key>
-      <string>images/TinManX1.icns</string>
+      <string>images/Tinman.icns</string>
       <key>CFBundleTypeName</key>
       <string>3MF</string>
       <key>CFBundleTypeRole</key>

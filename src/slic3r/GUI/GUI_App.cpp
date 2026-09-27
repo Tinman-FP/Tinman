@@ -303,7 +303,7 @@ public:
         m_fg_color = StateColor::darkModeColorFor(wxColour("#6B6A6A"));
         bool dark_mode = m_fg_color != wxColour("#6B6A6A");
         BitmapCache bmp_cache;
-        if (wxBitmap *logo = bmp_cache.load_png("TinManX1", FromDIP(154), FromDIP(154)))
+        if (wxBitmap *logo = bmp_cache.load_png("Tinman", FromDIP(154), FromDIP(154)))
             m_logo_bmp = *logo;
         if (!m_logo_bmp.IsOk()) {
             wxSize sz  = m_window->GetClientSize();
@@ -403,9 +403,9 @@ private:
     wxColour m_fg_color;
     wxColour m_bg_color;
 
-    wxString m_text_title   = _L("TinManX1");
+    wxString m_text_title   = _L("Tinman");
     wxString m_text_version = _L("Based on Orca Slicer Version ") + wxString::FromUTF8(GUI_App::format_display_version().c_str());
-    wxString m_text_revision = _L("TinManX1 Revision ") + wxString::FromUTF8(TINMANX1_REVISION);
+    wxString m_text_revision = _L("Tinman Revision ") + wxString::FromUTF8(TINMANX1_REVISION);
     wxString m_text_prusa_credit = _L("Includes improvements inspired by") + "\nPrusaSlicer 3.0.0-alpha11";
     wxString m_text_action  = _L("Loading configuration") + dots;
 
@@ -713,7 +713,7 @@ static void generic_exception_handle()
         // and terminate the app so it is at least certain to happen now.
         BOOST_LOG_TRIVIAL(error) << boost::format("std::bad_alloc exception: %1%") % ex.what();
         flush_logs();
-        wxString errmsg = wxString::Format(_L("TinManX1 will terminate because of running out of memory. "
+        wxString errmsg = wxString::Format(_L("Tinman will terminate because of running out of memory. "
                                               "It may be a bug. It will be appreciated if you report the issue to our team."));
         wxMessageBox(errmsg + "\n\n" + wxString(ex.what()), _L("Fatal error"), wxOK | wxICON_ERROR);
 
@@ -722,7 +722,7 @@ static void generic_exception_handle()
      } catch (const boost::io::bad_format_string& ex) {
      	BOOST_LOG_TRIVIAL(error) << boost::format("Uncaught exception: %1%") % ex.what();
         	flush_logs();
-        wxString errmsg = _L("TinManX1 will terminate because of a localization error. "
+        wxString errmsg = _L("Tinman will terminate because of a localization error. "
                              "It will be appreciated if you report the specific scenario this issue happened.");
         wxMessageBox(errmsg + "\n\n" + wxString(ex.what()), _L("Critical error"), wxOK | wxICON_ERROR);
         std::terminate();
@@ -730,7 +730,7 @@ static void generic_exception_handle()
     } catch (const std::exception& ex) {
         BOOST_LOG_TRIVIAL(error) << boost::format("Uncaught exception: %1%") % ex.what();
         flush_logs();
-        wxLogError(format_wxstr(_L("TinManX1 got an unhandled exception: %1%"), ex.what()));
+        wxLogError(format_wxstr(_L("Tinman got an unhandled exception: %1%"), ex.what()));
         throw;
     }
 //#endif
@@ -2450,7 +2450,7 @@ void GUI_App::init_webview_runtime()
     }
 
     BOOST_LOG_TRIVIAL(warning) << "WebView2 runtime not found; prompting user to install.";
-    int nRet = wxMessageBox(_L("TinManX1 requires the Microsoft WebView2 Runtime to operate certain features.\nClick Yes to install it now."),
+    int nRet = wxMessageBox(_L("Tinman requires the Microsoft WebView2 Runtime to operate certain features.\nClick Yes to install it now."),
                             _L("WebView2 Runtime"), wxYES_NO);
     if (nRet != wxYES) {
         BOOST_LOG_TRIVIAL(warning) << "User declined WebView2 runtime installation.";
@@ -2472,7 +2472,7 @@ void GUI_App::init_webview_runtime()
         BOOST_LOG_TRIVIAL(error) << "WebView2 runtime installation failed or still not detected.";
         wxMessageBox(_L("The Microsoft WebView2 Runtime could not be installed.\n"
                         "Some features, including the setup wizard, may appear blank until it is installed.\n"
-                        "Please install it manually from https://developer.microsoft.com/microsoft-edge/webview2/ and restart TinManX1."),
+                        "Please install it manually from https://developer.microsoft.com/microsoft-edge/webview2/ and restart Tinman."),
                      _L("WebView2 Runtime"), wxOK | wxICON_WARNING);
     }
 }
@@ -2480,8 +2480,8 @@ void GUI_App::init_webview_runtime()
 
 void GUI_App::init_app_config()
 {
-    // Keep the compatibility key for existing settings, but brand native menus separately.
-    SetAppName(SLIC3R_APP_KEY);
+    // Keep Tinman user data independent from OrcaSlicer and Tinman.
+    SetAppName(SLIC3R_APP_NAME);
     SetAppDisplayName(SLIC3R_APP_NAME);
 
 	// Set the Slic3r data directory at the Slic3r XS module.
@@ -2891,7 +2891,7 @@ bool GUI_App::on_init_inner()
             RichMessageDialog
                 dlg(nullptr,
                     wxString::Format(_L("%s\nDo you want to continue?"), msg),
-                    "TinManX1", wxICON_QUESTION | wxYES_NO);
+                    "Tinman", wxICON_QUESTION | wxYES_NO);
             dlg.ShowCheckBox(_L("Remember my choice"));
             if (dlg.ShowModal() != wxID_YES) return false;
 
@@ -3079,7 +3079,7 @@ bool GUI_App::on_init_inner()
                 wxString tips = wxString::Format(_L("Click to download new version in default browser: %s"), version_str);
                 DownloadDialog dialog(this->mainframe,
                     tips,
-                    _L("TinManX1 needs an update"),
+                    _L("Tinman needs an update"),
                     false,
                     wxCENTER | wxICON_INFORMATION);
                 dialog.SetExtendedMessage(description_text);
@@ -3338,7 +3338,7 @@ bool GUI_App::on_init_inner()
         m_config_corrupted = false;
         show_error(nullptr,
                    _u8L(
-                       "The TinManX1 configuration file may be corrupted and cannot be parsed.\nTinManX1 has attempted to recreate the "
+                       "The Tinman configuration file may be corrupted and cannot be parsed.\nTinman has attempted to recreate the "
                        "configuration file.\nPlease note, application settings will be lost, but printer profiles will not be affected."));
     }
     return true;
@@ -5127,7 +5127,7 @@ void GUI_App::on_http_error(wxCommandEvent &evt)
 
     // Version limit
     if (code == HttpErrorVersionLimited) {
-        MessageDialog msg_dlg(nullptr, _L("The version of TinManX1 is too low and needs to be updated to the latest version before it can be used normally."), "", wxAPPLY | wxOK);
+        MessageDialog msg_dlg(nullptr, _L("The version of Tinman is too low and needs to be updated to the latest version before it can be used normally."), "", wxAPPLY | wxOK);
         if (msg_dlg.ShowModal() == wxOK) {
         }
     }
@@ -5200,11 +5200,11 @@ void GUI_App::on_http_error(wxCommandEvent &evt)
 
             switch (conflict_code) {
             case -1:
-                text = header + " " + _u8L("This preset has a newer version in TinManX1 Cloud.\n"
+                text = header + " " + _u8L("This preset has a newer version in Tinman Cloud.\n"
                             "Pull downloads the cloud copy. Force push overwrites it with your local preset.");
                 break;
             case -2:
-                text = header + " " + _u8L("A preset with this name already exists in TinManX1 Cloud.\n"
+                text = header + " " + _u8L("A preset with this name already exists in Tinman Cloud.\n"
                             "Pull downloads the cloud copy. Force push overwrites it with your local preset.");
                 break;
             case -3:
@@ -5894,7 +5894,7 @@ bool GUI_App::process_network_msg(std::string dev_id, std::string msg)
         else if (msg == "update_studio") {
             BOOST_LOG_TRIVIAL(info) << "process_network_msg, update_studio";
             if (!m_show_error_msgdlg) {
-                MessageDialog msg_dlg(nullptr, _L("Please try updating TinManX1 and then try again."), "", wxAPPLY | wxOK);
+                MessageDialog msg_dlg(nullptr, _L("Please try updating Tinman and then try again."), "", wxAPPLY | wxOK);
                 m_show_error_msgdlg = true;
                 msg_dlg.ShowModal();
                 m_show_error_msgdlg = false;
@@ -5904,7 +5904,7 @@ bool GUI_App::process_network_msg(std::string dev_id, std::string msg)
         else if (msg == "update_fixed_studio") {
             BOOST_LOG_TRIVIAL(info) << "process_network_msg, update_fixed_studio";
             if (!m_show_error_msgdlg) {
-                MessageDialog msg_dlg(nullptr, _L("Please try updating TinManX1 and then try again."), "", wxAPPLY | wxOK);
+                MessageDialog msg_dlg(nullptr, _L("Please try updating Tinman and then try again."), "", wxAPPLY | wxOK);
                 m_show_error_msgdlg = true;
                 msg_dlg.ShowModal();
                 m_show_error_msgdlg = false;
@@ -5914,7 +5914,7 @@ bool GUI_App::process_network_msg(std::string dev_id, std::string msg)
         else if (msg == "cert_expired") {
             BOOST_LOG_TRIVIAL(info) << "process_network_msg, cert_expired";
             if (!m_show_error_msgdlg) {
-                MessageDialog msg_dlg(nullptr, _L("The certificate has expired. Please check the time settings or update TinManX1 and try again."), "", wxAPPLY | wxOK);
+                MessageDialog msg_dlg(nullptr, _L("The certificate has expired. Please check the time settings or update Tinman and try again."), "", wxAPPLY | wxOK);
                 m_show_error_msgdlg = true;
                 msg_dlg.ShowModal();
                 m_show_error_msgdlg = false;
@@ -5934,7 +5934,7 @@ bool GUI_App::process_network_msg(std::string dev_id, std::string msg)
         else if (msg == "update_firmware_studio") {
             BOOST_LOG_TRIVIAL(info) << "process_network_msg, firmware internal error";
             if (!m_show_error_msgdlg) {
-                MessageDialog msg_dlg(nullptr, _L("Internal error. Please try upgrading the firmware and TinManX1 version. If the issue persists, contact support."), "", wxAPPLY | wxOK);
+                MessageDialog msg_dlg(nullptr, _L("Internal error. Please try upgrading the firmware and Tinman version. If the issue persists, contact support."), "", wxAPPLY | wxOK);
                 m_show_error_msgdlg = true;
                 msg_dlg.ShowModal();
                 m_show_error_msgdlg = false;
@@ -5945,12 +5945,12 @@ bool GUI_App::process_network_msg(std::string dev_id, std::string msg)
             BOOST_LOG_TRIVIAL(info) << "process_network_msg, unsigned_studio";
             MessageDialog
                 msg_dlg(nullptr,
-                        _L("To use TinManX1 with Bambu Lab printers, you need to enable LAN mode and Developer mode on your printer.\n\n"
+                        _L("To use Tinman with Bambu Lab printers, you need to enable LAN mode and Developer mode on your printer.\n\n"
                            "Please go to your printer's settings and:\n"
                            "1. Turn on LAN mode\n"
                            "2. Enable Developer mode\n\n"
                            "Developer mode allows the printer to work exclusively through local network access, "
-                           "enabling full functionality with TinManX1."),
+                           "enabling full functionality with Tinman."),
                         _L("Network Plug-in Restriction"), wxAPPLY | wxOK);
             m_show_error_msgdlg = true;
             msg_dlg.ShowModal();
@@ -6445,7 +6445,7 @@ bool GUI_App::maybe_migrate_user_presets_on_login()
     wxString source_description;
     if (source_is_bbl) {
         source_description = wxString::Format(
-            _L("your TinManX1 Cloud profile (user ID: \"%s\")"),
+            _L("your Tinman Cloud profile (user ID: \"%s\")"),
             from_u8(source_dir.filename().string()));
     } else if (source_is_default) {
         source_description = _L("your default profile");
@@ -6457,7 +6457,7 @@ bool GUI_App::maybe_migrate_user_presets_on_login()
 
     wxString msg = wxString::Format(
         _L("Existing user presets were found in %s.\n"
-           "Do you want to migrate them to your TinManX1 Cloud profile?\n"
+           "Do you want to migrate them to your Tinman Cloud profile?\n"
            "This will copy your presets so they are available under your new account."),
         source_description);
 
@@ -7840,14 +7840,14 @@ bool GUI_App::load_language(wxString language, bool initial)
 
     if (!wxLocale::IsAvailable(locale_language_info->Language)) {
         // Loading the language dictionary failed.
-        wxString message = "Switching TinManX1 to language " + requested_language_code + " failed.";
+        wxString message = "Switching Tinman to language " + requested_language_code + " failed.";
 #if !defined(_WIN32) && !defined(__APPLE__)
         // likely some linux system
         message += "\nYou may need to reconfigure the missing locales, likely by running the \"locale-gen\" and \"dpkg-reconfigure locales\" commands.\n";
 #endif
         if (initial)
             message += "\n\nApplication will close.";
-        wxMessageBox(message, "TinManX1 - Switching language failed", wxOK | wxICON_ERROR);
+        wxMessageBox(message, "Tinman - Switching language failed", wxOK | wxICON_ERROR);
         if (initial)
             std::exit(EXIT_FAILURE);
         else
@@ -7858,7 +7858,7 @@ bool GUI_App::load_language(wxString language, bool initial)
     //FIXME wxWidgets cause havoc if the current locale is deleted. We just forget it causing memory leaks for now.
     m_wxLocale.release();
     m_wxLocale = Slic3r::make_unique<wxLocale>();
-    // TinManX1 loads its application catalog explicitly below. Avoid wxWidgets'
+    // Tinman loads its application catalog explicitly below. Avoid wxWidgets'
     // default wxwin.mo search, which may retain a build-time locale path.
     m_wxLocale->Init(locale_language_info->Language, wxLOCALE_DONT_LOAD_DEFAULT);
     // Override language at the active wxTranslations class (which is stored in the active m_wxLocale)
@@ -9119,21 +9119,12 @@ bool GUI_App::run_wizard(ConfigWizard::RunReason reason, ConfigWizard::StartPage
     //        return false;
     //}
 
-    //auto wizard_t = new ConfigWizard(mainframe);
-    //const bool res = wizard_t->run(reason, start_page);
-
-    std::string strFinish = wxGetApp().app_config->get("firstguide", "finish");
-    long        pStyle    = wxCAPTION | wxCLOSE_BOX | wxSYSTEM_MENU;
-    if (strFinish == "false" || strFinish.empty())
-        pStyle = wxCAPTION | wxTAB_TRAVERSAL;
-
-    GuideFrame wizard(this, pStyle);
-    auto page = start_page == ConfigWizard::SP_WELCOME ? GuideFrame::BBL_WELCOME :
-                start_page == ConfigWizard::SP_FILAMENTS ? GuideFrame::BBL_FILAMENT_ONLY :
-                start_page == ConfigWizard::SP_PRINTERS ? GuideFrame::BBL_MODELS_ONLY :
-                GuideFrame::BBL_MODELS;
-    wizard.SetStartPage(page);
-    bool       res = wizard.run();
+    // Use the native assistant for both first-run setup and later printer
+    // management. The web guide can carry vendor-specific defaults from a
+    // previous distribution, while ConfigWizard builds its choices solely
+    // from the profile catalog bundled with this application.
+    ConfigWizard wizard(mainframe);
+    const bool res = wizard.run(reason, start_page);
 
     if (res) {
         load_current_presets();
@@ -9452,8 +9443,8 @@ void GUI_App::associate_files(std::wstring extend)
     ::GetModuleFileNameW(nullptr, app_path, sizeof(app_path));
 
     std::wstring prog_path = L"\"" + std::wstring(app_path) + L"\"";
-    std::wstring prog_id = L"TinManX1.Slicer.1";
-    std::wstring prog_desc = L"TinManX1";
+    std::wstring prog_id = L"Tinman.Slicer.1";
+    std::wstring prog_desc = L"Tinman";
     std::wstring prog_command = prog_path + L" \"%1\"";
     std::wstring reg_base = L"Software\\Classes";
     std::wstring reg_extension = reg_base + L"\\." + extend;
@@ -9479,8 +9470,8 @@ void GUI_App::disassociate_files(std::wstring extend)
     ::GetModuleFileNameW(nullptr, app_path, sizeof(app_path));
 
     std::wstring prog_path = L"\"" + std::wstring(app_path) + L"\"";
-    std::wstring prog_id = L"TinManX1.Slicer.1";
-    std::wstring prog_desc = L"TinManX1";
+    std::wstring prog_id = L"Tinman.Slicer.1";
+    std::wstring prog_desc = L"Tinman";
     std::wstring prog_command = prog_path + L" \"%1\"";
     std::wstring reg_base = L"Software\\Classes";
     std::wstring reg_extension = reg_base + L"\\." + extend;

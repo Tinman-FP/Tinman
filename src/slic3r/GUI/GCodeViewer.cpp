@@ -5121,7 +5121,7 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
         offset = std::max(offset, ImGui::CalcTextSize("Note:").x + 2.0f * ImGui::GetStyle().ItemSpacing.x);
 
         ImGui::Spacing();
-        imgui.title("TinManX1 Arc Overhang");
+        imgui.title("Tinman Arc Overhang");
         append_arc_metadata_row("Status", display_status, offset);
         append_arc_metadata_row("Strategy", format_arc_metadata_value(arc_metadata_value("strategy")), offset);
         append_arc_metadata_row("Base path", format_arc_metadata_value(arc_metadata_value("base_path")), offset);
@@ -5164,7 +5164,7 @@ void GCodeViewer::render_legend(float &legend_height, int canvas_width, int canv
         offset = std::max(offset, ImGui::CalcTextSize("Note:").x + 2.0f * ImGui::GetStyle().ItemSpacing.x);
 
         ImGui::Spacing();
-        imgui.title("TinManX1 Strength Lens");
+        imgui.title("Tinman Strength Lens");
         append_strength_row("Status", format_strength_metadata_value(strength_metadata_value("strength_lens_enabled")), offset);
         append_strength_row("Material model", format_strength_metadata_value(strength_metadata_value("strength_lens_material_model")), offset);
         append_strength_row("Load axis", format_strength_metadata_value(strength_metadata_value("strength_lens_load_axis")), offset);

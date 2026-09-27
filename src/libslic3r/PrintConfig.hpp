@@ -2256,7 +2256,7 @@ protected:
 };
 
 
-// Core PrintRegion keys. TinManX1 keeps the experimental wave-overhang keys in
+// Core PrintRegion keys. Tinman keeps the experimental wave-overhang keys in
 // their own base class below so the generated Boost preprocessor sequences stay
 // small enough for MSVC.
 class PrintRegionCoreConfig : public StaticPrintConfig {

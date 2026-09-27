@@ -19,7 +19,7 @@ AboutDialogLogo::AboutDialogLogo(wxWindow* parent)
     : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize)
 {
     this->SetBackgroundColour(*wxWHITE);
-    this->logo = ScalableBitmap(this, Slic3r::var("TinManX1_192px.png"), wxBITMAP_TYPE_PNG);
+    this->logo = ScalableBitmap(this, Slic3r::var("Tinman_192px.png"), wxBITMAP_TYPE_PNG);
     this->SetMinSize(this->logo.GetBmpSize());
 
     this->Bind(wxEVT_PAINT, &AboutDialogLogo::onRepaint, this);
@@ -161,7 +161,7 @@ wxString CopyrightsDialog::get_html_text()
                 "<font size=\"3\">",
          bgr_clr_str, text_clr_str, text_clr_str,
         _L("License"),
-        _L("TinManX1 is based on Orca Slicer and is licensed under "),
+        _L("Tinman is based on Orca Slicer and is licensed under "),
         "https://www.gnu.org/licenses/agpl-3.0.html",_L("GNU Affero General Public License, version 3"),
         _L("Upstream copyrights and third-party license notices are retained"));
 
@@ -173,8 +173,8 @@ wxString CopyrightsDialog::get_html_text()
         }
     };
 
-    append_credits(_L("TinManX1 Contributors"), {
-        { "William Tinney / Tinman-FP", "Project stewardship, requirements, printer testing, validation feedback, and release direction.", "https://github.com/Tinman-FP/TinManX1" },
+    append_credits(_L("Tinman Contributors"), {
+        { "William Tinney / Tinman-FP", "Project stewardship, requirements, printer testing, validation feedback, and release direction.", "https://github.com/Tinman-FP/Tinman" },
         { "OpenAI Codex", "AI-assisted engineering, implementation, review, regression tests, documentation, and packaging under project direction.", "https://openai.com/codex/" },
     });
     append_credits(_L("Upstream Slicer Projects"), {
@@ -194,13 +194,13 @@ wxString CopyrightsDialog::get_html_text()
         { "Rieks Kaiser / LaSO", "Laterally supported overhang research reference.", "https://github.com/riekskaiser/wave_LaSO" },
         { "Klipper contributors", "Printer-control and calibration compatibility references.", "https://www.klipper3d.org/" },
         { "Moonraker / Arksine and contributors", "HTTP and WebSocket API reference for supported printer integrations.", "https://github.com/Arksine/moonraker" },
-        { "CNC Kitchen / Stefan Hermann and ModBot", "Material, flow, pressure-advance, and calibration research references.", "https://github.com/Tinman-FP/TinManX1/blob/agent/snapmaker-live-filament-sync/ATTRIBUTION.md" },
+        { "CNC Kitchen / Stefan Hermann and ModBot", "Material, flow, pressure-advance, and calibration research references.", "https://github.com/Tinman-FP/Tinman/blob/main/ATTRIBUTION.md" },
         { "Anonoei / Klipper Auto Speed", "Missed-step search research reference; no Auto Speed source code is vendored.", "https://github.com/Anonoei/klipper_auto_speed" },
-        { "Andrew Ellis and Frix-x / Shake&amp;Tune", "Motion-limit validation and vibration-analysis references; no Shake&amp;Tune source code is vendored.", "https://github.com/Tinman-FP/TinManX1/blob/agent/snapmaker-live-filament-sync/ATTRIBUTION.md" },
-        { "MechaniCalc, Autodesk, SOLIDWORKS, and additive-manufacturing researchers", "Strength Lens mechanics and visualization references. Strength Lens is advisory, not certified FEA.", "https://github.com/Tinman-FP/TinManX1/blob/agent/snapmaker-live-filament-sync/SoftFever_doc/orcaslicer_codex_feature_attribution.md" },
-        { "Rocket / FibreSeek", "Interoperability research only. No proprietary source code, assets, or endorsement is claimed.", "https://github.com/Tinman-FP/TinManX1/blob/agent/snapmaker-live-filament-sync/NOTICE.md" },
+        { "Andrew Ellis and Frix-x / Shake&amp;Tune", "Motion-limit validation and vibration-analysis references; no Shake&amp;Tune source code is vendored.", "https://github.com/Tinman-FP/Tinman/blob/main/ATTRIBUTION.md" },
+        { "MechaniCalc, Autodesk, SOLIDWORKS, and additive-manufacturing researchers", "Strength Lens mechanics and visualization references. Strength Lens is advisory, not certified FEA.", "https://github.com/Tinman-FP/Tinman/blob/main/SoftFever_doc/orcaslicer_codex_feature_attribution.md" },
+        { "Rocket / FibreSeek", "Interoperability research only. No proprietary source code, assets, or endorsement is claimed.", "https://github.com/Tinman-FP/Tinman/blob/main/NOTICE.md" },
     });
-    text += "<p><a href=\"https://github.com/Tinman-FP/TinManX1/blob/agent/snapmaker-live-filament-sync/ATTRIBUTION.md\">"
+    text += "<p><a href=\"https://github.com/Tinman-FP/Tinman/blob/main/ATTRIBUTION.md\">"
             "Full attribution and source ledgers</a></p>";
     text += "<h3>" + _L("Libraries") + "</h3><p>" +
         _L("This software uses open source components whose copyright and other proprietary rights belong to their respective owners") + "</p>";
@@ -272,10 +272,10 @@ AboutDialog::AboutDialog()
     auto identity = new wxBoxSizer(wxVERTICAL);
 
     // NanoSVG does not render SVG text. Keep the product name and build identity native.
-    m_logo_bitmap = ScalableBitmap(this, "TinManX1_192px", 96);
+    m_logo_bitmap = ScalableBitmap(this, "Tinman_192px", 96);
     m_logo = new wxStaticBitmap(this, wxID_ANY, m_logo_bitmap.bmp());
     header->Add(m_logo, 0, wxRIGHT | wxALIGN_CENTER_VERTICAL, FromDIP(20));
-    auto name = new wxStaticText(this, wxID_ANY, "TinManX1");
+    auto name = new wxStaticText(this, wxID_ANY, "Tinman");
     name->SetFont(GetFont().Scaled(1.85f).Bold());
     identity->Add(name, 0, wxBOTTOM, FromDIP(8));
     const wxString revision = wxString::FromUTF8(TINMANX1_REVISION) + "\n" +
@@ -300,7 +300,7 @@ AboutDialog::AboutDialog()
     text_list.push_back(_L("An independent slicer maintained by William Tinney / Tinman-FP, with OpenAI Codex engineering assistance and community contributions."));
     text_list.push_back(_L("Built on OrcaSlicer by SoftFever and contributors, with foundations and contributions from Bambu Studio, PrusaSlicer, Slic3r, SuperSlicer, and Cura."));
     text_list.push_back(_L("Includes selected improvements inspired by PrusaSlicer 3.0.0-alpha11: profile ownership, derived-state handling, and layer-height inheritance. This is not a full PrusaSlicer 3 rebase."));
-    text_list.push_back(_L("Feature authors, research references, and third-party libraries are acknowledged in Credits and Licenses. TinManX1 is not affiliated with or endorsed by the upstream projects or printer manufacturers."));
+    text_list.push_back(_L("Feature authors, research references, and third-party libraries are acknowledged in Credits and Licenses. Tinman is not affiliated with or endorsed by the upstream projects or printer manufacturers."));
 
     text_sizer->Add( 0, 0, 0, wxTOP, FromDIP(16));
     bool is_zh = wxGetApp().app_config->get("language") == "zh_CN";
@@ -362,7 +362,7 @@ AboutDialog::AboutDialog()
               (boost::format(
               "<html>"
               "<body>"
-              "<p style=\"text-align:left\"><a style=\"color:#009789\" href=\"https://github.com/Tinman-FP/TinManX1\">TinManX1 on GitHub</a></p>"
+              "<p style=\"text-align:left\"><a style=\"color:#009789\" href=\"https://github.com/Tinman-FP/Tinman\">Tinman on GitHub</a></p>"
               "</body>"
               "</html>")
             ).str());

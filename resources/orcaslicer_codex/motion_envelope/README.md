@@ -1,6 +1,6 @@
-# TinManX1 Machine Capability Envelopes
+# Tinman Machine Capability Envelopes
 
-TinManX1 does not treat a synthetic no-skip result as a printing-speed profile.
+Tinman does not treat a synthetic no-skip result as a printing-speed profile.
 This subsystem combines a repeatedly validated, coupled velocity/acceleration
 point with an independent quality limit and conservative safety factors.
 

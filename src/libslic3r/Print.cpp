@@ -314,7 +314,7 @@ static bool run_orcaslicer_codex_native_fiber_planner(const Print& print, const 
     const double fiber_start_speed = orcaslicer_codex_config_float_value(config, "fiber_start_speed", 0.0);
     const int fiber_max_routes_per_layer = orcaslicer_codex_config_int_value(config, "fiber_max_routes_per_layer", 0);
 
-    BOOST_LOG_TRIVIAL(info) << "TinManX1 FibreSeek native planner processing " << gcode_path
+    BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek native planner processing " << gcode_path
                             << " with emit mode " << emit_mode
                             << ", mode " << fiber_mode
                             << ", perimeters " << generate_perimeters
@@ -381,7 +381,7 @@ static bool run_orcaslicer_codex_native_fiber_planner(const Print& print, const 
         orcaslicer_codex_python().string()
     };
     sanitized_python_args.insert(sanitized_python_args.end(), planner_args.begin(), planner_args.end());
-    BOOST_LOG_TRIVIAL(info) << "TinManX1 FibreSeek native planner launching Python through /usr/bin/env with sanitized PYTHONHOME/PYTHONPATH";
+    BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek native planner launching Python through /usr/bin/env with sanitized PYTHONHOME/PYTHONPATH";
     process::child child(
         "/usr/bin/env",
         process::args(sanitized_python_args),
@@ -422,7 +422,7 @@ static bool run_orcaslicer_codex_native_fiber_planner(const Print& print, const 
         throw Slic3r::RuntimeError(message.str());
     }
 
-    BOOST_LOG_TRIVIAL(info) << "TinManX1 FibreSeek native planner wrote " << gcode_path
+    BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek native planner wrote " << gcode_path
                             << " and " << summary_path.string();
     return true;
 }
@@ -440,7 +440,7 @@ static void reload_orcaslicer_codex_native_fiber_preview_result(const Print& pri
         std::lock_guard<std::mutex> lock(result->result_mutex);
         *result = processor.get_result();
     }
-    BOOST_LOG_TRIVIAL(info) << "TinManX1 FibreSeek native planner reloaded preview result from " << gcode_path;
+    BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek native planner reloaded preview result from " << gcode_path;
 }
 
 } // namespace
@@ -3038,7 +3038,7 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
     gcode.do_export(this, path.c_str(), result, thumbnail_cb);
     const bool native_fiber_planner_ran = run_orcaslicer_codex_native_fiber_planner(*this, path);
     if (native_fiber_planner_ran && result != nullptr) {
-        BOOST_LOG_TRIVIAL(info) << "TinManX1 FibreSeek native planner rewrote the G-code output after preview generation for " << path;
+        BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek native planner rewrote the G-code output after preview generation for " << path;
         reload_orcaslicer_codex_native_fiber_preview_result(*this, path, result);
     }
     gcode.export_layer_filaments(result);

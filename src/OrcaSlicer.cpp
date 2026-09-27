@@ -1427,7 +1427,7 @@ int CLI::run(int argc, char **argv)
     }
 
     global_begin_time = (long long)Slic3r::Utils::get_current_time_utc();
-    BOOST_LOG_TRIVIAL(warning) << boost::format("cli mode, Current OrcaSlicer Version %1%")%SoftFever_VERSION;
+    BOOST_LOG_TRIVIAL(warning) << boost::format("CLI mode, current Tinman version %1%")%SoftFever_VERSION;
 
     //BBS: add plate data related logic
     PlateDataPtrs plate_data_src;
@@ -7291,9 +7291,9 @@ void CLI::print_help(bool include_print_options, PrinterTechnology printer_techn
     attach_console_on_demand();
 
     boost::nowide::cout
-        << SLIC3R_APP_KEY <<"-"<< SoftFever_VERSION << ":"
+        << SLIC3R_APP_NAME <<"-"<< SoftFever_VERSION << ":"
         << std::endl
-        << "Usage: orca-slicer [ OPTIONS ] [ file.3mf/file.stl ... ]" << std::endl
+        << "Usage: tinman [ OPTIONS ] [ file.3mf/file.stl ... ]" << std::endl
         << std::endl
         << "OPTIONS:" << std::endl;
     cli_misc_config_def.print_cli_help(boost::nowide::cout, false);

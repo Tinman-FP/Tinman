@@ -17,7 +17,7 @@ do
     exec "${PYTHON}" "$0" "$@"
   fi
 done
-echo "TinManX1 Arc Overhang adapter could not find a usable Python interpreter." >&2
+echo "Tinman Arc Overhang adapter could not find a usable Python interpreter." >&2
 exit 127
 ':'''
 from __future__ import annotations
@@ -25,7 +25,7 @@ from __future__ import annotations
 """Post-processing adapter for Orca's one-argument script contract.
 
 Orca post-processing scripts receive a single G-code path and are expected to
-mutate it in place. The TinManX1 transform wrapper is safer than that: it writes
+mutate it in place. The Tinman transform wrapper is safer than that: it writes
 to a separate output and emits an audit file. This adapter bridges those two
 contracts by replacing Orca's temporary post-process file only after a successful
 Arc Overhang transform.
@@ -62,17 +62,17 @@ def wrapper_path() -> Path:
         if path.exists():
             return path.resolve()
     raise FileNotFoundError(
-        "TinManX1 Arc Overhang transform was not found. Set ORCASLICER_CODEX_ARC_SUPPORT_TRANSFORM."
+        "Tinman Arc Overhang transform was not found. Set ORCASLICER_CODEX_ARC_SUPPORT_TRANSFORM."
     )
 
 
 def failure_message(audit: Path) -> str:
     if not audit.exists():
-        return "TinManX1 Arc Overhang transform failed before writing an audit; original G-code was preserved."
+        return "Tinman Arc Overhang transform failed before writing an audit; original G-code was preserved."
     try:
         details = json.loads(audit.read_text(encoding="utf-8"))
     except Exception:
-        return f"TinManX1 Arc Overhang transform failed; audit could not be parsed: {audit}"
+        return f"Tinman Arc Overhang transform failed; audit could not be parsed: {audit}"
     error = details.get("error") or "Arc Overhang transform failed"
     status = details.get("status") or "unknown"
     preserved = details.get("input_preserved")
@@ -80,7 +80,7 @@ def failure_message(audit: Path) -> str:
     guard = details.get("machine_start_toolchange_guard")
     guard_status = guard.get("status") if isinstance(guard, dict) else "unknown"
     return (
-        f"TinManX1 Arc Overhang transform {status}: {error}. "
+        f"Tinman Arc Overhang transform {status}: {error}. "
         f"{preserved_note}; machine-command guard={guard_status}; audit={audit}"
     )
 
@@ -96,7 +96,7 @@ def read_audit(audit: Path) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Apply TinManX1 Arc Overhangs to an Orca post-process G-code file.")
+    parser = argparse.ArgumentParser(description="Apply Tinman Arc Overhangs to an Orca post-process G-code file.")
     parser.add_argument("gcode", type=Path)
     args = parser.parse_args(argv)
 

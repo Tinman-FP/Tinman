@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Build an TinManX1 Strength Lens sidecar from an Orca slice-result payload.
+"""Build an Tinman Strength Lens sidecar from an Orca slice-result payload.
 
-This is an TinManX1 bridge for the Strength Lens contract. It prefers
+This is an Tinman bridge for the Strength Lens contract. It prefers
 the richer Codex builder when available, then falls back to a compact
 predictive overlay so Orca can keep emitting stable metadata during integration.
 The output is advisory display data only; it does not modify slicing or G-code.
@@ -493,12 +493,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--external-builder",
         type=Path,
-        help="Optional path to the full TinManX1 build_strength_visualization.py tool.",
+        help="Optional path to the full Tinman build_strength_visualization.py tool.",
     )
     parser.add_argument(
         "--force-fallback",
         action="store_true",
-        help="Use the compact Orca fallback even if the full TinManX1 builder is available.",
+        help="Use the compact Orca fallback even if the full Tinman builder is available.",
     )
     return parser.parse_args()
 
@@ -2767,7 +2767,7 @@ def build_overlays(
                 "integration_fallback",
                 "warning",
                 COLORS["review"],
-                "Full TinManX1 Strength Lens builder was unavailable or failed; compact Orca fallback generated advisory overlays.",
+                "Full Tinman Strength Lens builder was unavailable or failed; compact Orca fallback generated advisory overlays.",
                 "orca_codex.strength_lens.fallback",
                 {"external_builder_error": external_error[-1200:]},
             )

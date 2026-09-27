@@ -128,7 +128,7 @@ TroubleshootDialog::TroubleshootDialog()
     // LEFT SIZER //////////////////////
 
     // HEADER
-    m_logo            = ScalableBitmap(this, is_dark ? "TinManX1_horizontal_dark" : "TinManX1_horizontal_light", 64);
+    m_logo            = ScalableBitmap(this, is_dark ? "Tinman_horizontal_dark" : "Tinman_horizontal_light", 64);
     m_header_logo     = new wxStaticBitmap(this, wxID_ANY, m_logo.bmp());
     auto logo_line    = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(-1, FromDIP(2)));
     logo_line->SetBackgroundColour(StateColor::darkModeColorFor(wxColour("#009687")));
@@ -140,7 +140,7 @@ TroubleshootDialog::TroubleshootDialog()
 
     auto build = new Button(this, wxString(GIT_COMMIT_HASH));
     build->SetStyle(ButtonStyle::Regular, ButtonType::Window);
-    auto hash_url = "https://github.com/Tinman-FP/TinManX1/commit/" + wxString(GIT_COMMIT_HASH);
+    auto hash_url = "https://github.com/Tinman-FP/Tinman/commit/" + wxString(GIT_COMMIT_HASH);
     build->SetToolTip(hash_url);
     build->Bind(wxEVT_BUTTON, [hash_url](wxCommandEvent &e) {
          wxLaunchDefaultBrowser(hash_url);

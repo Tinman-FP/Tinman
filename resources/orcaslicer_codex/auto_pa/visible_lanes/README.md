@@ -1,6 +1,6 @@
 # TinMan Auto PA Visible Lanes
 
-These 3MF objects are slicer-visible placeholders for same-print TinManX1
+These 3MF objects are slicer-visible placeholders for same-print Tinman
 pressure advance, adaptive pressure advance, and max-flow calibration.
 
 Use one lane object on the same plate as the model before slicing:
@@ -16,9 +16,9 @@ The 300 mm rear lane uses slightly tighter line spacing so Max EZ profiles that
 inherit the Qidi rear-left bed exclusion pocket can slice the lane without
 collision warnings.
 
-TinManX1 builds with the lane importer patch recognize these object names during
+Tinman builds with the lane importer patch recognize these object names during
 3MF/model import and place them 10 mm from the named bed edge instead of using
-the normal bed-center auto-placement pass. Current TinManX1 builds also auto-add
+the normal bed-center auto-placement pass. Current Tinman builds also auto-add
 the matching lane before slice/export/send for supported printer profiles when
 the active plate has a model but no TinMan auto-PA lane.
 
@@ -28,7 +28,7 @@ configured edge strip, and the lane does not overlap another object footprint.
 Without that visible object, calibration is deferred and no hidden pattern is
 injected.
 
-When Orca generates a global skirt around the lane and the model, TinManX1
+When Orca generates a global skirt around the lane and the model, Tinman
 removes only skirt blocks that would leave the bed and clamps the advertised
 `PRINT_START` bounds to the configured bed. This keeps the lane inside the
 edge strip without needing to move it farther into the printable area.
@@ -38,5 +38,5 @@ track the actual G-code. Profiles that report total layers with
 `SET_PRINT_STATS_INFO TOTAL_LAYER`, such as Qidi Plus 4, are normalized by the
 same pass.
 
-Set `TINMAN_AUTO_PA_AUTO_ADD_VISIBLE_LANE=0` before launching TinManX1 to
+Set `TINMAN_AUTO_PA_AUTO_ADD_VISIBLE_LANE=0` before launching Tinman to
 temporarily disable automatic lane insertion for debugging.

@@ -1,117 +1,45 @@
 {
-    "type": "filament",
-    "name": "QIDI PET-CF @Qidi X-Plus 4 0.6 nozzle",
-    "inherits": "QIDI PET-CF",
-    "from": "system",
-    "setting_id": "xYAAeJcC83x4RoIl",
-    "filament_id": "QD_0_1_37",
-    "instantiation": "true",
-    "fan_cooling_layer_time": [
-        "10"
-    ],
-    "fan_max_speed": [
-        "20"
-    ],
-    "fan_min_speed": [
-        "0"
-    ],
-    "filament_settings_id": [
-        "QIDI PET-CF @Qidi X-Plus 4 0.6 nozzle"
-    ],
-    "nozzle_temperature": [
-        "280"
-    ],
-    "nozzle_temperature_initial_layer": [
-        "285"
-    ],
-    "overhang_fan_speed": [
-        "35"
-    ],
-    "pressure_advance": [
-        "0.025"
-    ],
-    "slow_down_layer_time": [
-        "25"
-    ],
-    "slow_down_min_speed": [
-        "6"
-    ],
-    "filament_max_volumetric_speed": [
-        "3.2"
-    ],
-    "compatible_printers": [
-        "Qidi X-Plus 4 0.6 nozzle"
-    ],
-    "filament_flow_ratio": [
-        "1.00"
-    ],
-    "nozzle_temperature_range_low": [
-        "260"
-    ],
-    "nozzle_temperature_range_high": [
-        "300"
-    ],
-    "textured_plate_temp": [
-        "80"
-    ],
-    "textured_plate_temp_initial_layer": [
-        "80"
-    ],
-    "hot_plate_temp": [
-        "80"
-    ],
-    "hot_plate_temp_initial_layer": [
-        "80"
-    ],
-    "eng_plate_temp": [
-        "80"
-    ],
-    "eng_plate_temp_initial_layer": [
-        "80"
-    ],
-    "filament_retraction_length": [
-        "0.8"
-    ],
-    "filament_retraction_speed": [
-        "30"
-    ],
-    "filament_deretraction_speed": [
-        "30"
-    ],
-    "filament_notes": [
-        "TinManX1 QIDI Plus 4 PET-CF field tune 2026-08-04: supersedes the July 11 300C / 1.08-flow rescue profile. Use 285C first layer / 280C print, 80C bed, 50C active chamber, flow 1.00, max volumetric 3.2 mm3/s, and limited overhang cooling. The nozzle-specific QIDI pressure-advance value is retained. Dry QIDI PET-CF at 100C for 4-8h and print from a sealed dry box below 15% RH."
-    ],
-    "tinmanx_petcf_tune": [
-        "2026-07-11 Plus 4 all-nozzle PET-CF anti-starvation tune"
-    ],
-    "cool_plate_temp": [
-        "0"
-    ],
-    "cool_plate_temp_initial_layer": [
-        "0"
-    ],
-    "supertack_plate_temp": [
-        "80"
-    ],
-    "supertack_plate_temp_initial_layer": [
-        "80"
-    ],
-    "enable_pressure_advance": [
-        "1"
-    ],
-    "tinmanx_petcf_rescue_tune": [
-        "2026-07-11 all PET-CF rescue tune with pressure advance"
-    ],
-    "overhang_fan_threshold": [
-        "25%"
-    ],
-    "activate_chamber_temp_control": [
-        "1"
-    ],
-    "chamber_temperature": [
-        "50"
-    ],
-    "chamber_temperatures": [
-        "50"
-    ]
+	"type": "filament",
+	"name": "QIDI PET-CF @Qidi X-Plus 4 0.6 nozzle",
+	"inherits": "QIDI PET-CF",
+	"from": "system",
+	"setting_id": "xYAAeJcC83x4RoIl",
+	"filament_id": "QD_0_1_37",
+	"instantiation": "true",
+	"fan_cooling_layer_time": [
+		"10"
+	],
+	"fan_max_speed": [
+		"40"
+	],
+	"fan_min_speed": [
+		"20"
+	],
+	"filament_settings_id": [
+		"QIDI PET-CF @Qidi X-Plus 4 0.6 nozzle"
+	],
+	"nozzle_temperature": [
+		"280"
+	],
+	"nozzle_temperature_initial_layer": [
+		"280"
+	],
+	"overhang_fan_speed": [
+		"40"
+	],
+	"pressure_advance": [
+		"0.025"
+	],
+	"slow_down_layer_time": [
+		"5"
+	],
+	"slow_down_min_speed": [
+		"20"
+	],
+	"filament_max_volumetric_speed": [
+		"15"
+	],
+	"compatible_printers": [
+		"Qidi X-Plus 4 0.6 nozzle"
+	]
 }

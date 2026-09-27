@@ -471,7 +471,7 @@ static wxIcon main_frame_icon(GUI_App::EAppMode app_mode)
     }
     return wxIcon(path, wxBITMAP_TYPE_ICO);
 #else // _WIN32
-    return wxIcon(Slic3r::var("TinManX1_128px.png"), wxBITMAP_TYPE_PNG);
+    return wxIcon(Slic3r::var("Tinman_128px.png"), wxBITMAP_TYPE_PNG);
 #endif // _WIN32
 }
 
@@ -598,7 +598,7 @@ DPIFrame(NULL, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, BORDERLESS_FRAME_
     default:
     case GUI_App::EAppMode::Editor:
         m_taskbar_icon = std::make_unique<OrcaSlicerTaskBarIcon>(wxTBI_DOCK);
-        m_taskbar_icon->SetIcon(wxIcon(Slic3r::var("TinManX1-mac_256px.ico"), wxBITMAP_TYPE_ICO), "TinManX1");
+        m_taskbar_icon->SetIcon(wxIcon(Slic3r::var("Tinman-mac_256px.ico"), wxBITMAP_TYPE_ICO), "Tinman");
         break;
     case GUI_App::EAppMode::GCodeViewer:
         break;
@@ -3207,7 +3207,7 @@ void MainFrame::init_menubar_as_editor()
         append_submenu(fileMenu, export_menu, wxID_ANY, _L("Export"), "");
 
         fileMenu->AppendSeparator();
-        append_menu_item(fileMenu, wxID_ANY, _L("Sync Presets"), _L("Pull and apply the latest presets from TinManX1 Cloud"),
+        append_menu_item(fileMenu, wxID_ANY, _L("Sync Presets"), _L("Pull and apply the latest presets from Tinman Cloud"),
             [this](wxCommandEvent&) {
                 if (!wxGetApp().is_user_login()) {
                     MessageDialog info_dlg(this, _L("You must be logged in to sync presets from cloud."),
@@ -3697,7 +3697,7 @@ void MainFrame::init_menubar_as_editor()
         "", nullptr, []() { return true; }, this);
 
     append_menu_item(
-        m_topbar->GetTopMenu(), wxID_ANY, _L("Sync Presets"), _L("Pull and apply the latest presets from TinManX1 Cloud"),
+        m_topbar->GetTopMenu(), wxID_ANY, _L("Sync Presets"), _L("Pull and apply the latest presets from Tinman Cloud"),
         [this](wxCommandEvent&) {
             if (!wxGetApp().is_user_login()) {
                 MessageDialog info_dlg(this, _L("You must be logged in to sync presets from cloud."),
@@ -4751,7 +4751,7 @@ void MainFrame::update_side_preset_ui()
 void MainFrame::on_select_default_preset(SimpleEvent& evt)
 {
     MessageDialog dialog(this,
-                    _L("Do you want to synchronize your personal data from TinManX1 Cloud?\n"
+                    _L("Do you want to synchronize your personal data from Tinman Cloud?\n"
                         "It contains the following information:\n"
                         "1. The Process presets\n"
                         "2. The Filament presets\n"
@@ -4828,7 +4828,7 @@ SettingsDialog::SettingsDialog(MainFrame* mainframe)
         SetIcon(wxIcon(szExeFileName, wxBITMAP_TYPE_ICO));
     }
 #else
-    SetIcon(wxIcon(var("TinManX1_128px.png"), wxBITMAP_TYPE_PNG));
+    SetIcon(wxIcon(var("Tinman_128px.png"), wxBITMAP_TYPE_PNG));
 #endif // _WIN32
 
     //just hide the Frame on closing

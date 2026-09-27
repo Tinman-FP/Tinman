@@ -59,7 +59,7 @@ namespace GUI {
      "Protopasta",            "Prusament",               "Push Plastic",           "R3D",                    "re3D",
      "Re-pet3D",              "Recreus",                 "Regen",                  "RatRig",                 "Sain SMART",             
      "SliceWorx",             "Snapmaker",               "SnoLabs",                "Spectrum",               "SUNLU",
-     "TinManX1",              "TTYT3D",                  "Tianse",                 "UltiMaker",              "Valment",
+     "Tinman",              "TTYT3D",                  "Tianse",                 "UltiMaker",              "Valment",
      "Verbatim",
      "VO3D",                  "Voxelab",                 "VOXELPLA",               "YOOPAI",                 "Yousu",                  
      "Ziro",                  "Zyltech"};
@@ -77,7 +77,7 @@ static const std::vector<std::string> printer_vendors =
      "InfiMech",           "Kingroon",           "Lulzbot",            "MagicMaker",         "Mellow",
      "Orca Arena Printer", "Peopoly",            "Positron 3D",        "Prusa",              "Qidi",
      "Raise3D",            "RatRig",             "re3D",               "RolohaunDesign",     "SecKit",             
-     "Snapmaker",          "Sovol",              "Thinker X400",       "TinManX1",           "Tronxy",
+     "Snapmaker",          "Sovol",              "Thinker X400",       "Tinman",           "Tronxy",
      "TwoTrees",
      "UltiMaker",          "Vivedino",           "Volumic",            "Voron",              "Voxelab",            
      "Vzbot",              "Wanhao",             "Z-Bolt"};
@@ -150,7 +150,7 @@ static const std::unordered_map<std::string, std::vector<std::string>> printer_m
      {"Sovol",             {"Sovol SV01 Pro",      "Sovol SV02",          "Sovol SV05",          "Sovol SV06",          "Sovol SV06 Plus",
                             "Sovol SV06 ACE",      "Sovol SV06 Plus ACE", "Sovol SV07",          "Sovol SV07 Plus",     "Sovol SV08"}},
      {"Thinker X400",      {"Thinker X400"}},
-     {"TinManX1",          {"FibreSeek Seeker 3"}},
+     {"Tinman",          {"FibreSeek Seeker 3"}},
      {"Tronxy",            {"Tronxy X5SA 400 Marlin Firmware"}},
      {"TwoTrees",          {"TwoTrees SP-5 Klipper", "TwoTrees SK1"}},
      {"UltiMaker",         {"UltiMaker 2"}},

@@ -12,7 +12,7 @@ Credits retained from upstream:
 - PrusaSlicer integration: Nicolai Wachenschwan, <https://github.com/nicolai-wachenschwan/arc-overhang-prusaslicer-integration>
 - OrcaSlicer integration: Kelsch, <https://github.com/Kelsch/arc-overhang-orcaslicer-integration>
 
-TinManX1 integration status:
+Tinman integration status:
 
 - The upstream script is preserved here as a reference implementation and attribution anchor.
 - Direct production execution must go through a wrapper or refactor because the upstream script uses interactive prompts, imports plotting dependencies, and overwrites its input G-code file in place.

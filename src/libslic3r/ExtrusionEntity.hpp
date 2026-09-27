@@ -165,7 +165,7 @@ public:
     float height;
     double smooth_speed = 0;
     bool z_contoured = false;
-    // TinManX1: true when this path was emitted by the Wave Overhang generator.
+    // Tinman: true when this path was emitted by the Wave Overhang generator.
     bool wave_overhang = false;
     // True for solid infill backing a wave-overhang region.
     bool wave_overhang_floor = false;

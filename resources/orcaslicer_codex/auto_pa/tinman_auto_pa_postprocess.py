@@ -15,14 +15,14 @@ do
     exec "${PYTHON}" "$0" "$@"
   fi
 done
-echo "TinManX1 auto pressure advance postprocessor could not find a usable Python interpreter." >&2
+echo "Tinman auto pressure advance postprocessor could not find a usable Python interpreter." >&2
 exit 127
 ':'''
 from __future__ import annotations
 
-"""TinManX1 same-print PA/max-flow post-processing adapter.
+"""Tinman same-print PA/max-flow post-processing adapter.
 
-Orca/TinManX1 post-process scripts receive a single G-code path and are expected
+Orca/Tinman post-process scripts receive a single G-code path and are expected
 to mutate it in place. This adapter detects the target machine, looks for real
 same-print calibration score files, and delegates the actual G-code preparation
 to auto_pa.py. If fresh real scores are not present, it preserves the model G-code,
@@ -637,7 +637,7 @@ def run_prepare(gcode: Path, target: str, target_config: dict[str, Any], pa_scor
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="TinManX1 same-print PA/max-flow postprocessor")
+    parser = argparse.ArgumentParser(description="Tinman same-print PA/max-flow postprocessor")
     parser.add_argument("gcode", type=Path)
     args = parser.parse_args(argv)
 

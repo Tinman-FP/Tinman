@@ -2,10 +2,10 @@
 #define _libslic3r_h_
 
 #include "libslic3r_version.h"
-#define SLIC3R_APP_FULL_NAME "TinManX1"
-#define GCODEVIEWER_APP_NAME "TinManX1 G-code Viewer"
+#define SLIC3R_APP_FULL_NAME "Tinman"
+#define GCODEVIEWER_APP_NAME "Tinman G-code Viewer"
 #define GCODEVIEWER_APP_KEY  "OrcaSlicerGcodeViewer"
-#define GCODEVIEWER_BUILD_ID std::string("TinManX1 G-code Viewer-") + std::string(SLIC3R_VERSION) + std::string("-RC")
+#define GCODEVIEWER_BUILD_ID std::string("Tinman G-code Viewer-") + std::string(SLIC3R_VERSION) + std::string("-RC")
 
 // this needs to be included early for MSVC (listing it in Build.PL is not enough)
 #include <memory>

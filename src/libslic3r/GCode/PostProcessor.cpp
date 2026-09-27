@@ -314,7 +314,7 @@ bool run_post_process_scripts(std::string &src_path, bool make_copy, const std::
     if (arc_support_enabled(config)) {
         const std::string arc_adapter_script = find_arc_support_adapter_script();
         if (arc_adapter_script.empty())
-            throw Slic3r::RuntimeError("Arc Overhang selected, but the TinManX1 Arc Overhang adapter script was not found. Set ORCASLICER_CODEX_ARC_SUPPORT_INPLACE_SCRIPT or bundle resources/orcaslicer_codex/arc_support.");
+            throw Slic3r::RuntimeError("Arc Overhang selected, but the Tinman Arc Overhang adapter script was not found. Set ORCASLICER_CODEX_ARC_SUPPORT_INPLACE_SCRIPT or bundle resources/orcaslicer_codex/arc_support.");
         post_process_values.insert(post_process_values.begin(), arc_adapter_script);
     }
 
