@@ -24,8 +24,9 @@ check fails if either bundle is accidentally reintroduced.
 4. Select a manufacturer and printer model, then finish the assistant.
 
 Choose **Create printer** from the same menu for a machine that is not in the
-public catalog. Tinman restores OrcaSlicer's native printer assistant for these
-user-invoked commands instead of routing them through the Bambu-only guide.
+public catalog. Tinman uses OrcaSlicer's visual setup guide for first-run and
+printer-catalog selection, and keeps custom-printer creation in its dedicated
+machine-definition flow.
 
 See [Getting Started](docs/GETTING_STARTED.md) for installation and first-run
 details.

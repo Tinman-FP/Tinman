@@ -63,30 +63,38 @@ def main() -> int:
     )
     require(run_wizard_body is not None, "could not locate GUI_App::run_wizard")
     require(
-        "ConfigWizard wizard(mainframe);" in run_wizard_body.group(0)
-        and "wizard.run(reason, start_page)" in run_wizard_body.group(0),
-        "setup and Add Printer do not route to ConfigWizard",
+        "GuideFrame wizard(this, pStyle);" in run_wizard_body.group(0)
+        and "wizard.SetStartPage(page);" in run_wizard_body.group(0)
+        and "wizard.run()" in run_wizard_body.group(0),
+        "setup and Add Printer do not route to the visual Orca guide",
     )
     require(
-        "GuideFrame" not in run_wizard_body.group(0),
-        "web setup path can still import distribution-specific defaults",
+        "ConfigWizard::SP_WELCOME ? GuideFrame::BBL_WELCOME" in run_wizard_body.group(0)
+        and "ConfigWizard::SP_FILAMENTS ? GuideFrame::BBL_FILAMENT_ONLY" in run_wizard_body.group(0)
+        and "ConfigWizard::SP_PRINTERS ? GuideFrame::BBL_MODELS_ONLY" in run_wizard_body.group(0),
+        "visual setup guide does not preserve the requested start page",
     )
     require("SetAppName(SLIC3R_APP_NAME);" in gui_app, "Tinman does not use an independent data directory")
 
-    config_wizard = (ROOT / "src/slic3r/GUI/ConfigWizard.cpp").read_text(encoding="utf-8")
-    welcome_route = re.compile(
-        r"case\s+ConfigWizard::SP_WELCOME:[\s\S]{0,160}index->go_to\(page_welcome\)"
-    )
-    require(welcome_route.search(config_wizard) is not None, "fresh installs do not start on Tinman's welcome page")
+    web_guide = (ROOT / "src/slic3r/GUI/WebGuideDialog.cpp").read_text(encoding="utf-8")
+    for required in (
+        'strCmd == "save_userguide_models"',
+        'm_appconfig_new.set_variant(vendor_name, model_name, nozzle, "true")',
+        "preset_bundle->apply_vendor_config(",
+        "preferred_model",
+        "preferred_variant",
+    ):
+        require(required in web_guide, f"visual printer setup is missing persistence behavior: {required}")
+
+    main_frame = (ROOT / "src/slic3r/GUI/MainFrame.cpp").read_text(encoding="utf-8")
     require(
-        "p->create_3rdparty_pages();" in config_wizard
-        and "for (PagePrinters *page : pages_fff)" in config_wizard,
-        "native Add Printer does not expose the bundled vendor catalog",
-    )
-    require(
-        "const PresetBundle *base_bundle = wxGetApp().preset_bundle;" in config_wizard
-        and "ForwardCompatibilitySubstitutionRule::Disable, base_bundle" in config_wizard,
-        "ConfigWizard vendor bundles are not resolving stock cross-vendor inheritance",
+        main_frame.count("if (wxGetApp().is_closing() || m_printer_view == nullptr)") >= 2
+        and re.search(
+            r"void MainFrame::load_printer_url\(wxString url, wxString apikey\)\s*\{\s*"
+            r"if \(wxGetApp\(\)\.is_closing\(\)\)",
+            main_frame,
+        ) is not None,
+        "queued printer web-view events are not guarded during shutdown",
     )
 
     app_config = (ROOT / "src/libslic3r/AppConfig.cpp").read_text(encoding="utf-8")

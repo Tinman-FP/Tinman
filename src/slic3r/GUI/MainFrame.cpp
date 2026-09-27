@@ -1536,6 +1536,8 @@ void MainFrame::init_tabpanel() {
 
     m_printer_view = new PrinterWebView(m_tabpanel);
     Bind(EVT_LOAD_PRINTER_URL, [this](LoadPrinterViewEvent &evt) {
+        if (wxGetApp().is_closing() || m_printer_view == nullptr)
+            return;
         wxString url = evt.GetString();
         wxString key = evt.GetAPIkey();
         //select_tab(MainFrame::tpMonitor);
@@ -1635,6 +1637,8 @@ void MainFrame::show_device(bool bBBLPrinter) {
         if (m_printer_view == nullptr) {
             m_printer_view = new PrinterWebView(m_tabpanel);
             Bind(EVT_LOAD_PRINTER_URL, [this](LoadPrinterViewEvent& evt) {
+                if (wxGetApp().is_closing() || m_printer_view == nullptr)
+                    return;
                 wxString url = evt.GetString();
                 wxString key = evt.GetAPIkey();
                 // select_tab(MainFrame::tpMonitor);
@@ -4666,6 +4670,9 @@ void MainFrame::load_url(wxString url)
 
 void MainFrame::load_printer_url(wxString url, wxString apikey)
 {
+    if (wxGetApp().is_closing())
+        return;
+
     BOOST_LOG_TRIVIAL(trace) << "load_printer_url:" << url;
     auto evt = new LoadPrinterViewEvent(EVT_LOAD_PRINTER_URL, this->GetId());
     evt->SetString(url);
