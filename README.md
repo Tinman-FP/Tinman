@@ -11,10 +11,17 @@ without William Tinney's lab printer, filament, or process profiles.
 | Ships only the standard public vendor catalog | Includes Tinman-FP lab and FibreSeek profiles |
 | Starts with a separate user-data directory | Uses the TinManX1 lab data directory |
 | Users select or create their own printers | Maintained around William's tested machines |
-| Repository: Tinman-FP/Tinman | Repository: Tinman-FP/TinManX1 |
+| Public repository: Tinman-FP/Tinman | Private development test bed |
 
 No Codex or TinManX1 profile bundle is packaged in Tinman. The distribution
 check fails if either bundle is accidentally reintroduced.
+
+## Release Model
+
+TinManX1 is William Tinney's private slicer and experimental test bed. New
+hardware support, tuning work, and application changes are developed and proven
+there first. Changes are brought into this public Tinman repository only after
+they have been validated for general use.
 
 ## Add A Printer
 
