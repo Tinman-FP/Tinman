@@ -111,7 +111,8 @@ TEST_CASE("TinMan machine catalog replaces cloud-restored variants", "[Preset][T
     CHECK_FALSE(config.get_variant("COSMOS", "Centauri COSMOS Tinman", "0.4"));
     for (const char *nozzle : {"0.4", "0.6", "0.8", "1.0"}) {
         CHECK(config.get_variant("Qidi", "Qidi X-Plus 4", nozzle));
-        CHECK(config.get_variant("TinManX1", "FibreSeek Seeker 3", nozzle));
+        CHECK(config.get_variant("Tinman", "FibreSeek Seeker 3", nozzle));
+        CHECK_FALSE(config.get_variant("TinManX1", "FibreSeek Seeker 3", nozzle));
     }
     CHECK(config.get("nozzle_volume_types", "Bambu Lab X1 Carbon 0.6 nozzle - TinMan Codex") == "High Flow");
     CHECK(config.get("nozzle_volume_types", "Bambu Lab H2D 0.6 nozzle") == "High Flow,High Flow");
@@ -119,6 +120,12 @@ TEST_CASE("TinMan machine catalog replaces cloud-restored variants", "[Preset][T
     CHECK(config.get("nozzle_volume_types", "Prusa CORE One L 0.6 nozzle - TinMan Codex") == "Standard");
     CHECK(config.get("nozzle_volume_types", "Qidi X-Plus 4 0.6 nozzle - TinMan Codex") == "Standard");
     CHECK(config.get("nozzle_volume_types", "Snapmaker U1 0.6 nozzle - TinMan Codex") == "Standard,Standard,Standard,Standard");
+}
+
+TEST_CASE("Public Tinman does not preselect personal machine variants", "[Preset][TinMan]")
+{
+    AppConfig config;
+    CHECK(config.vendors().empty());
 }
 
 TEST_CASE("TinMan machine hardware overrides stale project nozzle flow", "[Preset][TinMan]")
