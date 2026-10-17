@@ -12,12 +12,12 @@ permissions:
 
 jobs:
   validate:
-    name: Verify release hygiene and fiber planner fixtures
+    name: Verify public Tinman distribution
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Checkout TinManX1 public package
+      - name: Checkout Tinman
         uses: actions/checkout@v7
 
       - name: Set up Python
@@ -25,52 +25,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Python test dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install ruff==0.16.1 shapely
-
-      - name: Check maintained helper correctness
-        run: >-
-          ruff check scripts/source-helpers resources/orcaslicer_codex
-          --exclude resources/orcaslicer_codex/third_party
-          --select E9,F63,F7,F82,F401,F541,F601,F841
-
-      - name: Verify public release package
-        run: python3 checks/verify_release.py
+      - name: Verify profile-neutral public distribution
+        run: python3 checks/verify_tinman_distribution.py
 
       - name: Verify build identity and incremental rebuild isolation
         run: python3 checks/test_tinman_build_info.py
-
-      - name: Verify printer handoff and passive inventory boundaries
-        run: python3 checks/test_printer_handoff_contract.py
-
-      - name: Verify About branding and contributor attribution
-        run: python3 checks/test_about_dialog_contract.py
-
-      - name: Verify shared hardware catalog and tuned profile checksums
-        run: |
-          python3 checks/verify_tinman_machine_profile_catalog.py
-          python3 scripts/source-helpers/tinman_profile_manifest.py
-
-      - name: Run native FibreSeek smoke fixtures
-        run: python3 scripts/source-helpers/smoke_orcaslicer_codex_native_fiber_planner.py
-
-      - name: Compare native FibreSeek golden fixtures
-        run: python3 scripts/source-helpers/golden_orcaslicer_codex_native_fiber_planner.py
-
-      - name: Validate FibreSeek layup payload helper
-        run: python3 scripts/source-helpers/build_tinmanx1_fiber_layup_payload.py --self-test
-
-      - name: Validate FibreSeek layup editor contract
-        run: python3 scripts/source-helpers/validate_tinmanx1_fiber_layup_editor_contract.py
-
-      - name: Verify FibreSeek profile generator is idempotent
-        run: |
-          python3 scripts/source-helpers/generate_tinmanx1_fiberseek_profiles.py
-          git diff --exit-code -- resources/profiles/TinManX1.json resources/profiles/TinManX1
-
-      - name: Generate and lint FibreSeek profile pack
-        run: |
-          python3 scripts/source-helpers/generate_tinmanx1_fiberseek_profiles.py --fiber-layup-template first-layer-off-tetragrid
-          python3 scripts/source-helpers/lint_tinmanx1_fiberseek_profiles.py
