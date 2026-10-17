@@ -217,7 +217,7 @@ jobs:
           rm -rf ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/*
           python3 ${{ github.workspace }}/scripts/install_orcaslicer_codex_app.py \
             --source-root ${{ github.workspace }} \
-            --source-app ${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer.app \
+            --source-app ${{ github.workspace }}/build/universal/OrcaSlicer/Tinman.app \
             --target-app ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/TinManX1.app \
             --stage-dir ${{ runner.temp }}/tinmanx1-dmg-stage \
             --portable-launcher \
@@ -258,7 +258,7 @@ jobs:
           rm -rf ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/*
           python3 ${{ github.workspace }}/scripts/install_orcaslicer_codex_app.py \
             --source-root ${{ github.workspace }} \
-            --source-app ${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer.app \
+            --source-app ${{ github.workspace }}/build/universal/OrcaSlicer/Tinman.app \
             --target-app ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/TinManX1.app \
             --stage-dir ${{ runner.temp }}/tinmanx1-dmg-stage \
             --portable-launcher \

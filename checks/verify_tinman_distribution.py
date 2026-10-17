@@ -57,6 +57,20 @@ def main() -> int:
     ):
         require(expected in plist_template, f"macOS identity is missing {expected}")
 
+    macos_build = (ROOT / "build_release_macos.sh").read_text(encoding="utf-8")
+    require(
+        'source_app="../src$BUILD_DIR_CONFIG_SUBDIR/Tinman.app"' in macos_build
+        and 'ARM64_APP="$PROJECT_DIR/build/arm64/OrcaSlicer/Tinman.app"' in macos_build
+        and 'X86_64_APP="$PROJECT_DIR/build/x86_64/OrcaSlicer/Tinman.app"' in macos_build,
+        "macOS packaging does not consume the Tinman app produced by CMake",
+    )
+
+    macos_workflow = (ROOT / ".github/workflows/build_orca.yml").read_text(encoding="utf-8")
+    require(
+        macos_workflow.count("--source-app ${{ github.workspace }}/build/universal/OrcaSlicer/Tinman.app") == 2,
+        "macOS universal packaging does not consume the Tinman app",
+    )
+
     gui_app = (ROOT / "src/slic3r/GUI/GUI_App.cpp").read_text(encoding="utf-8")
     run_wizard_body = re.search(
         r"bool GUI_App::run_wizard\([\s\S]+?\n}\n\nvoid GUI_App::show_desktop_integration_dialog",
