@@ -31,6 +31,22 @@ Open the filament preset menu and choose **Add/Remove filaments**. Tinman shows
 materials compatible with the selected printer. Custom filament presets can be
 created from the filament settings page.
 
+## Connect A Bambu Lab Printer
+
+Selecting an H2D, X1 Carbon, or another Bambu model adds its slicing profiles.
+Connecting the physical printer in the **Device** workspace is a separate step
+and requires all three of the following:
+
+1. Enable **Developer Mode** on the printer.
+2. During Tinman setup, select **Install Bambu Network Plug-in**. If setup has
+   already been completed, open **Preferences > Online > Network plug-in**,
+   enable the plug-in, and complete its download.
+3. Open **Device**, select the discovered printer, and enter the LAN access code
+   shown in the printer's network settings.
+
+The computer and printer must be on the same local network. Developer Mode by
+itself does not install Tinman's networking component.
+
 ## Existing TinManX1 Users
 
 Tinman intentionally does not copy TinManX1 profiles or settings. Keeping the

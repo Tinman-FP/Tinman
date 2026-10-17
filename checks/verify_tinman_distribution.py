@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -85,6 +86,38 @@ def main() -> int:
         "preferred_variant",
     ):
         require(required in web_guide, f"visual printer setup is missing persistence behavior: {required}")
+
+    plugin_page = (ROOT / "resources/web/guide/5/index.html").read_text(encoding="utf-8")
+    plugin_script = (ROOT / "resources/web/guide/5/5.js").read_text(encoding="utf-8")
+    require(
+        'id="InstallCheck"' in plugin_page
+        and "tSend['command']=\"network_plugin_install\"" in plugin_script
+        and 'onclick="FinishGuide()"' in plugin_page,
+        "first-run setup does not offer the Bambu network plug-in before finishing",
+    )
+    require(
+        'CallAfter([] { GUI::wxGetApp().ShowDownNetPluginDlg(); })' in web_guide,
+        "setup does not launch the selected Bambu network plug-in installer",
+    )
+
+    bbl_index = json.loads((PROFILES / "BBL.json").read_text(encoding="utf-8"))
+    machines = bbl_index.get("machine_list", [])
+    models = {entry.get("name"): entry for entry in bbl_index.get("machine_model_list", [])}
+    for model_name in ("Bambu Lab H2D", "Bambu Lab X1 Carbon"):
+        require(model_name in models, f"Bambu model is missing from setup: {model_name}")
+        variants = []
+        for entry in machines:
+            sub_path = entry.get("sub_path", "")
+            preset_path = PROFILES / "BBL" / sub_path
+            if not preset_path.is_file():
+                continue
+            preset = json.loads(preset_path.read_text(encoding="utf-8"))
+            if preset.get("printer_model") != model_name:
+                continue
+            variants.append((sub_path, preset))
+        require(variants, f"Bambu model has no selectable machine presets: {model_name}")
+        for sub_path, preset in variants:
+            require(preset.get("instantiation") == "true", f"Bambu machine preset is not selectable: {sub_path}")
 
     main_frame = (ROOT / "src/slic3r/GUI/MainFrame.cpp").read_text(encoding="utf-8")
     require(

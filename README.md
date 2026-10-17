@@ -38,6 +38,11 @@ machine-definition flow.
 See [Getting Started](docs/GETTING_STARTED.md) for installation and first-run
 details.
 
+For Bambu Lab printers, selecting a model adds the slicing profile but does not
+by itself connect the physical printer. Device access also requires Developer
+Mode, the Bambu Network Plug-in offered during setup, and the printer's LAN
+access code.
+
 ## Build
 
 Tinman uses the OrcaSlicer build system. On macOS, after dependencies are
