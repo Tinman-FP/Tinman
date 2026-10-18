@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import plistlib
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -12,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CANDIDATES = (
+    ROOT / "build/arm64/src/Tinman.app",
     ROOT / "build/arm64/src/Release/Tinman.app",
     ROOT / "build/arm64/src/Release/OrcaSlicer.app",
     ROOT / "build/arm64/OrcaSlicer/Tinman.app",
@@ -35,9 +37,18 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source-app", type=Path)
     parser.add_argument("--output-dir", type=Path, default=ROOT / "dist")
+    parser.add_argument("--no-archive", action="store_true", help="Stage an app for DMG packaging")
+    parser.add_argument("--skip-codesign", action="store_true", help="The caller will sign the staged app")
     args = parser.parse_args()
 
     source = args.source_app or first_built_app()
+    settings = dict(re.findall(r'^set\((\w+) "([^"\n]+)"\)', (ROOT / "version.inc").read_text(), re.M))
+    with (source / "Contents/Info.plist").open("rb") as stream:
+        source_info = plistlib.load(stream)
+    for field, setting in (("CFBundleShortVersionString", "TINMAN_MACOS_VERSION"),
+                           ("CFBundleVersion", "TINMAN_MACOS_BUILD")):
+        if source_info.get(field) != settings[setting]:
+            raise SystemExit(f"Stale build: {field} is {source_info.get(field)!r}; rebuild for {settings[setting]}")
     target = args.output_dir / "Tinman.app"
     archive = args.output_dir / "Tinman-macOS-arm64.zip"
 
@@ -69,8 +80,12 @@ def main() -> int:
         plistlib.dump(info, stream, sort_keys=False)
 
     run("xattr", "-cr", str(target))
-    run("codesign", "--force", "--deep", "--sign", "-", str(target))
-    run("codesign", "--verify", "--deep", "--strict", str(target))
+    if not args.skip_codesign:
+        run("codesign", "--force", "--deep", "--sign", "-", str(target))
+        run("codesign", "--verify", "--deep", "--strict", str(target))
+    if args.no_archive:
+        print(target)
+        return 0
     if archive.exists():
         archive.unlink()
     run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(target), str(archive))

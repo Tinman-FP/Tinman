@@ -3,12 +3,18 @@
 
 set(SLIC3R_APP_NAME "Tinman")
 set(SLIC3R_APP_KEY "OrcaSlicer")
-set(TINMANX1_REVISION "v2026.10.17-general-preview.3")
-set(TINMANX1_PACKAGE_VERSION "2026.10.17.3")
+set(TINMANX1_REVISION "v2026.10.17-general-preview.4")
+set(TINMANX1_PACKAGE_VERSION "2026.10.17.4")
+set(TINMAN_DISPLAY_VERSION "2026.10.17 Preview 4")
+set(TINMAN_MACOS_VERSION "2026.10.17")
+set(TINMAN_MACOS_BUILD "2026.1017.4")
+set(TINMAN_RELEASE_DATE "2026-10-17")
 
 if(NOT DEFINED BBL_INTERNAL_TESTING)
 set(BBL_INTERNAL_TESTING "0")
 endif()
+# Upstream compatibility identity for profiles, 3MF files and updater protocols.
+# Never substitute Tinman's calendar version here.
 set(SoftFever_VERSION "2.4.2")
 string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)"
        SoftFever_VERSION_MATCH ${SoftFever_VERSION})

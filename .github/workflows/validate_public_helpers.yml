@@ -28,5 +28,8 @@ jobs:
       - name: Verify profile-neutral public distribution
         run: python3 checks/verify_tinman_distribution.py
 
+      - name: Verify Tinman branding and compatibility boundaries
+        run: python3 checks/test_tinman_branding.py
+
       - name: Verify build identity and incremental rebuild isolation
         run: python3 checks/test_tinman_build_info.py

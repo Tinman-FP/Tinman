@@ -1,4 +1,4 @@
-name: Publish TinManX1 to WinGet
+name: Publish Tinman to WinGet
 
 on:
   release:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       release-tag:
-        description: Published TinManX1 release tag to submit
+        description: Published Tinman release tag to submit
         required: true
         type: string
 
@@ -16,7 +16,7 @@ permissions:
 jobs:
   publish:
     # The first package version must be accepted manually. Enable this repository
-    # variable only after TinmanFP.TinManX1 exists in microsoft/winget-pkgs.
+    # variable only after TinmanFP.Tinman exists in microsoft/winget-pkgs.
     if: vars.WINGET_AUTOMATION_ENABLED == 'true'
     runs-on: windows-latest
     steps:
@@ -25,7 +25,7 @@ jobs:
         with:
           ref: ${{ github.event.release.tag_name || inputs.release-tag }}
 
-      - name: Read TinManX1 package version
+      - name: Read Tinman package version
         id: package
         shell: pwsh
         run: |
@@ -42,10 +42,10 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release-tag }}
         run: |
           $assets = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json assets | ConvertFrom-Json
-          $pattern = '^TinManX1_Windows_Installer_V\d+(?:\.\d+){3}_(?:x64|arm64)\.exe$'
+          $pattern = '^Tinman_Windows_Installer_V\d+(?:\.\d+){3}_(?:x64|arm64)\.exe$'
           $installers = @($assets.assets | Where-Object { $_.name -match $pattern })
           if ($installers.Count -eq 0) {
-            throw "Release $env:RELEASE_TAG has no versioned TinManX1 Windows installer"
+            throw "Release $env:RELEASE_TAG has no versioned Tinman Windows installer"
           }
           $installers.name | ForEach-Object { Write-Output "WinGet installer: $_" }
 
@@ -53,9 +53,9 @@ jobs:
         # Pinned instead of following a mutable branch.
         uses: vedantmgoyal9/winget-releaser@b3a5dae0047c6180023acba3f548c55fdf6b7193
         with:
-          identifier: TinmanFP.TinManX1
+          identifier: TinmanFP.Tinman
           version: ${{ steps.package.outputs.version }}
           release-tag: ${{ github.event.release.tag_name || inputs.release-tag }}
           release-notes-url: ${{ github.event.release.html_url }}
           token: ${{ secrets.WINGET_TOKEN }}
-          installers-regex: 'TinManX1_Windows_Installer_V[0-9.]+_(x64|arm64)\.exe$'
+          installers-regex: 'Tinman_Windows_Installer_V[0-9.]+_(x64|arm64)\.exe$'

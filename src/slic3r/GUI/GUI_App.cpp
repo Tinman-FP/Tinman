@@ -259,7 +259,7 @@ bool is_associate_files(std::wstring extend)
     wchar_t app_path[MAX_PATH];
     ::GetModuleFileNameW(nullptr, app_path, sizeof(app_path));
 
-    std::wstring prog_id             = L" Orca.Slicer.1";
+    std::wstring prog_id             = L"Tinman.Slicer.1";
     std::wstring reg_base            = L"Software\\Classes";
     std::wstring reg_extension       = reg_base + L"\\." + extend;
 
@@ -404,7 +404,7 @@ private:
     wxColour m_bg_color;
 
     wxString m_text_title   = _L("Tinman");
-    wxString m_text_version = _L("Based on Orca Slicer Version ") + wxString::FromUTF8(GUI_App::format_display_version().c_str());
+    wxString m_text_version = wxString::FromUTF8(GUI_App::format_display_version().c_str());
     wxString m_text_revision = _L("Tinman Revision ") + wxString::FromUTF8(TINMANX1_REVISION);
     wxString m_text_prusa_credit = _L("Includes improvements inspired by") + "\nPrusaSlicer 3.0.0-alpha11";
     wxString m_text_action  = _L("Loading configuration") + dots;
@@ -2552,7 +2552,7 @@ void GUI_App::init_app_config()
     set_log_path_and_level(log_filename, 3);
 #endif
 
-    BOOST_LOG_TRIVIAL(info) << boost::format("gui mode, Current OrcaSlicer Version %1% build %2%") % SoftFever_VERSION % GIT_COMMIT_HASH;
+    BOOST_LOG_TRIVIAL(info) << boost::format("gui mode, Current Tinman Version %1% build %2%") % TINMAN_VERSION % GIT_COMMIT_HASH;
 
     //BBS: remove GCodeViewer as seperate APP logic
 	if (!app_config)
@@ -6133,7 +6133,7 @@ std::string GUI_App::format_display_version()
 {
     if (!version_display.empty()) return version_display;
 
-    version_display = SoftFever_VERSION;
+    version_display = TINMAN_DISPLAY_VERSION;
     return version_display;
 }
 
@@ -7721,7 +7721,7 @@ bool GUI_App::load_language(wxString language, bool initial)
 	}
 
 	if (language_info != nullptr && language_info->LayoutDirection == wxLayout_RightToLeft) {
-    	BOOST_LOG_TRIVIAL(trace) << boost::format("The following language code requires right to left layout, which is not supported by OrcaSlicer: %1%") % language_info->CanonicalName.ToUTF8().data();
+        BOOST_LOG_TRIVIAL(trace) << boost::format("The following language code requires right to left layout, which is not supported by Tinman: %1%") % language_info->CanonicalName.ToUTF8().data();
 		language_info = nullptr;
 	}
 

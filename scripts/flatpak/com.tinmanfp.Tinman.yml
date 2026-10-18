@@ -1,4 +1,4 @@
-app-id: com.orcaslicer.OrcaSlicer
+app-id: com.tinmanfp.Tinman
 runtime: org.gnome.Platform
 runtime-version: "50"
 sdk: org.gnome.Sdk
@@ -6,7 +6,7 @@ sdk-extensions:
   - org.freedesktop.Sdk.Extension.llvm21
 command: entrypoint
 separate-locales: true
-rename-icon: OrcaSlicer
+rename-icon: Tinman
 build-options:
   append-path: /usr/lib/sdk/llvm21/bin
   prepend-ld-library-path: /usr/lib/sdk/llvm21/lib
@@ -345,8 +345,7 @@ modules:
     post-install:
 
       - | # Desktop integration files
-        install -Dm644 -t /app/share/icons/hicolor/scalable/apps/ resources/images/OrcaSlicer.svg
-        install -Dm644 ${FLATPAK_ID}.metainfo.xml /app/share/metainfo/${FLATPAK_ID}.metainfo.xml
+        install -Dm644 build_flatpak/${FLATPAK_ID}.metainfo.xml /app/share/metainfo/${FLATPAK_ID}.metainfo.xml
         desktop-file-edit --set-key=Exec --set-value="entrypoint %U" /app/share/applications/${FLATPAK_ID}.desktop
         install -Dm755 entrypoint /app/bin
         install -Dm755 umount /app/bin
@@ -355,8 +354,8 @@ modules:
 
       - | # Install fonts into fontconfig-scanned directory so Pango finds them
         # before initialization (avoids ensure_faces crash from AddPrivateFont)
-        install -Dm644 -t /app/share/fonts/OrcaSlicer/ resources/fonts/*.ttf
-        fc-cache -f /app/share/fonts/OrcaSlicer/
+        install -Dm644 -t /app/share/fonts/Tinman/ resources/fonts/*.ttf
+        fc-cache -f /app/share/fonts/Tinman/
 
     sources:
       # OrcaSlicer source tree (specific dirs to avoid copying .git from worktree)
@@ -385,10 +384,6 @@ modules:
       - type: file
         path: ../run_gettext.sh
         dest: scripts
-
-      # AppData metainfo for GNOME Software & Co.
-      - type: file
-        path: com.orcaslicer.OrcaSlicer.metainfo.xml
 
       # Startup script
       - type: file

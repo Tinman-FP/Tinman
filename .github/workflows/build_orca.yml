@@ -20,7 +20,7 @@ on:
 
 jobs:
   build_orca:
-    name: Build OrcaSlicer
+    name: Build Tinman
     runs-on: ${{ inputs.os }}
     env:
       date:
@@ -209,24 +209,20 @@ jobs:
             codesign --deep --force --verbose --options runtime --timestamp --entitlements ${{ github.workspace }}/scripts/disable_validation.entitlements --sign "$CERTIFICATE_ID" ${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer_profile_validator.app
           fi
           
-          # Create main TinManX1 DMG without the profile validator helper.
+          # Create main Tinman DMG without the profile validator helper.
           # The internal build folder is still named OrcaSlicer because that is
           # the upstream target/install path, but release-facing packaging must
-          # expose the TinManX1 application name.
+          # expose the Tinman application name.
           mkdir -p ${{ github.workspace }}/build/universal/OrcaSlicer_dmg
           rm -rf ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/*
-          python3 ${{ github.workspace }}/scripts/install_orcaslicer_codex_app.py \
-            --source-root ${{ github.workspace }} \
+          python3 ${{ github.workspace }}/scripts/package_tinman_macos.py \
             --source-app ${{ github.workspace }}/build/universal/OrcaSlicer/Tinman.app \
-            --target-app ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/TinManX1.app \
-            --stage-dir ${{ runner.temp }}/tinmanx1-dmg-stage \
-            --portable-launcher \
-            --skip-auto-pa-profile-hook \
-            --skip-codesign
-          codesign --deep --force --verbose --options runtime --timestamp --entitlements ${{ github.workspace }}/scripts/disable_validation.entitlements --sign "$CERTIFICATE_ID" ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/TinManX1.app
+            --output-dir ${{ github.workspace }}/build/universal/OrcaSlicer_dmg \
+            --no-archive
+          codesign --deep --force --verbose --options runtime --timestamp --entitlements ${{ github.workspace }}/scripts/disable_validation.entitlements --sign "$CERTIFICATE_ID" ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/Tinman.app
           ln -sfn /Applications ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/Applications
-          retry hdiutil create -volname "TinManX1" -srcfolder ${{ github.workspace }}/build/universal/OrcaSlicer_dmg -ov -format UDZO TinManX1_Mac_universal_${{ env.ver }}.dmg
-          codesign --deep --force --verbose --options runtime --timestamp --entitlements ${{ github.workspace }}/scripts/disable_validation.entitlements --sign "$CERTIFICATE_ID" TinManX1_Mac_universal_${{ env.ver }}.dmg
+          retry hdiutil create -volname "Tinman" -srcfolder ${{ github.workspace }}/build/universal/OrcaSlicer_dmg -ov -format UDZO Tinman_Mac_universal_${{ env.ver }}.dmg
+          codesign --deep --force --verbose --options runtime --timestamp --entitlements ${{ github.workspace }}/scripts/disable_validation.entitlements --sign "$CERTIFICATE_ID" Tinman_Mac_universal_${{ env.ver }}.dmg
           
           # Create separate OrcaSlicer_profile_validator DMG if the app exists
           if [ -f "${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer_profile_validator.app/Contents/MacOS/OrcaSlicer_profile_validator" ]; then
@@ -239,8 +235,8 @@ jobs:
           fi
           
           # Notarize main DMG
-          xcrun notarytool submit "TinManX1_Mac_universal_${{ env.ver }}.dmg" --apple-id "${{ secrets.APPLE_DEV_ACCOUNT }}" --team-id "${{ secrets.TEAM_ID }}" --password "${{ secrets.APP_PWD }}" --wait
-          xcrun stapler staple TinManX1_Mac_universal_${{ env.ver }}.dmg
+          xcrun notarytool submit "Tinman_Mac_universal_${{ env.ver }}.dmg" --apple-id "${{ secrets.APPLE_DEV_ACCOUNT }}" --team-id "${{ secrets.TEAM_ID }}" --password "${{ secrets.APP_PWD }}" --wait
+          xcrun stapler staple Tinman_Mac_universal_${{ env.ver }}.dmg
 
           # Notarize profile validator DMG if it exists
           if [ -f "OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg" ]; then
@@ -256,16 +252,12 @@ jobs:
           source ${{ github.workspace }}/scripts/retry.sh
           mkdir -p ${{ github.workspace }}/build/universal/OrcaSlicer_dmg
           rm -rf ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/*
-          python3 ${{ github.workspace }}/scripts/install_orcaslicer_codex_app.py \
-            --source-root ${{ github.workspace }} \
+          python3 ${{ github.workspace }}/scripts/package_tinman_macos.py \
             --source-app ${{ github.workspace }}/build/universal/OrcaSlicer/Tinman.app \
-            --target-app ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/TinManX1.app \
-            --stage-dir ${{ runner.temp }}/tinmanx1-dmg-stage \
-            --portable-launcher \
-            --skip-auto-pa-profile-hook \
-            --skip-codesign
+            --output-dir ${{ github.workspace }}/build/universal/OrcaSlicer_dmg \
+            --no-archive
           ln -sfn /Applications ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/Applications
-          retry hdiutil create -volname "TinManX1" -srcfolder ${{ github.workspace }}/build/universal/OrcaSlicer_dmg -ov -format UDZO TinManX1_Mac_universal_${{ env.ver }}.dmg
+          retry hdiutil create -volname "Tinman" -srcfolder ${{ github.workspace }}/build/universal/OrcaSlicer_dmg -ov -format UDZO Tinman_Mac_universal_${{ env.ver }}.dmg
           
           # Create separate OrcaSlicer_profile_validator DMG if the app exists
           if [ -f "${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer_profile_validator.app/Contents/MacOS/OrcaSlicer_profile_validator" ]; then
@@ -290,8 +282,8 @@ jobs:
         if: runner.os == 'macOS' && inputs.macos-combine-only
         uses: actions/upload-artifact@v7
         with:
-          name: TinManX1_Mac_universal_${{ env.ver }}
-          path: ${{ github.workspace }}/TinManX1_Mac_universal_${{ env.ver }}.dmg
+          name: Tinman_Mac_universal_${{ env.ver }}
+          path: ${{ github.workspace }}/Tinman_Mac_universal_${{ env.ver }}.dmg
 
       - name: Upload OrcaSlicer_profile_validator DMG mac
         if: runner.os == 'macOS' && inputs.macos-combine-only && !vars.SELF_HOSTED
@@ -307,8 +299,8 @@ jobs:
         with:
           upload_url: https://uploads.github.com/repos/OrcaSlicer/OrcaSlicer/releases/137995723/assets{?name,label}
           release_id: 137995723
-          asset_path: ${{ github.workspace }}/TinManX1_Mac_universal_${{ env.ver }}.dmg
-          asset_name: TinManX1_Mac_universal_nightly${{ env.nightly_suffix }}.dmg
+          asset_path: ${{ github.workspace }}/Tinman_Mac_universal_${{ env.ver }}.dmg
+          asset_name: Tinman_Mac_universal_nightly${{ env.nightly_suffix }}.dmg
           asset_content_type: application/octet-stream
           max_releases: 1 # optional, if there are more releases than this matching the asset_name, the oldest ones are going to be deleted
 
@@ -406,12 +398,12 @@ jobs:
         shell: pwsh
         run: |
           $source = "${{ github.workspace }}/${{ env.BUILD_DIR }}/OrcaSlicer"
-          $stage = "${{ github.workspace }}/${{ env.BUILD_DIR }}/TinManX1"
+          $stage = "${{ github.workspace }}/${{ env.BUILD_DIR }}/Tinman"
           Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
-          Remove-Item -Force "TinManX1_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}_portable.zip" -ErrorAction SilentlyContinue
+          Remove-Item -Force "Tinman_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}_portable.zip" -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Path $stage | Out-Null
           Copy-Item -Recurse -Force "$source/*" $stage
-          & "C:/Program Files/7-Zip/7z.exe" a -tzip "TinManX1_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}_portable.zip" TinManX1
+          & "C:/Program Files/7-Zip/7z.exe" a -tzip "Tinman_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}_portable.zip" Tinman
 
       - name: Pack PDB
         if: runner.os == 'Windows' && inputs.arch != 'arm64' && !vars.SELF_HOSTED
@@ -423,15 +415,15 @@ jobs:
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
-          name: TinManX1_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}_portable
-          path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/TinManX1_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}_portable.zip
+          name: Tinman_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}_portable
+          path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/Tinman_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}_portable.zip
 
       - name: Upload artifacts Win installer
         if: runner.os == 'Windows' && !vars.SELF_HOSTED
         uses: actions/upload-artifact@v7
         with:
-          name: TinManX1_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}
-          path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/TinManX1*.exe
+          name: Tinman_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}
+          path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/Tinman*.exe
 
       - name: Upload artifacts Win PDB
         if: runner.os == 'Windows' && inputs.arch != 'arm64' && !vars.SELF_HOSTED
@@ -453,8 +445,8 @@ jobs:
         with:
           upload_url: https://uploads.github.com/repos/OrcaSlicer/OrcaSlicer/releases/137995723/assets{?name,label}
           release_id: 137995723
-          asset_path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/TinManX1_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}_portable.zip
-          asset_name: TinManX1_Windows${{ env.ARCH_SUFFIX }}_nightly${{ env.nightly_suffix }}_portable.zip
+          asset_path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/Tinman_Windows_${{ env.ver }}${{ env.ARCH_SUFFIX }}_portable.zip
+          asset_name: Tinman_Windows${{ env.ARCH_SUFFIX }}_nightly${{ env.nightly_suffix }}_portable.zip
           asset_content_type: application/x-zip-compressed
           max_releases: 1
 
@@ -464,8 +456,8 @@ jobs:
         with:
           upload_url: https://uploads.github.com/repos/OrcaSlicer/OrcaSlicer/releases/137995723/assets{?name,label}
           release_id: 137995723
-          asset_path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/TinManX1_Windows_Installer_${{ env.ver }}${{ env.ARCH_SUFFIX }}.exe
-          asset_name: TinManX1_Windows_Installer${{ env.ARCH_SUFFIX }}_nightly${{ env.nightly_suffix }}.exe
+          asset_path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/Tinman_Windows_Installer_${{ env.ver }}${{ env.ARCH_SUFFIX }}.exe
+          asset_name: Tinman_Windows_Installer${{ env.ARCH_SUFFIX }}_nightly${{ env.nightly_suffix }}.exe
           asset_content_type: application/x-msdownload
           max_releases: 1
 
@@ -487,18 +479,18 @@ jobs:
         run: |
           ./scripts/msix/build_msix.ps1 `
             -InstallDir "${{ github.workspace }}/${{ env.BUILD_DIR }}/OrcaSlicer" `
-            -OutputPath "${{ github.workspace }}/${{ env.BUILD_DIR }}/TinManX1_Windows_MSIX_${{ env.ver }}${{ env.ARCH_SUFFIX }}.msix" `
+            -OutputPath "${{ github.workspace }}/${{ env.BUILD_DIR }}/Tinman_Windows_MSIX_${{ env.ver }}${{ env.ARCH_SUFFIX }}.msix" `
             -Architecture "${{ inputs.arch }}" `
-            -IdentityName "${{ vars.ORCA_MSIX_IDENTITY_NAME || 'TinManX1.TinManX1' }}" `
+            -IdentityName "${{ vars.ORCA_MSIX_IDENTITY_NAME || 'Tinman.Tinman' }}" `
             -Publisher "${{ vars.ORCA_MSIX_PUBLISHER || 'CN=38F7EA55-C73B-4072-B3B2-C8E0EA15BB82' }}" `
-            -PublisherDisplayName "${{ vars.ORCA_MSIX_PUBLISHER_DISPLAY_NAME || 'TinManX1' }}"
+            -PublisherDisplayName "${{ vars.ORCA_MSIX_PUBLISHER_DISPLAY_NAME || 'Tinman' }}"
 
       - name: Upload artifacts Win MSIX
         if: runner.os == 'Windows' && !vars.SELF_HOSTED
         uses: actions/upload-artifact@v7
         with:
-          name: TinManX1_Windows_MSIX_${{ env.ver }}${{ env.ARCH_SUFFIX }}
-          path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/TinManX1_Windows_MSIX_${{ env.ver }}${{ env.ARCH_SUFFIX }}.msix
+          name: Tinman_Windows_MSIX_${{ env.ver }}${{ env.ARCH_SUFFIX }}
+          path: ${{ github.workspace }}/${{ env.BUILD_DIR }}/Tinman_Windows_MSIX_${{ env.ver }}${{ env.ARCH_SUFFIX }}.msix
 
 # Ubuntu
       - name: Apt-Install Dependencies
@@ -518,9 +510,9 @@ jobs:
           tests=${{ (!vars.SELF_HOSTED && inputs.arch == 'aarch64') || (vars.SELF_HOSTED && inputs.arch != 'aarch64') }}
           if $tests; then flags=-istrlL; else flags=-isrlL; fi
           ./build_linux.sh "$flags"
-          ./scripts/check_appimage_libs.sh ./build/package ./build/package/bin/orca-slicer
-          appimage=./build/TinManX1_Linux_AppImage${{ env.ubuntu-ver-str }}${{ env.arch_suffix }}_${{ env.ver }}.AppImage
-          mv -n ./build/TinManX1_Linux_V${{ env.ver_pure }}.AppImage "$appimage"
+          ./scripts/check_appimage_libs.sh ./build/package ./build/package/bin/tinman
+          appimage=./build/Tinman_Linux_AppImage${{ env.ubuntu-ver-str }}${{ env.arch_suffix }}_${{ env.ver }}.AppImage
+          mv -n ./build/Tinman_Linux_V${{ env.ver_pure }}.AppImage "$appimage"
           chmod +x "$appimage"
           if $tests; then tar -cvpf build_tests.tar build/tests; fi
 
@@ -550,7 +542,7 @@ jobs:
           git -C "$test_repo_dir" fetch --depth 1 origin 4bac4c7539c21edcd6abec8a248c3e6ae18aaa2c
           git -C "$test_repo_dir" checkout --detach FETCH_HEAD
           git -C "$test_repo_dir" apply "${{ github.workspace }}/checks/upstream/orca-test-repo-reference-schema.patch"
-          python3 "$test_repo_dir/run_test.py" "${{ github.workspace }}/build/package/bin/orca-slicer"
+          python3 "$test_repo_dir/run_test.py" "${{ github.workspace }}/build/package/bin/tinman"
 
       - name: Build orca_custom_preset_tests
         if: github.ref == 'refs/heads/main' && runner.os == 'Linux' && !vars.SELF_HOSTED && inputs.arch != 'aarch64'
@@ -565,8 +557,8 @@ jobs:
         if: ${{ ! env.ACT && runner.os == 'Linux' }}
         uses: actions/upload-artifact@v7
         with:
-          name: TinManX1_Linux_ubuntu_${{ env.ubuntu-ver }}${{ env.arch_suffix }}_${{ env.ver }}
-          path: "./build/TinManX1_Linux_AppImage${{ env.ubuntu-ver-str }}${{ env.arch_suffix }}_${{ env.ver }}.AppImage"
+          name: Tinman_Linux_ubuntu_${{ env.ubuntu-ver }}${{ env.arch_suffix }}_${{ env.ver }}
+          path: "./build/Tinman_Linux_AppImage${{ env.ubuntu-ver-str }}${{ env.arch_suffix }}_${{ env.ver }}.AppImage"
 
       - name: Upload OrcaSlicer_profile_validator Ubuntu
         if: ${{ ! env.ACT && runner.os == 'Linux' && !vars.SELF_HOSTED && inputs.arch != 'aarch64' }}
@@ -581,8 +573,8 @@ jobs:
         with:
           upload_url: https://uploads.github.com/repos/OrcaSlicer/OrcaSlicer/releases/137995723/assets{?name,label}
           release_id: 137995723
-          asset_path: ./build/TinManX1_Linux_AppImage${{ env.ubuntu-ver-str }}${{ env.arch_suffix }}_${{ env.ver }}.AppImage
-          asset_name: TinManX1_Linux_AppImage${{ env.ubuntu-ver-str }}${{ env.arch_suffix }}_nightly${{ env.nightly_suffix }}.AppImage
+          asset_path: ./build/Tinman_Linux_AppImage${{ env.ubuntu-ver-str }}${{ env.arch_suffix }}_${{ env.ver }}.AppImage
+          asset_name: Tinman_Linux_AppImage${{ env.ubuntu-ver-str }}${{ env.arch_suffix }}_nightly${{ env.nightly_suffix }}.AppImage
           asset_content_type: application/octet-stream
           max_releases: 1 # optional, if there are more releases than this matching the asset_name, the oldest ones are going to be deleted
       - name: Deploy Ubuntu release

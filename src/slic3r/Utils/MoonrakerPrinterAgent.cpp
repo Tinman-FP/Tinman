@@ -2012,7 +2012,7 @@ void MoonrakerPrinterAgent::run_status_stream(std::string dev_id, std::string ba
 
             websocket::stream<beast::tcp_stream> ws{std::move(stream)};
             ws.set_option(websocket::stream_base::decorator([&](websocket::request_type& req) {
-                req.set(http::field::user_agent, "OrcaSlicer");
+                req.set(http::field::user_agent, "Tinman");
                 if (!api_key.empty()) {
                     req.set("X-Api-Key", api_key);
                 }
@@ -2029,10 +2029,10 @@ void MoonrakerPrinterAgent::run_status_stream(std::string dev_id, std::string ba
             nlohmann::json identify;
             identify["jsonrpc"]               = "2.0";
             identify["method"]                = "server.connection.identify";
-            identify["params"]["client_name"] = "OrcaSlicer";
+            identify["params"]["client_name"] = "Tinman";
             identify["params"]["version"]     = MoonrakerPrinterAgent_VERSION;
             identify["params"]["type"]        = "agent";
-            identify["params"]["url"]         = "https://github.com/SoftFever/OrcaSlicer";
+            identify["params"]["url"]         = "https://github.com/Tinman-FP/Tinman";
             identify["id"]                    = 0;
             ws.write(net::buffer(identify.dump()));
 

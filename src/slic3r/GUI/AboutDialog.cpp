@@ -178,7 +178,7 @@ wxString CopyrightsDialog::get_html_text()
         { "OpenAI Codex", "AI-assisted engineering, implementation, review, regression tests, documentation, and packaging under project direction.", "https://openai.com/codex/" },
     });
     append_credits(_L("Upstream Slicer Projects"), {
-        { "OrcaSlicer / SoftFever and contributors", "Primary application and slicing baseline: OrcaSlicer 2.4.2.", "https://github.com/OrcaSlicer/OrcaSlicer" },
+        { "OrcaSlicer / SoftFever and contributors", "Primary application and slicing baseline: OrcaSlicer " SoftFever_VERSION ".", "https://github.com/OrcaSlicer/OrcaSlicer" },
         { "Bambu Studio / Bambu Lab and contributors", "Upstream application lineage and printer integration work.", "https://github.com/bambulab/BambuStudio" },
         { "PrusaSlicer / Prusa Research and contributors", "Upstream slicing lineage; selected profile-reliability improvements inspired by PrusaSlicer 3.0.0-alpha11. Not a full PrusaSlicer 3 rebase.", "https://github.com/prusa3d/PrusaSlicer" },
         { "Slic3r / Alessandro Ranellucci and the RepRap community", "Original slicer foundation and community contributions.", "https://github.com/slic3r/Slic3r" },
@@ -278,13 +278,13 @@ AboutDialog::AboutDialog()
     auto name = new wxStaticText(this, wxID_ANY, "Tinman");
     name->SetFont(GetFont().Scaled(1.85f).Bold());
     identity->Add(name, 0, wxBOTTOM, FromDIP(8));
-    const wxString revision = wxString::FromUTF8(TINMANX1_REVISION) + "\n" +
+    const wxString revision = wxString::FromUTF8(TINMAN_DISPLAY_VERSION) + "\n" +
                               wxString::Format("Build %s", std::string(GIT_COMMIT_HASH));
     auto version = new wxStaticText(this, wxID_ANY, revision);
     version->SetFont(Label::Body_12);
     identity->Add(version, 0, wxBOTTOM, FromDIP(8));
     auto upstream = new wxStaticText(this, wxID_ANY,
-        _L("Based on OrcaSlicer") + " " + wxString::FromUTF8(SoftFever_VERSION));
+        _L("Built on OrcaSlicer; see credits for upstream details."));
     upstream->SetFont(Label::Body_12);
     identity->Add(upstream);
     header->Add(identity, 1, wxALIGN_CENTER_VERTICAL);
@@ -433,7 +433,7 @@ void AboutDialog::onCopyrightBtn(wxEvent &)
 void AboutDialog::onCopyToClipboard(wxEvent&)
 {
     wxTheClipboard->Open();
-    wxTheClipboard->SetData(new wxTextDataObject(_L("Version") + " " + GUI_App::format_display_version()));
+    wxTheClipboard->SetData(new wxTextDataObject("Tinman " + GUI_App::format_display_version() + "\n" + TINMANX1_REVISION + "\nBuild " + GIT_COMMIT_HASH));
     wxTheClipboard->Close();
 }
 

@@ -226,7 +226,7 @@ function ShowRecentFileList( pList )
 		
 		let TmpHtml='<div class="FileItem"  fpath="'+sPath+'"  >'+
 				'<a class="FileTip" title="'+sPath+'"></a>'+
-				'<div class="FileImg" ><img src="'+sImg+'" onerror="this.onerror=null;this.src=\'img/d.png\';"  alt="No Image"  /></div>'+
+				'<div class="FileImg" ><img src="'+sImg+'" onerror="this.onerror=null;this.src=\'../../images/Tinman_192px_grayscale.png\';"  alt="No Image"  /></div>'+
 				'<div class="FileName TextS1">'+sName+'</div>'+
 				'<div class="FileDate">'+sTime+'</div>'+
 			    '</div>';

@@ -1,3 +1,4 @@
+#include "TinManBuildInfo.hpp"
 #include "Utils.hpp"
 #include "I18N.hpp"
 
@@ -117,7 +118,7 @@ void set_logging_level(unsigned int level)
 
     // Orca: force at info or lower level logging for pre-release builds.
     // Note: not setting to debug or trace as they might affect long time usage especially with BBL printers.
-    const std::string version = SoftFever_VERSION;
+    const std::string version = TINMAN_VERSION;
     if (level < (unsigned int) boost::log::trivial::info &&
         (boost::algorithm::icontains(version, "dev") || boost::algorithm::icontains(version, "alpha") ||
          boost::algorithm::icontains(version, "beta"))) {
@@ -1270,12 +1271,12 @@ std::string string_printf(const char *format, ...)
 
 std::string header_slic3r_generated()
 {
-	return std::string(SLIC3R_APP_NAME " " SoftFever_VERSION);
+	return std::string(SLIC3R_APP_NAME " " TINMAN_VERSION);
 }
 
 std::string header_gcodeviewer_generated()
 {
-	return std::string(GCODEVIEWER_APP_NAME " " SoftFever_VERSION);
+	return std::string(GCODEVIEWER_APP_NAME " " TINMAN_VERSION);
 }
 
 unsigned get_current_pid()

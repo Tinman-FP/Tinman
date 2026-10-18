@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.tinmanfp.Tinman</id>
+  <launchable type="desktop-id">com.tinmanfp.Tinman.desktop</launchable>
+  <name>Tinman</name>
+  <summary>Prepare and calibrate prints for your 3D printer</summary>
+  <developer id="com.tinmanfp"><name>Tinman-FP</name></developer>
+  <url type="homepage">https://github.com/Tinman-FP/Tinman</url>
+  <url type="help">https://github.com/Tinman-FP/Tinman#readme</url>
+  <url type="bugtracker">https://github.com/Tinman-FP/Tinman/issues</url>
+  <url type="vcs-browser">https://github.com/Tinman-FP/Tinman</url>
+  <metadata_license>0BSD</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <content_rating type="oars-1.1" />
+  <description>
+    <p>Tinman is an independent, open-source 3D printing slicer built on OrcaSlicer,
+    with contributions from Bambu Studio, PrusaSlicer, Slic3r and other upstream projects.</p>
+    <p>Prepare models, select your printers, tune filament and inspect sliced toolpaths.
+    The public distribution does not include the maintainer's personal printer profiles.</p>
+  </description>
+  <releases>
+    <release version="@TINMANX1_PACKAGE_VERSION@" date="@TINMAN_RELEASE_DATE@" type="development">
+      <url type="details">https://github.com/Tinman-FP/Tinman/releases/tag/@TINMANX1_REVISION@</url>
+    </release>
+  </releases>
+</component>
