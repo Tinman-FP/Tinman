@@ -36,8 +36,9 @@ credentials, or machine firmware changes are included in this backport.
   review.
 - New Bambu networking architecture and mixed-nozzle support need device-level
   validation; the existing Tinman H2D/X1C onboarding fixes are retained.
-- Broader calibration resizing/interpolation changes and precise-seam modifiers
-  affect more of the slicing pipeline and need a separate calibration matrix.
+- Precise-seam modifiers require a separate project-format and calibration
+  matrix. The selected resizing/interpolation changes are covered by the
+  October 19 stage-1 work below, not the original maintenance batch.
 - Catalog-wide filament ID changes are not imported into an existing profile
   ecosystem as part of a small maintenance release.
 
@@ -101,7 +102,7 @@ platform builds before public promotion. H2D mixed-nozzle qualification is not
 covered by this single-nozzle calibration batch. No printer commands are issued
 by this work.
 
-### Stage 1 Verification Results
+### Private Stage 1 Verification Results (Historical)
 
 On this Apple Silicon Mac, the Release build completed for `libslic3r_tests`,
 `fff_print_tests`, and `slic3rutils_tests`, including the GUI library. Existing
@@ -122,9 +123,48 @@ print validation with and without a warning sink, optional label footprints,
 and PA preview thickness with nonzero Z offset. The existing absolute-extrusion
 reset regression is retained.
 
-Not yet completed: interactive packaged-GUI checks, Windows/Linux builds,
-end-to-end tower export matrix and physical validation. Do not distribute this
-private test build: it retains the earlier development build identity. Public
-promotion must apply the selected changes onto the then-current Tinman source,
-preserve intervening Tinman fixes, assign a new build identity, and satisfy the
-release gates above. The installed application and public release are unchanged.
+These results describe the private development build, not the public package.
+Do not distribute that private build. Public promotion preserves intervening
+Tinman fixes and uses the Preview 5 identity; its independent checks follow.
+
+### Public Preview 5 Validation (In Progress)
+
+The selected commits were applied onto public Tinman `90e25afac2f7` on
+`codex/calibration-preview5-release`. The candidate is **not yet promoted** to
+the public download. The local Release build completed with existing compiler
+warnings. Standard CI exclusions (`~[NotWorking]`) were used for the suites.
+
+| Check | Observed result |
+| --- | --- |
+| libslic3r | 305 cases, 264,405 assertions passed |
+| FFF printing | 48 cases, 889 assertions passed |
+| Utilities | 31 cases, 285 assertions passed |
+| Actual tower G-code export (included in FFF) | 1 case, 40 assertions; PA, temperature and VFA at 0.4/0.6 mm |
+| Branding/build identity Python tests | 15 passed |
+| Windows build contract tests | 3 passed |
+| Public distribution checks | Passed: branding, wizard assets and private-profile boundary |
+| Fresh isolated macOS setup | Qidi Q2 0.4 mm added and available for calibration |
+| VFA resizing on/off | Generated, sliced and exported; resizing off retained selected 0.16 mm layer height |
+| VFA impossible range | Rejected 10,000-11,000 mm/s range |
+| VFA bounded adjustment | Proposed 0.12 mm layers and 490 mm/s grid endpoint; filament MVS remained 24.5 mm3/s |
+| PA line with numbers | Generated and sliced preview; final native export check remains pending |
+| Reopen/project check | Model and presets retained; calibration schedule was not restored (see below) |
+
+Cross-platform build/test run:
+[39310400517](https://github.com/Tinman-FP/Tinman/actions/runs/39310400517).
+This run supersedes the canceled first run: Windows ARM required native CMake
+4.3.4 for the runner's Visual Studio 2026 generator. Build scripts now stop on
+failed commands rather than continuing to package stale output.
+
+**Calibration project limitation:** an ordinary saved VFA project reopened
+successfully, but its re-sliced G-code lost the runtime speed sweep. Preserve
+audited final G-code and generator inputs; regenerate calibrations when changing
+or repeating them. A model/preset round trip is not a calibration-schedule round
+trip. This work does not introduce a calibration project-schema migration.
+
+Remaining gates: complete the packaged PA-line numbers-off and PA/temperature
+tower interactive matrix, final exported-output audit, clean release packaging,
+and platform CI results. Native UI automation became unavailable during the
+macOS save-panel test; that check is not counted as passed. No interactive
+Windows/Linux or physical printer qualification is claimed. No live user
+profiles or installed application were changed.
