@@ -765,8 +765,10 @@ void VFA_Test_Dlg::on_start(wxCommandEvent& event)
     read_double = read_double && m_tiEnd->GetTextCtrl()->GetValue().ToDouble(&m_params.end);
     read_double = read_double && m_tiStep->GetTextCtrl()->GetValue().ToDouble(&m_params.step);
 
-    if (!read_double || m_params.start <= 10 || m_params.step <= 0 || m_params.end < (m_params.start + m_params.step)) {
-        MessageDialog msg_dlg(nullptr, _L("Please input valid values:\nstart > 10\nstep >= 0\nend > start + step"), wxEmptyString, wxICON_WARNING | wxOK);
+    if (!read_double || !std::isfinite(m_params.start) || !std::isfinite(m_params.end) ||
+        !std::isfinite(m_params.step) || m_params.start <= 10 || m_params.step <= 0 ||
+        m_params.end < (m_params.start + m_params.step) || (m_params.end - m_params.start) / m_params.step > 1000) {
+        MessageDialog msg_dlg(nullptr, _L("Please input finite values:\nstart > 10\nstep > 0\nend >= start + step\nAt most 1000 speed intervals"), wxEmptyString, wxICON_WARNING | wxOK);
         msg_dlg.ShowModal();
         return;
     }
@@ -794,16 +796,49 @@ void VFA_Test_Dlg::on_start(wxCommandEvent& event)
             if (lh_opt->value > 0.0)
                 preset_lh = lh_opt->value;
         // Layer height the tower will actually print at: nozzle/2 when resizing, else the preset value.
-        const double default_lh      = m_params.nozzle_based_resize ? nozzle_diameter / 2.0 : preset_lh;
+        double default_lh            = m_params.nozzle_based_resize ? nozzle_diameter / 2.0 : preset_lh;
         const double max_vol_speed   = get_at(filament_config.option<ConfigOptionFloats>("filament_max_volumetric_speed"), 0.0);
         const double machine_min_lh  = get_at(printer_config.option<ConfigOptionFloats>("min_layer_height"), 0.0);
         const double machine_max_lh  = get_at(printer_config.option<ConfigOptionFloats>("max_layer_height"), 0.0);
+
+        if (!std::isfinite(nozzle_diameter) || nozzle_diameter <= 0. || !std::isfinite(default_lh) || default_lh <= 0. ||
+            !std::isfinite(max_vol_speed) || max_vol_speed < 0. || !std::isfinite(machine_min_lh) || machine_min_lh < 0. ||
+            !std::isfinite(machine_max_lh) || machine_max_lh < 0. ||
+            machine_min_lh > std::min(nozzle_diameter, machine_max_lh > 0. ? machine_max_lh : nozzle_diameter)) {
+            MessageDialog msg_dlg(this, _L("The selected profiles have invalid nozzle, layer height or volumetric limits."),
+                                  _L("VFA test"), wxICON_WARNING | wxOK);
+            msg_dlg.ShowModal();
+            return;
+        }
+        const double allowed_height = std::clamp(default_lh, machine_min_lh,
+            std::min(nozzle_diameter, machine_max_lh > 0. ? machine_max_lh : nozzle_diameter));
+        if (allowed_height != default_lh) {
+            if (!m_params.nozzle_based_resize) {
+                MessageDialog msg_dlg(this, _L("The process layer height is outside this nozzle's limits. Select a compatible process or enable auto-scale."),
+                                      _L("VFA test"), wxICON_WARNING | wxOK);
+                msg_dlg.ShowModal();
+                return;
+            }
+            MessageDialog msg_dlg(this,
+                wxString::Format(_L("The VFA layer height will be adjusted from %.2f mm to %.2f mm to respect the selected nozzle's limits."), default_lh, allowed_height),
+                _L("VFA test"), wxICON_INFORMATION | wxOK);
+            msg_dlg.ShowModal();
+            default_lh = allowed_height;
+        }
+        if (m_params.nozzle_based_resize)
+            m_params.vfa_layer_height = default_lh;
 
         double line_width = print_config.get_abs_value("outer_wall_line_width", nozzle_diameter);
         if (line_width <= 0.0)
             line_width = print_config.get_abs_value("line_width", nozzle_diameter);
         if (line_width <= 0.0)
-            line_width = nozzle_diameter;
+            line_width = Flow::auto_extrusion_width(frExternalPerimeter, nozzle_diameter);
+        if (!std::isfinite(line_width) || line_width <= default_lh) {
+            MessageDialog msg_dlg(this, _L("The outer wall line width must be finite and greater than the VFA layer height."),
+                                  _L("VFA test"), wxICON_WARNING | wxOK);
+            msg_dlg.ShowModal();
+            return;
+        }
 
         // Max outer-wall speed printable at a given layer height without exceeding the volumetric limit.
         auto speed_limit_for_lh = [&](double lh) -> double {
@@ -842,54 +877,42 @@ void VFA_Test_Dlg::on_start(wxCommandEvent& event)
                         continue;
                     candidates.push_back(lh);
                 }
-                std::sort(candidates.begin(), candidates.end());
-                candidates.erase(std::unique(candidates.begin(), candidates.end(),
-                                             [](double a, double b) { return std::abs(a - b) < 1e-6; }),
-                                 candidates.end());
-
-                // Largest candidate <= the default layer height that still reaches the end speed (smallest change).
-                double chosen_lh = 0.0;
-                for (auto it = candidates.rbegin(); it != candidates.rend(); ++it) {
-                    if (*it > default_lh + 1e-6)
-                        continue; // never increase the layer height above the default
-                    if (speed_limit_for_lh(*it) >= m_params.end) { chosen_lh = *it; break; }
+                const auto plan = plan_vfa_calibration(nozzle_diameter, line_width, default_lh,
+                    machine_min_lh, machine_max_lh, max_vol_speed,
+                    m_params.start, m_params.end, m_params.step, candidates);
+                if (!plan.reachable) {
+                    MessageDialog msg_dlg(this,
+                        _L("The filament's volumetric limit cannot support even the first two speed blocks at the available layer heights.\n\nLower the start speed or step and try again."),
+                        _L("VFA test"), wxICON_WARNING | wxOK);
+                    msg_dlg.ShowModal();
+                    return;
                 }
-
-                if (chosen_lh > 0.0) {
+                if (plan.end_speed == m_params.end) {
                     // Reducing the layer height is enough to reach the requested end speed.
-                    m_params.vfa_layer_height = chosen_lh;
+                    m_params.vfa_layer_height = plan.layer_height;
                     MessageDialog msg_dlg(nullptr,
                         wxString::Format(_L("The end speed (%.0f mm/s) exceeds the filament's maximum volumetric speed "
                                             "(%.1f mm³/s) at the default layer height (%.2f mm).\n\n"
                                             "The layer height has been reduced to %.2f mm (a value used by this printer's "
                                             "profiles) so the tower can reach the requested speed."),
-                                         m_params.end, max_vol_speed, default_lh, chosen_lh),
+                                         m_params.end, max_vol_speed, default_lh, plan.layer_height),
                         _L("VFA test"), wxICON_INFORMATION | wxOK);
                     msg_dlg.ShowModal();
-                } else if (!candidates.empty()) {
+                } else {
                     // Even the smallest available layer height cannot reach the end speed; propose a lower end speed
                     // based on that layer height, the line width and the maximum volumetric speed.
-                    const double min_lh    = candidates.front();
-                    const double reachable = speed_limit_for_lh(min_lh);
-                    double new_end = std::floor(reachable / m_params.step) * m_params.step; // snap down to a step multiple
-                    if (new_end < m_params.start + m_params.step)
-                        new_end = m_params.start + m_params.step;
                     MessageDialog msg_dlg(nullptr,
                         wxString::Format(_L("Even at the smallest layer height used by this printer's profiles (%.2f mm) the "
                                             "end speed (%.0f mm/s) exceeds the filament's maximum volumetric speed "
                                             "(%.1f mm³/s).\n\n"
                                             "The layer height will be set to %.2f mm and the end speed lowered to %.0f mm/s.\n\n"
                                             "Continue?"),
-                                         min_lh, m_params.end, max_vol_speed, min_lh, new_end),
+                                         plan.layer_height, m_params.end, max_vol_speed, plan.layer_height, plan.end_speed),
                         _L("VFA test"), wxICON_WARNING | wxYES_NO | wxNO_DEFAULT);
                     if (msg_dlg.ShowModal() != wxID_YES)
                         return;
-                    m_params.end              = new_end;
-                    m_params.vfa_layer_height = min_lh;
-                } else {
-                    // No compatible process profiles to draw layer heights from: warn and let the user decide.
-                    if (!confirm_clamp(_L("Continue anyway?")))
-                        return;
+                    m_params.end              = plan.end_speed;
+                    m_params.vfa_layer_height = plan.layer_height;
                 }
             } else {
                 // Auto-adjust off, or resizing disabled (which forbids changing the layer height): just warn.

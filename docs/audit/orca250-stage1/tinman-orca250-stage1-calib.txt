@@ -1,0 +1,3 @@
+Filters: [Calib]
+RNG seed: 2318470477
+All tests passed (1993 assertions in 9 test cases)

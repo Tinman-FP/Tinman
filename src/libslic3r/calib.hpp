@@ -58,6 +58,19 @@ static constexpr int vfa_layers_per_block = 25;
 static constexpr double vfa_base_block_height = 5.0;
 static constexpr double vfa_base_nozzle_diameter = 0.4;
 
+int calibration_step_count(double start, double end, double step);
+float calibration_value_for_layer(float start, float end, float step, int layer_index, unsigned layer_count);
+
+struct VfaCalibrationPlan {
+    double layer_height;
+    double end_speed;
+    bool reachable;
+};
+
+VfaCalibrationPlan plan_vfa_calibration(double nozzle, double line_width, double default_height,
+    double min_height, double max_height, double max_volumetric_speed,
+    double start, double end, double step, const std::vector<double>& candidate_heights);
+
 enum FlowRatioCalibrationType {
     COMPLETE_CALIBRATION = 0,
     FINE_CALIBRATION,

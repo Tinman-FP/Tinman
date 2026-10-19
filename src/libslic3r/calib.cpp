@@ -4,8 +4,81 @@
 #include "Model.hpp"
 #include "GCode.hpp"
 #include <cmath>
+#include <limits>
+#include <stdexcept>
 
 namespace Slic3r {
+
+int calibration_step_count(double start, double end, double step)
+{
+    if (!std::isfinite(start) || !std::isfinite(end) || !std::isfinite(step) || step <= 0.)
+        throw std::invalid_argument("Calibration requires a finite range and positive step");
+    const double intervals = std::abs(end - start) / step;
+    if (!std::isfinite(intervals) || intervals > std::numeric_limits<int>::max() - 1.)
+        throw std::invalid_argument("Calibration has too many steps");
+    return static_cast<int>(std::floor(intervals + 1e-5)) + 1;
+}
+
+float calibration_value_for_layer(float start, float end, float step, int layer_index, unsigned layer_count)
+{
+    if (layer_index <= 0 || layer_count <= 1)
+        return start;
+    if (step > 0.f) {
+        const int bands = calibration_step_count(start, end, step);
+        // Divide by the layer count, not count - 1, to keep all 25-layer VFA blocks aligned.
+        const int band = static_cast<int>(std::min<double>(bands - 1,
+            std::floor(static_cast<double>(layer_index) * bands / layer_count)));
+        return std::clamp(start + (end >= start ? 1.f : -1.f) * band * step,
+                          std::min(start, end), std::max(start, end));
+    }
+    // Preserve the existing continuous calibration ramp's first two layers.
+    if (layer_index <= 1)
+        return start;
+    const float ratio = std::min(1.f, layer_index / (layer_count - 1.f));
+    return start + ratio * (end - start);
+}
+
+VfaCalibrationPlan plan_vfa_calibration(double nozzle, double line_width, double default_height,
+    double min_height, double max_height, double max_volumetric_speed,
+    double start, double end, double step, const std::vector<double>& candidate_heights)
+{
+    calibration_step_count(start, end, step);
+    for (double value : {nozzle, line_width, default_height, min_height, max_height, max_volumetric_speed})
+        if (!std::isfinite(value))
+            throw std::invalid_argument("VFA settings must be finite");
+    if (nozzle <= 0. || line_width <= 0. || default_height <= 0. || min_height < 0. ||
+        max_height < 0. || max_volumetric_speed < 0. || start <= 0. || end < start + step)
+        throw std::invalid_argument("Invalid VFA settings");
+    const double upper_height = std::min(nozzle, max_height > 0. ? max_height : nozzle);
+    if (min_height > upper_height)
+        throw std::invalid_argument("Invalid VFA layer height limits");
+    const double height = std::clamp(default_height, min_height, upper_height);
+    if (line_width <= height)
+        throw std::invalid_argument("VFA line width must exceed layer height");
+    auto speed_limit = [&](double lh) {
+        return max_volumetric_speed > 0. ? max_volumetric_speed / Flow(line_width, lh, nozzle).mm3_per_mm()
+                                        : std::numeric_limits<double>::infinity();
+    };
+    if (speed_limit(height) >= end)
+        return {height, end, true};
+
+    std::vector<double> candidates{height};
+    for (double lh : candidate_heights)
+        if (std::isfinite(lh) && lh > 0. && lh >= min_height && lh <= height)
+            candidates.push_back(lh);
+    std::sort(candidates.begin(), candidates.end(), std::greater<double>());
+    for (double lh : candidates)
+        if (speed_limit(lh) >= end)
+            return {lh, end, true};
+
+    const double smallest = candidates.back();
+    const double reachable = speed_limit(smallest);
+    if (reachable < start + step)
+        return {smallest, start, false};
+    // Anchor the step grid to the requested start, not zero; never increase to an unreachable speed.
+    const double adjusted_end = start + std::floor((std::min(end, reachable) - start) / step) * step;
+    return {smallest, adjusted_end, adjusted_end >= start + step && adjusted_end <= reachable};
+}
 
 // Calculate the optimal Pressure Advance speed
 float CalibPressureAdvance::find_optimal_PA_speed(const DynamicPrintConfig &config, double line_width, double layer_height, int extruder_id, int filament_idx)
@@ -484,10 +557,11 @@ BoundingBoxf CalibPressureAdvanceLine::print_extents(const BoundingBoxf &bed_ext
     double box_width     = m_draw_numbers ? (number_spacing() * 8) : 0.0;   // 3.0 * 8 = 24 mm
 
     BoundingBoxf extent;
-    extent.min.x() = start_x;
-    extent.max.x() = start_x + total_line_len + m_line_width + box_width;
+    extent.min.x() = start_x - m_line_width / 2.;
+    extent.max.x() = start_x + total_line_len + m_line_width / 2. +
+                     (m_draw_numbers ? m_line_width + box_width : 0.);
 
-    // Y bounds are the full bed (the caller will inset them by -25)
+    // Conservative Y bounds also cover long tests and the label foundation.
     extent.min.y() = adjusted_bed.min.y();
     extent.max.y() = adjusted_bed.max.y();
 
@@ -516,7 +590,7 @@ std::string CalibPressureAdvanceLine::print_pa_lines(double start_x, double star
     const double      slow = CalibPressureAdvance::speed_adjust(m_slow_speed);
     std::stringstream gcode;
     gcode << mp_gcodegen->writer().travel_to_z(m_height_layer + z_offset);
-    gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height) << (m_height_layer + z_offset) << "\n";
+    gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height) << m_height_layer << "\n";
     double y_pos = start_y;
     // Purge/first perimeter - acts as an anchor to the rest of the model
     gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) << "Custom\n";
@@ -566,7 +640,7 @@ std::string CalibPressureAdvanceLine::print_pa_lines(double start_x, double star
                           number_spacing() * 8, (num + 1) * m_space_y, default_box_opt_args);
         //Ensure numbers are shown on the next layer in gcode processor, as in reality
         gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Layer_Change) << "\n";
-        gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height) << (m_height_layer*2 + z_offset) << "\n";
+        gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height) << m_height_layer << "\n";
         gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) << "Top surface\n";
         gcode << writer.travel_to_z(m_height_layer*2 + z_offset);
         for (int i = 0; i < num; i += 2) {

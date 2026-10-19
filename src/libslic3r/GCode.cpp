@@ -3311,12 +3311,11 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         } else if (print.calib_mode() == CalibMode::Calib_PA_Line) {
             // Derive X bounds from the actual calibration geometry.
             CalibPressureAdvanceLine temp_pa_line_forsize(this);
+            temp_pa_line_forsize.draw_numbers() = print.calib_params().print_numbers;
             BoundingBoxf pattern_extents = temp_pa_line_forsize.print_extents(bbox_bed);
 
-            bbox = bbox_bed;
-            bbox.offset(-25.0);
-            bbox.min.x() = std::max(pattern_extents.min.x(), bbox.min.x());
-            bbox.max.x() = std::min(pattern_extents.max.x(), bbox.max.x());
+            // Keep conservative Y bounds: long tests can extend beyond a 25 mm bed inset.
+            bbox = pattern_extents;
             
             pts->values.reserve(4);
             pts->values.emplace_back(bbox.min.x(), bbox.min.y());
@@ -8311,18 +8310,7 @@ std::string GCode::extrusion_role_to_string_for_parser(const ExtrusionRole & rol
 // Step = 0 means gradual interpolation finishing at last value.
 float GCode::interpolate_value_across_layers(float start_value, float end_value, float step) const
 {
-    if (m_layer_index <= 1) {
-        return start_value;
-    }
-    const float ratio = m_layer_index / (m_layer_count - 1.f);
-    if (step > 0.f) {
-        // Discrete equal-width bands. band is clamped to the last band so the result can't overshoot the range:
-        // at the top layer ratio * n_bands == n_bands, which would otherwise index one band past the end.
-        const int n_bands = std::lround(std::abs(end_value - start_value) / step) + 1;
-        const int band    = std::min(n_bands - 1, static_cast<int>(ratio * n_bands));
-        return start_value + (end_value >= start_value ? 1.f : -1.f) * band * step;
-    }
-    return start_value + ratio * (end_value - start_value);
+    return calibration_value_for_layer(start_value, end_value, step, m_layer_index, m_layer_count);
 }
 
 std::string encodeBase64(uint64_t value)

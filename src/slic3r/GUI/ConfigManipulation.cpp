@@ -18,20 +18,6 @@
 namespace Slic3r {
 namespace GUI {
 
-namespace {
-
-std::string trim_copy(const std::string& text)
-{
-    const auto first = text.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos)
-        return {};
-
-    const auto last = text.find_last_not_of(" \t\r\n");
-    return text.substr(first, last - first + 1);
-}
-
-} // namespace
-
 void ConfigManipulation::apply(DynamicPrintConfig* config, DynamicPrintConfig* new_config)
 {
     bool modified = false;
@@ -168,11 +154,12 @@ void ConfigManipulation::check_adaptive_pressure_advance_model(DynamicPrintConfi
     if (model == nullptr || model->values.empty())
         return;
 
-    std::string raw_model;
-    for (const std::string& chunk : model->values)
-        raw_model += chunk;
-
-    std::string error = AdaptivePAProcessor::validate_adaptive_pa_model(raw_model);
+    std::string error;
+    for (const std::string& tool_model : model->values) {
+        error = AdaptivePAProcessor::validate_adaptive_pa_model(tool_model);
+        if (!error.empty())
+            break;
+    }
     if (!error.empty()) {
         wxString msg_text = _L("Adaptive Pressure Advance model validation failed:\n");
         msg_text += from_u8(error);

@@ -53,3 +53,78 @@ checks, and smoke-test the packaged application with disposable user data.
 
 The public release notes record the actual completed checks and any limitations.
 No printer operation is required or performed by these software tests.
+
+## Approved Follow-up: October 19, 2026
+
+The user approved the staged follow-up recommendations. Work is isolated on
+`codex/orca-250-calibration-stage1` in private TinManX1. This is a development
+candidate, not an installed update or a public release. The earlier sections
+describe the original maintenance batch; they do not imply that this new batch
+has already shipped. No live printer, filament, or process presets are changed.
+
+### Stage 1: Calibration and Isolated Reliability Fixes
+
+Imported with upstream attribution:
+
+| Change | Upstream | Local compatibility work |
+| --- | --- | --- |
+| Adaptive PA measurement validation | [#14198](https://github.com/OrcaSlicer/OrcaSlicer/pull/14198) | Parse complete finite numbers; validate each filament separately; reject malformed enabled models during print validation. Do not compare PA, flow, and acceleration numerically across different units. |
+| Prusa Adaptive PA warning and clearer measurement labels | [#14271](https://github.com/OrcaSlicer/OrcaSlicer/pull/14271), [#14411](https://github.com/OrcaSlicer/OrcaSlicer/pull/14411) | Retain existing configuration types and preset storage. |
+| PA-line footprint and preview | [#14440](https://github.com/OrcaSlicer/OrcaSlicer/pull/14440) | Account for optional labels and extrusion width; do not clip long-pattern bounds to a 25 mm inset; preview height tags describe thickness, not absolute Z. |
+| Nozzle-aware VFA, flow-limit adjustment, PA-tower interpolation, optional temperature-tower scaling | [#14759](https://github.com/OrcaSlicer/OrcaSlicer/pull/14759) | Keep Tinman's scalar speed/temperature config types. Bound VFA speed steps, reject impossible flow targets, retain selected filament volumetric limits, and keep nozzle/layer limits. |
+| Human-readable Moonraker upload errors | [#14841](https://github.com/OrcaSlicer/OrcaSlicer/pull/14841) | Port only error formatting and its tests, not plugin test dependencies or authentication changes. |
+
+The VFA adjustment selects a compatible process layer height, then proposes a
+lower end speed if necessary. A reduced endpoint stays on the requested speed
+grid and must not exceed the calculated flow limit. If even the first two blocks
+cannot be reached, generation stops. Users can still explicitly opt into a
+warned, flow-clamped test when automatic adjustment is disabled; such a test
+must not be treated as evidence that its requested speeds were reached.
+
+Physical calibration results remain machine/nozzle/material-specific. Software
+regression tests do not promote a filament or process preset to TUNED.
+
+### Next Batches and Release Gates
+
+| Track | Decision | Required before promotion |
+| --- | --- | --- |
+| Precise Seam | Evaluate separately; not imported in stage 1. Initial [#12974](https://github.com/OrcaSlicer/OrcaSlicer/pull/12974) spans 47 files, including model/project-format code; follow-up [#16072](https://github.com/OrcaSlicer/OrcaSlicer/pull/16072) and [#16170](https://github.com/OrcaSlicer/OrcaSlicer/pull/16170) also need review. | 3MF round trips, unchanged toolpaths without modifiers, Classic/Arachne and seam-paint/scarf combinations, representative physical comparison. |
+| Speed Dial | Evaluate a dependency-separated implementation. [#14697](https://github.com/OrcaSlicer/OrcaSlicer/pull/14697) initially dispatches plugin actions; [#15562](https://github.com/OrcaSlicer/OrcaSlicer/pull/15562) is not a small standalone port. Do not import the Python runtime just for this UI. | Built-in action/settings registry, focus and keyboard behavior, localization, no plugin/cloud dependency, desktop smoke tests. |
+| H2D mixed-nozzle support | Separate compatibility track, not a blind catalog/network upgrade. | Equal and mixed diameters, left/right selection, standard/high-flow variants, AMS/manual mapping, LAN/developer mode, old profile/project round trips, generated G-code audit and device validation. Retain Tinman's H2D/X1C onboarding fixes. |
+| macOS shutdown/startup fixes | Review separately against Tinman's camera and shutdown work. The upstream Dock-quit patch depends on the newer plugin manager. | Reproduce the relevant fault; repeated launch/quit and print-host UI smoke tests with disposable data. |
+| Plugin/cloud runtime, Design, texture/color mixing, belt/parallel printing, broad catalog migrations | Deferred. | Dedicated design, compatibility, security and migration review; stable upstream evidence. |
+
+Stage 1 also needs packaged-application smoke tests (VFA resize on/off, reachable
+and impossible flow ranges, PA line with/without numbers, PA/temperature towers),
+representative exported-G-code checks, profile/project round trips, and supported
+platform builds before public promotion. H2D mixed-nozzle qualification is not
+covered by this single-nozzle calibration batch. No printer commands are issued
+by this work.
+
+### Stage 1 Verification Results
+
+On this Apple Silicon Mac, the Release build completed for `libslic3r_tests`,
+`fff_print_tests`, and `slic3rutils_tests`, including the GUI library. Existing
+compiler/dependency warnings remain; this was not a warning-free build.
+
+| Suite | Result |
+| --- | --- |
+| Focused calibration | 9 cases, 1,993 assertions passed |
+| Full libslic3r (includes the focused calibration cases) | 304 cases, 264,400 assertions passed |
+| Full FFF printing | 50 cases, 903 assertions passed |
+| Full slic3r utilities, including upload-error parsing | 34 cases, 288 assertions passed |
+| Whitespace/error-marker check | `git diff --check` passed |
+
+Compact test outputs are retained in [audit/orca250-stage1](audit/orca250-stage1).
+New regression coverage includes 25-layer VFA bands, nonzero-origin speed grids,
+impossible flow targets, nozzle sizes 0.2-1.0 mm, malformed/nonfinite PA input,
+print validation with and without a warning sink, optional label footprints,
+and PA preview thickness with nonzero Z offset. The existing absolute-extrusion
+reset regression is retained.
+
+Not yet completed: interactive packaged-GUI checks, Windows/Linux builds,
+end-to-end tower export matrix and physical validation. Do not distribute this
+private test build: it retains the earlier development build identity. Public
+promotion must apply the selected changes onto the then-current Tinman source,
+preserve intervening Tinman fixes, assign a new build identity, and satisfy the
+release gates above. The installed application and public release are unchanged.

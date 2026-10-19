@@ -303,14 +303,6 @@ std::string AdaptivePAProcessor::validate_adaptive_pa_model(const std::string& m
         const auto last = line.find_last_not_of(" \t\r\n");
         line = line.substr(first, last - first + 1);
         
-        // Only numbers, commas and dots are allowed (no letters or other characters)
-        for (char c : line) {
-            if (!std::isdigit(static_cast<unsigned char>(c)) && c != ',' && c != '.') {
-                return "Line " + std::to_string(line_number) +
-                       ": only numbers, commas and dots are allowed";
-            }
-        }
-
         // Count commas to validate format (should be exactly 2 for 3 values)
         int comma_count = 0;
         for (char c : line) {
@@ -326,31 +318,34 @@ std::string AdaptivePAProcessor::validate_adaptive_pa_model(const std::string& m
         try {
             std::istringstream line_stream(line);
             std::string value;
+            auto read_number = [&]() {
+                if (!std::getline(line_stream, value, ','))
+                    throw std::invalid_argument("Missing value");
+                size_t consumed = 0;
+                const double number = std::stod(value, &consumed);
+                if (!std::isfinite(number) || value.find_first_not_of(" \t\r", consumed) != std::string::npos)
+                    throw std::invalid_argument("Invalid numeric value");
+                return number;
+            };
             
             // Parse PA
-            if (!std::getline(line_stream, value, ','))
-                return "Line " + std::to_string(line_number) + ": missing PA value";
-            double pa = std::stod(value);
+            double pa = read_number();
             
             // Parse flow
-            if (!std::getline(line_stream, value, ','))
-                return "Line " + std::to_string(line_number) + ": missing flow value";
-            double flow = std::stod(value);
+            double flow = read_number();
             
             // Parse acceleration
-            if (!std::getline(line_stream, value, ','))
-                return "Line " + std::to_string(line_number) + ": missing acceleration value";
-            double accel = std::stod(value);
+            double accel = read_number();
             
             // Validate constraints
-            if (pa >= 2.0) {
-                return "Line " + std::to_string(line_number) + ": PA value must be less than 2";
+            if (pa < 0.0 || pa >= 2.0) {
+                return "Line " + std::to_string(line_number) + ": PA value must be nonnegative and less than 2";
             }
-            if (flow <= pa) {
-                return "Line " + std::to_string(line_number) + ": flow value must be greater than PA value";
+            if (flow <= 0.0) {
+                return "Line " + std::to_string(line_number) + ": flow value must be positive";
             }
-            if (accel <= flow) {
-                return "Line " + std::to_string(line_number) + ": acceleration value must be greater than flow value";
+            if (accel <= 0.0) {
+                return "Line " + std::to_string(line_number) + ": acceleration value must be positive";
             }
         } catch (const std::exception&) {
             return "Line " + std::to_string(line_number) + ": invalid numeric value";

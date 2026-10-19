@@ -1662,6 +1662,15 @@ StringObjectException Print::check_multi_filament_valid(const Print& print)
 StringObjectException Print::validate(StringObjectException *warning, Polygons* collison_polygons, std::vector<std::pair<Polygon, float>>* height_polygons) const
 {
     std::vector<unsigned int> extruders = this->extruders();
+    for (unsigned int extruder_id : extruders) {
+        if (m_config.adaptive_pressure_advance.get_at(extruder_id) &&
+            m_config.enable_pressure_advance.get_at(extruder_id)) {
+            const auto error = AdaptivePAProcessor::validate_adaptive_pa_model(
+                m_config.adaptive_pressure_advance_model.get_at(extruder_id));
+            if (!error.empty())
+                return {L("Invalid Adaptive Pressure Advance measurements: ") + error};
+        }
+    }
     unsigned int nozzles = m_config.nozzle_diameter.size();
 
     if (m_objects.empty())
@@ -2329,23 +2338,6 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
             if (m_default_region_config.precise_outer_wall && m_default_region_config.wall_sequence != WallSequence::InnerOuter) {
                 warning->string  = L("The precise wall option will be ignored for outer-inner or inner-outer-inner wall sequences.");
                 warning->opt_key = "precise_outer_wall";
-            }
-
-            // check adaptive pressure advance model
-            for (unsigned int extruder_id : extruders) {
-                if (m_config.adaptive_pressure_advance.get_at(extruder_id) && 
-                    m_config.enable_pressure_advance.get_at(extruder_id)) {
-                    
-                    const std::string pa_model = m_config.adaptive_pressure_advance_model.get_at(extruder_id);
-                    if (!pa_model.empty()) {
-                        std::string validation_error = AdaptivePAProcessor::validate_adaptive_pa_model(pa_model);
-                        if (!validation_error.empty()) {
-                            warn(L("The Adaptive Pressure Advance model for one or more extruders may contain invalid values."),
-                                 "adaptive_pressure_advance_model");
-                            break;
-                        }
-                    }
-                }
             }
 
         } catch (std::exception& e) {

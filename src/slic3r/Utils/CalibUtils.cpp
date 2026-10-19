@@ -1173,6 +1173,13 @@ void CalibUtils::calib_VFA(const CalibInfo &calib_info, wxString &error_message)
     if (params.mode != CalibMode::Calib_VFA_Tower)
         return;
 
+    if (!std::isfinite(params.start) || !std::isfinite(params.end) || !std::isfinite(params.step) ||
+        params.start <= 10. || params.step <= 0. || params.end < params.start + params.step ||
+        (params.end - params.start) / params.step > 1000) {
+        error_message = _L("The start, end or step is not valid value.");
+        return;
+    }
+
     Model model;
     std::string input_file = Slic3r::resources_dir() + "/calib/vfa/vfa.drc";
     read_model_from_file(input_file, model);
@@ -1194,8 +1201,7 @@ void CalibUtils::calib_VFA(const CalibInfo &calib_info, wxString &error_message)
     // Resolved layer height: use the (possibly auto-adjusted) value if provided, else default to nozzle/2.
     double layer_height = params.vfa_layer_height > 0.0 ? params.vfa_layer_height : nozzle_diameter / 2.0;
 
-    filament_config.set_key_value("slow_down_layer_time", new ConfigOptionInts{0});
-    filament_config.set_key_value("filament_max_volumetric_speed", new ConfigOptionFloats{200});
+    filament_config.set_key_value("slow_down_layer_time", new ConfigOptionFloats{0});
     filament_config.set_key_value("curr_bed_type", new ConfigOptionEnum<BedType>(calib_info.bed_type));
 
     print_config.set_key_value("enable_overhang_speed", new ConfigOptionBool{false});
@@ -1209,8 +1215,10 @@ void CalibUtils::calib_VFA(const CalibInfo &calib_info, wxString &error_message)
     print_config.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
     print_config.set_key_value("overhang_reverse", new ConfigOptionBool(false));
     print_config.set_key_value("spiral_mode", new ConfigOptionBool(true));
-    print_config.set_key_value("initial_layer_print_height", new ConfigOptionFloat(layer_height));
-    model.objects[0]->config.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+    if (params.nozzle_based_resize) {
+        print_config.set_key_value("initial_layer_print_height", new ConfigOptionFloat(layer_height));
+        model.objects[0]->config.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
+    }
     model.objects[0]->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
     model.objects[0]->config.set_key_value("brim_width", new ConfigOptionFloat(3.0));
     model.objects[0]->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
@@ -1220,7 +1228,7 @@ void CalibUtils::calib_VFA(const CalibInfo &calib_info, wxString &error_message)
     // Subtract EPSILON (as the temperature tower does) so the cut lands just below the flat block surface instead
     // of exactly on it, which would otherwise add a degenerate extra layer.
     auto obj_bb = model.objects[0]->bounding_box_exact();
-    auto height = vfa_base_block_height * ((params.end - params.start) / params.step + 1) - EPSILON;
+    auto height = vfa_base_block_height * calibration_step_count(params.start, params.end, params.step) - EPSILON;
     if (height < obj_bb.size().z()) {
         cut_model(model, height, ModelObjectCutAttribute::KeepLower);
     }
@@ -1232,7 +1240,7 @@ void CalibUtils::calib_VFA(const CalibInfo &calib_info, wxString &error_message)
     // XY scales with the nozzle; Z scales so each base block becomes vfa_layers_per_block layers of layer_height.
     const double xy_scale = nozzle_diameter / vfa_base_nozzle_diameter;
     const double z_scale  = (vfa_layers_per_block * layer_height) / vfa_base_block_height;
-    if (std::abs(xy_scale - 1.0) > EPSILON || std::abs(z_scale - 1.0) > EPSILON)
+    if (params.nozzle_based_resize && (std::abs(xy_scale - 1.0) > EPSILON || std::abs(z_scale - 1.0) > EPSILON))
         model.objects[0]->scale(xy_scale, xy_scale, z_scale);
     model.objects[0]->ensure_on_bed();
 
@@ -1246,7 +1254,7 @@ void CalibUtils::calib_VFA(const CalibInfo &calib_info, wxString &error_message)
 
     // Pass the resolved layer height on so the GCode speed stepping matches the geometry.
     Calib_Params store_params = params;
-    store_params.vfa_layer_height = layer_height;
+    store_params.vfa_layer_height = params.nozzle_based_resize ? layer_height : 0.0;
     process_and_store_3mf(&model, full_config, store_params, error_message);
     if (!error_message.empty())
         return;

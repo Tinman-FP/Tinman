@@ -59,9 +59,9 @@ public:
      *
      * Checks that:
      * - Each non-empty line has exactly 3 comma-separated values (PA, flow, accel)
-     * - PA value is less than 2
-     * - Flow value is greater than PA value
-     * - Accel value is greater than flow value
+     * - All values are finite, fully parsed numbers
+     * - PA value is nonnegative and less than 2
+     * - Flow and acceleration are positive (their different units are not compared)
      *
      * @param model_str The model string to validate (typically from config)
      * @return Empty string if valid, or an error message describing the first issue found
