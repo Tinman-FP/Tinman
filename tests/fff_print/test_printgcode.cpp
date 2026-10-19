@@ -27,6 +27,61 @@
 using namespace Slic3r;
 using namespace Slic3r::Test;
 
+TEST_CASE("Calibration tower exports preserve bounded machine commands", "[CalibrationExport]")
+{
+    for (const double nozzle : {.4, .6}) {
+        for (const auto mode : {CalibMode::Calib_PA_Tower, CalibMode::Calib_Temp_Tower, CalibMode::Calib_VFA_Tower}) {
+            CAPTURE(nozzle, static_cast<int>(mode));
+            Print print;
+            Model model;
+            auto config = DynamicPrintConfig::full_print_config();
+            config.set_deserialize_strict({
+                {"gcode_flavor", "klipper"}, {"machine_start_gcode", ""}, {"machine_end_gcode", ""},
+                {"layer_change_gcode", ";CALIB_LAYER={layer_num}"}, {"before_layer_change_gcode", ""},
+                {"wall_loops", 1}, {"top_shell_layers", 0}, {"bottom_shell_layers", 0},
+                {"sparse_infill_density", 0}, {"enable_overhang_speed", false},
+                {"slow_down_layer_time", 0}, {"filament_max_volumetric_speed", 100},
+                {"skirt_loops", 0}, {"brim_type", "no_brim"}, {"outer_wall_speed", 30},
+            });
+            config.set_key_value("nozzle_diameter", new ConfigOptionFloats{nozzle});
+            config.set_key_value("layer_height", new ConfigOptionFloat(nozzle / 2.));
+            config.set_key_value("initial_layer_print_height", new ConfigOptionFloat(nozzle / 2.));
+            config.set_key_value("outer_wall_line_width", new ConfigOptionFloatOrPercent(nozzle * 1.125, false));
+            init_print({make_cube(30, 30, 75 * nozzle / 2. - EPSILON)}, print, model, config);
+            Calib_Params params;
+            params.mode = mode;
+            params.start = mode == CalibMode::Calib_PA_Tower ? .02 : mode == CalibMode::Calib_Temp_Tower ? 240 : 30;
+            params.step = mode == CalibMode::Calib_PA_Tower ? .01 : mode == CalibMode::Calib_Temp_Tower ? 5 : 10;
+            params.end = mode == CalibMode::Calib_Temp_Tower ? 230 : params.start + 2 * params.step;
+            print.set_calib_params(params);
+            const auto output = gcode(print);
+            REQUIRE_FALSE(output.empty());
+            REQUIRE(output.find(";CALIB_LAYER=74") != std::string::npos);
+            if (mode == CalibMode::Calib_PA_Tower) {
+                REQUIRE(output.find("SET_PRESSURE_ADVANCE ADVANCE=0.02") != std::string::npos);
+                REQUIRE(output.find("SET_PRESSURE_ADVANCE ADVANCE=0.03") != std::string::npos);
+                REQUIRE(output.find("SET_PRESSURE_ADVANCE ADVANCE=0.04") != std::string::npos);
+                CHECK(output.find("SET_PRESSURE_ADVANCE ADVANCE=0.05") == std::string::npos);
+            } else if (mode == CalibMode::Calib_Temp_Tower) {
+                REQUIRE(output.find("M104 S240") != std::string::npos);
+                REQUIRE(output.find("M104 S235") != std::string::npos);
+                REQUIRE(output.find("M104 S230") != std::string::npos);
+                CHECK(output.find("M104 S225") == std::string::npos);
+            } else {
+                // Select one interior layer per block, avoiding first-layer overrides.
+                for (const int layer : {10, 35, 60}) {
+                    const auto begin = output.find(";CALIB_LAYER=" + std::to_string(layer) + "\n");
+                    REQUIRE(begin != std::string::npos);
+                    const auto end = output.find(";CALIB_LAYER=", begin + 1);
+                    const auto block = output.substr(begin, end - begin);
+                    const int speed = 30 + (layer / 25) * 10;
+                    CHECK(block.find("F" + std::to_string(speed * 60)) != std::string::npos);
+                }
+            }
+        }
+    }
+}
+
 boost::regex perimeters_regex("G1 X[-0-9.]* Y[-0-9.]* E[-0-9.]* ; perimeter");
 boost::regex infill_regex("G1 X[-0-9.]* Y[-0-9.]* E[-0-9.]* ; infill");
 boost::regex skirt_regex("G1 X[-0-9.]* Y[-0-9.]* E[-0-9.]* ; skirt");

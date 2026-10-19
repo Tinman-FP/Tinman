@@ -80,12 +80,14 @@ echo Using CMake generator: %CMAKE_GENERATOR%
 @REM Pack deps
 if "%1"=="pack" (
     setlocal ENABLEDELAYEDEXPANSION
-    cd %WP%/deps/build
-    if "%arch%"=="ARM64" cd %WP%/deps/build-arm64
+    if "%arch%"=="ARM64" (cd /d "%WP%/deps/build-arm64") else (cd /d "%WP%/deps/build")
+    if errorlevel 1 exit /b 1
+    if not exist OrcaSlicer_dep exit /b 1
     for /f "tokens=2-4 delims=/ " %%a in ('date /t') do set build_date=%%c%%b%%a
     echo packing deps: OrcaSlicer_dep_win-!arch!_!build_date!_vs!VS_VERSION!.zip
 
-    %WP%/tools/7z.exe a OrcaSlicer_dep_win-!arch!_!build_date!_vs!VS_VERSION!.zip OrcaSlicer_dep
+    "%WP%/tools/7z.exe" a OrcaSlicer_dep_win-!arch!_!build_date!_vs!VS_VERSION!.zip OrcaSlicer_dep
+    if errorlevel 1 exit /b 1
     goto :done
 )
 
@@ -127,10 +129,14 @@ REM Set minimum CMake policy to avoid <3.5 errors
 set CMAKE_POLICY_VERSION_MINIMUM=3.5
 if "%USE_NINJA%"=="1" (
     cmake ../ -G %CMAKE_GENERATOR% -DCMAKE_BUILD_TYPE=%build_type%
+    if errorlevel 1 exit /b 1
     cmake --build . --config %build_type% --target deps
+    if errorlevel 1 exit /b 1
 ) else (
     cmake ../ -G %CMAKE_GENERATOR% -A %arch% -DCMAKE_BUILD_TYPE=%build_type%
+    if errorlevel 1 exit /b 1
     cmake --build . --config %build_type% --target deps -- -m
+    if errorlevel 1 exit /b 1
 )
 @echo off
 
@@ -146,16 +152,22 @@ echo on
 set CMAKE_POLICY_VERSION_MINIMUM=3.5
 if "%USE_NINJA%"=="1" (
     cmake .. -G %CMAKE_GENERATOR% -DORCA_TOOLS=ON %SIG_FLAG% -DCMAKE_BUILD_TYPE=%build_type%
+    if errorlevel 1 exit /b 1
     cmake --build . --config %build_type% --target ALL_BUILD
+    if errorlevel 1 exit /b 1
 ) else (
     cmake .. -G %CMAKE_GENERATOR% -A %arch% -DORCA_TOOLS=ON %SIG_FLAG% -DCMAKE_BUILD_TYPE=%build_type%
+    if errorlevel 1 exit /b 1
     cmake --build . --config %build_type% --target ALL_BUILD -- -m
+    if errorlevel 1 exit /b 1
 )
 @echo off
 cd ..
 call scripts/run_gettext.bat
+if errorlevel 1 exit /b 1
 cd %build_dir%
 cmake --build . --target install --config %build_type%
+if errorlevel 1 exit /b 1
 
 :done
 @echo off
@@ -169,3 +181,4 @@ set /a "_mins=_remainder / 60"
 set /a "_secs=_remainder - _mins * 60"
 echo.
 echo Build completed in %_hours%h %_mins%m %_secs%s
+exit /b 0
