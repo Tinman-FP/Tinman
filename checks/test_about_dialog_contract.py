@@ -17,17 +17,18 @@ class AboutDialogContract(unittest.TestCase):
         self.assertTrue(text in source, f"Missing About content: {text}")
 
     def test_native_identity_does_not_depend_on_svg_text(self):
-        self.assertContains('"TinManX1_192px"', ABOUT)
-        self.assertContains('"TinManX1"', ABOUT)
+        self.assertContains('"Tinman_192px"', ABOUT)
+        self.assertContains('"Tinman"', ABOUT)
         self.assertContains("wxStaticText", ABOUT)
-        self.assertContains("wxString::FromUTF8(TINMANX1_REVISION)", ABOUT)
+        self.assertContains("wxString::FromUTF8(TINMAN_DISPLAY_VERSION)", ABOUT)
         self.assertContains("GIT_COMMIT_HASH", ABOUT)
         self.assertFalse('"TinManX1_about' in ABOUT, "About identity must not rely on SVG text")
 
     def test_project_link_and_credit_entry_point(self):
-        self.assertContains("https://github.com/Tinman-FP/TinManX1", ABOUT)
+        self.assertContains('https://github.com/Tinman-FP/Tinman\\\">Tinman on GitHub', ABOUT)
         self.assertContains("Credits and Licenses", ABOUT)
-        self.assertFalse("https://www.orcaslicer.com" in ABOUT, "Primary link must point to TinManX1")
+        self.assertFalse("https://www.orcaslicer.com" in ABOUT, "Primary link must point to Tinman")
+        self.assertNotIn("https://github.com/Tinman-FP/TinManX1", ABOUT)
 
     def test_project_and_upstream_credits_are_visible(self):
         for name in (

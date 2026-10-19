@@ -127,11 +127,11 @@ These results describe the private development build, not the public package.
 Do not distribute that private build. Public promotion preserves intervening
 Tinman fixes and uses the Preview 5 identity; its independent checks follow.
 
-### Public Preview 5 Validation (In Progress)
+### Public Preview 5 Validation
 
 The selected commits were applied onto public Tinman `90e25afac2f7` on
-`codex/calibration-preview5-release`. The candidate is **not yet promoted** to
-the public download. The local Release build completed with existing compiler
+`codex/calibration-preview5-release`. Public promotion is gated on the platform
+run linked below. The local Release build completed with existing compiler
 warnings. Standard CI exclusions (`~[NotWorking]`) were used for the suites.
 
 | Check | Observed result |
@@ -142,12 +142,16 @@ warnings. Standard CI exclusions (`~[NotWorking]`) were used for the suites.
 | Actual tower G-code export (included in FFF) | 1 case, 40 assertions; PA, temperature and VFA at 0.4/0.6 mm |
 | Branding/build identity Python tests | 15 passed |
 | Windows build contract tests | 3 passed |
+| Full Python contract suite | 28 passed; corrected inherited About tests to expect public Tinman branding |
 | Public distribution checks | Passed: branding, wizard assets and private-profile boundary |
 | Fresh isolated macOS setup | Qidi Q2 0.4 mm added and available for calibration |
 | VFA resizing on/off | Generated, sliced and exported; resizing off retained selected 0.16 mm layer height |
 | VFA impossible range | Rejected 10,000-11,000 mm/s range |
 | VFA bounded adjustment | Proposed 0.12 mm layers and 490 mm/s grid endpoint; filament MVS remained 24.5 mm3/s |
-| PA line with numbers | Generated and sliced preview; final native export check remains pending |
+| PA line, numbers on/off | Generated, sliced and exported; 0/0.01/0.02/0.03/0.04 PA sweep verified; numbers intentionally add a second layer |
+| PA tower | Generated, sliced and exported; 55 layers, 0.020-0.040 in 0.002 steps, five layers per value, no overshoot |
+| Temperature resizing on/off | Exported 230/225/220 C only; 150 layers at 0.20 mm with scaling on, 187 at selected 0.16 mm with scaling off |
+| Native export and shutdown | Final-package copy exported all cases and exited cleanly after isolated test overrides were discarded |
 | Reopen/project check | Model and presets retained; calibration schedule was not restored (see below) |
 
 Cross-platform build/test run:
@@ -162,9 +166,14 @@ audited final G-code and generator inputs; regenerate calibrations when changing
 or repeating them. A model/preset round trip is not a calibration-schedule round
 trip. This work does not introduce a calibration project-schema migration.
 
-Remaining gates: complete the packaged PA-line numbers-off and PA/temperature
-tower interactive matrix, final exported-output audit, clean release packaging,
-and platform CI results. Native UI automation became unavailable during the
-macOS save-panel test; that check is not counted as passed. No interactive
-Windows/Linux or physical printer qualification is claimed. No live user
-profiles or installed application were changed.
+The initial desktop automation interruption was resolved; the native export
+checks above were completed with the final-package copy. Exported G-code
+retained the selected Qidi Q2 0.4 mm / QIDI PLA Rapido identities, 0.98 flow
+ratio and 24.5 mm3/s volumetric cap. Temperature-band layer counts are derived
+from the sliced layer count, not fixed at 25 layers.
+
+Release qualification requires successful platform CI completion. The linked
+run is the authoritative platform result; release notes identify the shipped
+binary and source revision. No interactive Windows/Linux or physical printer
+qualification is claimed. No live user profiles or installed application were
+changed during validation.
