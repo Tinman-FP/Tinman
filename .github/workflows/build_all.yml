@@ -166,6 +166,7 @@ jobs:
         with:
           name: unit-test-logs
           path: build/tests/**/*.log
+          retention-days: 1
       - name: Publish Test Results
         if: always()
         uses: EnricoMi/publish-unit-test-result-action@v2
@@ -233,14 +234,14 @@ jobs:
       uses: actions/cache/restore@v5
       with:
         path: .flatpak-builder
-        key: flatpak-builder-${{ matrix.variant.arch }}-${{ github.event.pull_request.base.sha }}
+        key: flatpak-builder-${{ matrix.variant.arch }}-${{ hashFiles('scripts/flatpak/**') }}
         restore-keys: flatpak-builder-${{ matrix.variant.arch }}-
     - name: Save/restore flatpak-builder cache
       if: github.event_name != 'pull_request'
       uses: actions/cache@v5
       with:
         path: .flatpak-builder
-        key: flatpak-builder-${{ matrix.variant.arch }}-${{ github.sha }}
+        key: flatpak-builder-${{ matrix.variant.arch }}-${{ hashFiles('scripts/flatpak/**') }}
         restore-keys: flatpak-builder-${{ matrix.variant.arch }}-
     - name: Disable debug info for faster CI builds
       run: |
@@ -260,10 +261,12 @@ jobs:
         arch: ${{ matrix.variant.arch }}
         upload-artifact: false
     - name: Upload artifacts Flatpak
+      if: github.event_name == 'workflow_dispatch'
       uses: actions/upload-artifact@v7
       with:
         name: Tinman-Linux-flatpak_${{ env.ver }}_${{ matrix.variant.arch }}.flatpak
         path: '${{ github.workspace }}/Tinman-Linux-flatpak_${{ env.ver }}_${{ matrix.variant.arch }}.flatpak'
+        retention-days: 1
     - name: Deploy Flatpak to nightly release
       if: github.repository == 'OrcaSlicer/OrcaSlicer' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/belt-printer')
       uses: WebFreak001/deploy-nightly@v3.2.0
