@@ -33,3 +33,6 @@ jobs:
 
       - name: Verify build identity and incremental rebuild isolation
         run: python3 checks/test_tinman_build_info.py
+
+      - name: Verify native tuning-guide help destinations
+        run: python3 checks/test_tuning_guide_links.py
