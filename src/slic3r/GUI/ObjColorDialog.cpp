@@ -2,6 +2,7 @@
 #include <sstream>
 //#include "libslic3r/FlushVolCalc.hpp"
 #include "ObjColorDialog.hpp"
+#include "libslic3r/TuningGuide.hpp"
 #include "BitmapCache.hpp"
 #include "GUI.hpp"//for ICON_SIZE
 #include "I18N.hpp"
@@ -48,7 +49,7 @@ wxBoxSizer* ObjColorDialog::create_btn_sizer(long flags,bool exist_error)
     if (!exist_error) {
         btn_sizer->AddSpacer(FromDIP(25));
         auto *tips = new HyperLink(this, _L("Wiki Guide")); // ORCA
-        tips->SetURL("https://www.orcaslicer.com/wiki/import_export#obj");
+        tips->SetURL(from_u8(tuning_guide_url("import_export#obj")));
         btn_sizer->Add(tips, 0, wxALIGN_LEFT | wxALIGN_CENTER_VERTICAL);
     }
     btn_sizer->AddStretchSpacer();

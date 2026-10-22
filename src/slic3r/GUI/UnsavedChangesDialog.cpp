@@ -1,4 +1,5 @@
 #include "UnsavedChangesDialog.hpp"
+#include "libslic3r/TuningGuide.hpp"
 
 #include <cstddef>
 #include <string>
@@ -961,7 +962,7 @@ void UnsavedChangesDialog::build(Preset::Type type, PresetCollection *dependent_
     checkbox_sizer->Show(bool(m_buttons & REMEMBER_CHOISE));
 
     if (dependent_presets != nullptr) {
-        auto wiki = new HyperLink(this, _L("Help"), "https://www.orcaslicer.com/wiki/transfer_discard_changes");
+        auto wiki = new HyperLink(this, _L("Help"), from_u8(tuning_guide_url("transfer_discard_changes")));
         m_sizer_button->Add(wiki, 0, wxLEFT | wxALIGN_CENTER_VERTICAL, FromDIP(22));
     }
 

@@ -17,6 +17,7 @@
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/AppConfig.hpp"
+#include "libslic3r/TuningGuide.hpp"
 #include "I18N.hpp"
 #include <locale>
 
@@ -1311,18 +1312,7 @@ void ExtruderOptionsGroup::on_change_OG(const t_config_option_key& opt_id, const
 
 wxString OptionsGroup::get_url(const std::string& path_end)
 {
-    //BBS
-    wxString str = from_u8(path_end);
-    auto     pos = str.find(L'#');
-    if (pos != size_t(-1)) {
-        pos++;
-        wxString anchor = str.Mid(pos).Lower();
-        anchor.Replace(L" ", "-");
-        str = str.Left(pos) + anchor;
-    }
-    // Orca: point to sf wiki for seam parameters
-    return wxString::Format(L"https://www.orcaslicer.com/wiki/%s", from_u8(path_end));
-
+    return from_u8(Slic3r::tuning_guide_url(path_end));
 }
 
 bool OptionsGroup::launch_browser(const std::string& path_end)
