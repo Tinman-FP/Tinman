@@ -21,7 +21,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Check out the released source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.tag_name || inputs.release-tag }}
 
