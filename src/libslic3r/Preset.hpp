@@ -10,6 +10,7 @@
 #include <functional>
 #include <mutex>
 #include <memory>
+#include <optional>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/property_tree/ptree_fwd.hpp>
@@ -442,6 +443,17 @@ protected:
 };
 
 bool is_compatible_with_print  (const PresetWithVendorProfile &preset, const PresetWithVendorProfile &active_print, const PresetWithVendorProfile &active_printer);
+// Per-printer profile scope. A physical printer is identified by a lower-case UUID
+// (tinman_physical_printer_id) stored on its machine preset and connection record.
+bool is_valid_physical_printer_id(const std::string &id);
+// True for unscoped presets. A scoped process requires the same printer UUID and the
+// same ordered nozzle diameters; a scoped filament requires the same UUID and the
+// diameter of its qualified nozzle. nozzle_tool_index is an index into nozzle_diameter
+// (not a material slot or firmware T number); when given, it must be the qualified one.
+// Checked before every other printer compatibility rule, so explicit lists, conditions
+// and parent-printer shortcuts cannot offer a scoped preset on another printer.
+bool is_compatible_with_physical_printer_scope(const Preset &preset, const Preset &active_printer,
+                                               std::optional<size_t> nozzle_tool_index = std::nullopt);
 bool is_compatible_with_printer(const PresetWithVendorProfile &preset, const PresetWithVendorProfile &active_printer, const DynamicPrintConfig *extra_config);
 bool is_compatible_with_printer(const PresetWithVendorProfile &preset, const PresetWithVendorProfile &active_printer);
 
@@ -702,9 +714,10 @@ public:
     // If a preset is not found by its name, null is returned.
     // return real pointer if set real = true
     Preset* find_preset(const std::string& name, bool first_visible_if_not_found = false, bool real = false, bool only_from_library = false);
-    const Preset* find_preset(const std::string& name, bool first_visible_if_not_found = false) const
+    const Preset* find_preset(const std::string& name, bool first_visible_if_not_found = false,
+                              bool real = false, bool only_from_library = false) const
     {
-        return const_cast<PresetCollection*>(this)->find_preset(name, first_visible_if_not_found);
+        return const_cast<PresetCollection*>(this)->find_preset(name, first_visible_if_not_found, real, only_from_library);
     }
     // Orca: find preset, if not found, keep searching in the renamed history. This is function should only be used when find
     // system(parent) presets for custom preset.

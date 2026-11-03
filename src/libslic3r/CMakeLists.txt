@@ -370,6 +370,7 @@ set(lisbslic3r_sources
     CloudProfileSnapshot.hpp
     FilamentSelection.cpp
     FilamentSelection.hpp
+    ProfileScopeSave.hpp
     PrinterConnectionUpdate.cpp
     PrinterConnectionUpdate.hpp
     PresetTransfer.cpp

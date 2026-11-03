@@ -16,6 +16,7 @@
 #include "GCode/WipeTower2.hpp"
 #include "Utils.hpp"
 #include "PrintConfig.hpp"
+#include "FilamentSelection.hpp"
 #include "MaterialType.hpp"
 #include "Model.hpp"
 #include "format.hpp"
@@ -1661,6 +1662,10 @@ StringObjectException Print::check_multi_filament_valid(const Print& print)
 //BBS: refine seq-print validation logic.....FIXME:StringObjectException *warning can only contain one warning, but there might be many warnings, need a vector<StringObjectException>
 StringObjectException Print::validate(StringObjectException *warning, Polygons* collison_polygons, std::vector<std::pair<Polygon, float>>* height_polygons) const
 {
+    std::string scope_error;
+    if (!profile_scope_filament_map_valid(m_full_print_config, get_filament_maps(),
+            get_filament_map_mode() >= fmmManual || m_config.nozzle_diameter.size() == 1, scope_error))
+        return {scope_error};
     std::vector<unsigned int> extruders = this->extruders();
     for (unsigned int extruder_id : extruders) {
         if (m_config.adaptive_pressure_advance.get_at(extruder_id) &&
@@ -3027,6 +3032,10 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
 // It is up to the caller to show an error message.
 std::string Print::export_gcode(const std::string& path_template, GCodeProcessorResult* result, ThumbnailsGeneratorCallback thumbnail_cb)
 {
+    // By now the filament map is resolved: every scoped filament must use its qualified nozzle.
+    std::string scope_error;
+    if (!profile_scope_filament_map_valid(m_full_print_config, get_filament_maps(), true, scope_error))
+        throw SlicingError(scope_error);
     // output everything to a G-code file
     // The following call may die if the filename_format template substitution fails.
     std::string path = this->output_filepath(path_template);
@@ -3580,6 +3589,10 @@ void Print::finalize_first_layer_convex_hull()
 
 void Print::update_filament_maps_to_config(std::vector<int> f_maps)
 {
+    // An automatic map must not move a scoped filament to another nozzle.
+    std::string scope_error;
+    if (!profile_scope_filament_map_valid(m_full_print_config, f_maps, true, scope_error))
+        throw SlicingError(scope_error);
     if (m_config.filament_map.values != f_maps)
     {
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": filament maps changed after pre-slicing.");
@@ -3632,6 +3645,10 @@ std::vector<std::set<int>> Print::get_physical_unprintable_filaments(const std::
 {
     int extruder_num = m_config.nozzle_diameter.size();
     std::vector<std::set<int>>physical_unprintables(extruder_num);
+    // Automatic mapping may only place a scoped filament on its qualified nozzle.
+    std::string scope_error;
+    if (!add_profile_scope_tool_exclusions(m_full_print_config, physical_unprintables, scope_error))
+        throw SlicingError(scope_error);
     if (extruder_num < 2)
         return physical_unprintables;
 

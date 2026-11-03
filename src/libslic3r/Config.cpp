@@ -4,8 +4,12 @@
 #include "LocalesUtils.hpp"
 #include "Preset.hpp"
 
+#include <array>
 #include <assert.h>
+#include <cmath>
 #include <fstream>
+#include <locale>
+#include <sstream>
 #include <iostream>
 #include <iomanip>
 #include <regex>
@@ -35,6 +39,51 @@ using namespace nlohmann;
 #include "PrintConfig.hpp"
 
 namespace Slic3r {
+
+namespace {
+// The generic JSON loader skips values of an unexpected shape. For the per-printer
+// scope keys that would turn a damaged scoped profile into an unscoped one that is
+// offered on every printer, so such a file is rejected before the config changes.
+void validate_profile_scope_json(const json &j)
+{
+    static const std::array<const char *, 6> keys{
+        "tinman_physical_printer_id", "tinman_process_scope_physical_id", "tinman_process_scope_nozzle_diameters",
+        "tinman_filament_scope_physical_id", "tinman_filament_scope_nozzle_diameter", "tinman_filament_scope_tool"};
+    for (const char *key : keys) {
+        const auto value = j.find(key);
+        if (value == j.end())
+            continue;
+        const std::string name(key);
+        const bool scalar = name == "tinman_physical_printer_id" || name == "tinman_process_scope_physical_id";
+        bool valid = scalar ? value->is_string() : value->is_array() && !value->empty();
+        if (valid && !scalar) {
+            for (const auto &item : *value) {
+                if (!item.is_string()) {
+                    valid = false;
+                    break;
+                }
+                if (name == "tinman_filament_scope_physical_id")
+                    continue;
+                // One complete finite number per element, not "0.7junk" or "0.4,0.7".
+                std::istringstream token(item.get<std::string>());
+                token.imbue(std::locale::classic());
+                double number = 0.;
+                int    tool   = 0;
+                if (name == "tinman_filament_scope_tool")
+                    token >> std::noskipws >> tool;
+                else
+                    token >> std::noskipws >> number;
+                if (token.fail() || !std::isfinite(number) || token.peek() != std::char_traits<char>::eof()) {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        if (!valid)
+            throw std::runtime_error("Invalid JSON value for printer scope option: " + name);
+    }
+}
+} // namespace
 
 //BBS: add json support
 //static const std::string CONFIG_VERSION_KEY = "version";
@@ -884,6 +933,7 @@ int ConfigBase::load_from_json(const std::string &file, ConfigSubstitutionContex
             BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": no config defs!";
             return -1;
         }
+        validate_profile_scope_json(j);
         //parse the json elements
         for (auto it = j.begin(); it != j.end(); it++) {
             if (boost::iequals(it.key(),BBL_JSON_KEY_VERSION)) {
