@@ -93,7 +93,7 @@ jobs:
           # -type f is required (some artifact *folders* are named "*.flatpak").
 
           # Windows installers (x64 + arm64): the .exe inside each installer
-          # artifact, NOT the orca-slicer.exe in the portable app folder. CPack
+          # artifact, NOT the Tinman.exe in the portable app folder. CPack
           # now bakes the arch into the filename (…_x64.exe / …_arm64.exe), so
           # copy them straight through.
           find artifacts -type f -name '*.exe' -path '*Tinman_Windows_V*' ! -path '*_portable*' -exec cp -v {} upload/ \;
