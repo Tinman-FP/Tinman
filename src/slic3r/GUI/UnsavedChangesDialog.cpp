@@ -1108,6 +1108,16 @@ void UnsavedChangesDialog::close(Action action)
     this->EndModal(wxID_CLOSE);
 }
 
+// System and default presets need a new name. A process or filament also goes through the
+// save dialog while a physical printer with its own identity is selected, so it can be saved
+// for that printer; otherwise it is saved in place as before.
+static bool needs_save_preset_dialog(const Preset &preset)
+{
+    return !preset.can_overwrite() ||
+           ((preset.type == Preset::TYPE_PRINT || preset.type == Preset::TYPE_FILAMENT) &&
+            current_profile_scope_save_target(*wxGetApp().preset_bundle));
+}
+
 bool UnsavedChangesDialog::save(PresetCollection* dependent_presets, bool show_save_preset_dialog/* = true*/)
 {
     names_and_types.clear();
@@ -1121,7 +1131,8 @@ bool UnsavedChangesDialog::save(PresetCollection* dependent_presets, bool show_s
         //BBS: add project embedded preset logic and refine is_external
         bool save_to_project = false;
         PendingPhysicalPrinterUpdate connection_update;
-        if (!preset.can_overwrite()) {
+        ProfileScopeSaveSelection profile_scope;
+        if (needs_save_preset_dialog(preset)) {
         //if (preset.is_system || preset.is_default || preset.is_external) {
             SavePresetDialog save_dlg(this, preset.type);
             if (save_dlg.ShowModal() != wxID_OK) {
@@ -1131,11 +1142,13 @@ bool UnsavedChangesDialog::save(PresetCollection* dependent_presets, bool show_s
             name = save_dlg.get_name();
             save_to_project = save_dlg.get_save_to_project_selection(preset.type);
             connection_update = save_dlg.pending_physical_printer_update(name);
+            profile_scope = save_dlg.get_profile_scope_selection(preset.type);
         }
 
         //BBS: add project embedded preset relate logic
         PresetData preset_data(name, preset.type, save_to_project);
         preset_data.connection_update = std::move(connection_update);
+        preset_data.profile_scope = std::move(profile_scope);
         names_and_types.emplace_back(preset_data);
         //names_and_types.emplace_back(make_pair(name, preset.type));
     }
@@ -1150,7 +1163,7 @@ bool UnsavedChangesDialog::save(PresetCollection* dependent_presets, bool show_s
             if (tab->supports_printer_technology(printer_technology) && tab->current_preset_is_dirty()) {
                 const Preset& preset = tab->get_presets()->get_edited_preset();
                 //BBS: add project embedded preset logic and refine is_external
-                if (!preset.can_overwrite())
+                if (needs_save_preset_dialog(preset))
                 //if (preset.is_system || preset.is_default || preset.is_external)
                     types_for_save.emplace_back(preset.type);
 
@@ -1174,6 +1187,7 @@ bool UnsavedChangesDialog::save(PresetCollection* dependent_presets, bool show_s
                 if (!name.empty()) {
                     nt.name = name;
                     nt.save_to_project = save_dlg.get_save_to_project_selection(nt.type);
+                    nt.profile_scope = save_dlg.get_profile_scope_selection(nt.type);
                     if (nt.type == Preset::TYPE_PRINTER)
                         nt.connection_update = save_dlg.pending_physical_printer_update(name);
                 }

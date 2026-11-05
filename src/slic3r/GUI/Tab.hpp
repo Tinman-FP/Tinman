@@ -36,6 +36,7 @@
 #include "OptionsGroup.hpp"
 #include "libslic3r/Preset.hpp"
 #include "libslic3r/PrinterConnectionUpdate.hpp"
+#include "libslic3r/ProfileScopeSave.hpp"
 #include "libslic3r/PresetTransfer.hpp"
 //BBS: GUI refactor
 #include "Notebook.hpp"
@@ -354,6 +355,7 @@ public:
     struct SaveContext {
         const Preset *candidate = nullptr;
         PendingPhysicalPrinterUpdate connection_update;
+        ProfileScopeSaveSelection profile_scope;
     };
 	bool        save_preset(std::string name = std::string(), bool detach = false, bool save_to_project = false, bool from_input = false, std::string input_name = "", const SaveContext *context = nullptr);
 	//void		save_preset(std::string name = std::string(), bool detach = false);

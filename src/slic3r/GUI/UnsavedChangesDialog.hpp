@@ -308,6 +308,7 @@ public:
         Preset::Type type;
         bool save_to_project;
         PendingPhysicalPrinterUpdate connection_update;
+        ProfileScopeSaveSelection profile_scope;
 
         PresetData(std::string preset_name, Preset::Type preset_type, bool save_project)
             :name(preset_name), type(preset_type), save_to_project(save_project)
