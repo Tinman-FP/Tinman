@@ -7110,7 +7110,8 @@ bool Tab::save_preset(std::string name /*= ""*/, bool detach, bool save_to_proje
     std::string curr_preset_name = edited_preset.name;
     try {
         // Checked against the live printer selection, which may have changed since the dialog opened.
-        prepare_profile_scope_for_save(edited_preset, *m_preset_bundle, name, profile_scope);
+        if (prepare_profile_scope_for_save(edited_preset, *m_preset_bundle, name, profile_scope))
+            detach = true;
     } catch (const std::exception &error) {
         show_error(this, _L("The preset was not saved.") + "\n\n" + wxString::FromUTF8(error.what()));
         return false;
