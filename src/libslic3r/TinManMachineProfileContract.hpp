@@ -64,7 +64,8 @@ void tinmanx_apply_machine_catalog(AppConfig &config);
 
 // Keep local print-host credentials outside generated machine presets. The
 // overlay is keyed by physical machine family, so every supported nozzle uses
-// the same connection without creating a visible "Copy" preset.
+// the same connection without creating a visible "Copy" preset. A machine profile with a
+// tinman_physical_printer_id belongs to one printer and is neither recorded nor overlaid.
 bool tinmanx_remember_machine_connection(AppConfig &app_config,
                                          const std::string &preset_name,
                                          const DynamicPrintConfig &printer_config,

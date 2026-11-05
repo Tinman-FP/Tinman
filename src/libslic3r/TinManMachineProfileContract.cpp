@@ -156,6 +156,14 @@ const TinManMachineDefinition *family_for_model(std::string_view model)
     return tinmanx_hardware_catalog().find_model(model);
 }
 
+// A machine profile that belongs to one physical printer keeps its own connection: the
+// model-wide overlay would copy one printer's address onto another printer of that model.
+bool has_physical_printer_identity(const DynamicPrintConfig &config)
+{
+    const auto *id = config.option<ConfigOptionString>("tinman_physical_printer_id");
+    return id && !id->value.empty();
+}
+
 bool is_qidi_moonraker_model(std::string_view model)
 {
     const auto *definition = family_for_model(model);
@@ -469,6 +477,8 @@ bool tinmanx_remember_machine_connection(AppConfig &app_config,
                                          const DynamicPrintConfig &printer_config,
                                          bool overwrite_existing)
 {
+    if (has_physical_printer_identity(printer_config))
+        return false;
     const std::string machine_hint = printer_config.has("printer_model") ?
         printer_config.opt_string("printer_model") : std::string();
     const std::string_view model = matched_model(preset_name, machine_hint);
@@ -554,6 +564,8 @@ bool tinmanx_restore_machine_connection(const AppConfig &app_config,
                                         const std::string &preset_name,
                                         DynamicPrintConfig &printer_config)
 {
+    if (has_physical_printer_identity(printer_config))
+        return tinmanx_enforce_machine_connection_contract(preset_name, printer_config);
     const std::string machine_hint = printer_config.has("printer_model") ?
         printer_config.opt_string("printer_model") : std::string();
     const std::string_view model = matched_model(preset_name, machine_hint);

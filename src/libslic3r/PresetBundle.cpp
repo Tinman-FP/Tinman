@@ -235,6 +235,30 @@ void PresetBundle::save_physical_unit(const Preset &source, PhysicalPrinter conn
     unbound_machine_file.clear();
 }
 
+void PresetBundle::load_physical_units(const std::string &dir_user_presets, PresetsConfigSubstitutions &substitutions,
+                                       ForwardCompatibilitySubstitutionRule rule)
+{
+    const std::string previous_selection = physical_printers.get_selected_full_printer_name();
+    const std::string previous_folder    = physical_printers.m_dir_path;
+    physical_printers = PhysicalPrinterCollection(PhysicalPrinter::printer_options(), this);
+    try {
+        physical_printers.load_printers(dir_user_presets, "physical_printer", substitutions, rule);
+    } catch (const std::runtime_error &err) {
+        // The valid records are already loaded; a damaged one must not block the user's presets.
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": " << err.what();
+    }
+    auto &units = physical_printers.m_printers;
+    units.erase(std::remove_if(units.begin(), units.end(), [](const PhysicalPrinter &unit) {
+                    const auto *id = unit.config.option<ConfigOptionString>("tinman_physical_printer_id");
+                    return !id || !is_valid_physical_printer_id(id->value);
+                }), units.end());
+    if (!previous_selection.empty() && physical_printers.m_dir_path == previous_folder) {
+        physical_printers.select_printer(previous_selection);
+        if (physical_printers.get_selected_full_printer_name() != previous_selection)
+            physical_printers.unselect_printer();
+    }
+}
+
 static std::vector<std::string> s_project_options {
     "flush_volumes_vector",
     "flush_volumes_matrix",
@@ -1256,6 +1280,8 @@ PresetsConfigSubstitutions PresetBundle::load_user_presets(std::string user, For
     } catch (const std::runtime_error &err) {
         errors_cummulative += err.what();
     }
+    // After the machine presets, which the physical printers refer to.
+    load_physical_units(dir_user_presets, substitutions, substitution_rule);
     if (!errors_cummulative.empty()) throw Slic3r::RuntimeError(errors_cummulative);
     this->update_multi_material_filament_presets();
     this->update_compatible(PresetSelectCompatibleType::Never);
@@ -2970,7 +2996,10 @@ void PresetBundle::load_selections(AppConfig &config, const PresetPreferences& p
             initial_printer = canonical;
         }
     }
-    if (initial_printer != nullptr &&
+    // A physical printer's own machine profile is never one of the curated names, but it is
+    // not a stray copy either: replacing it would drop that printer's selection on restart.
+    const auto *initial_unit_id = initial_printer ? initial_printer->config.option<ConfigOptionString>("tinman_physical_printer_id") : nullptr;
+    if (initial_printer != nullptr && !(initial_unit_id && is_valid_physical_printer_id(initial_unit_id->value)) &&
         !tinmanx_machine_preset_allowed(initial_printer->name, initial_printer->config.opt_string("printer_model"))) {
         const std::string canonical_name = tinmanx_canonical_machine_preset_name(
             initial_printer->name,
@@ -3180,8 +3209,15 @@ void PresetBundle::load_selections(AppConfig &config, const PresetPreferences& p
     std::string initial_physical_printer_name = remove_ini_suffix(config.get("presets", "physical_printer"));
 
     // Activate physical printer from the config
-    if (!initial_physical_printer_name.empty())
+    physical_printers.unselect_printer();
+    if (!initial_physical_printer_name.empty()) {
         physical_printers.select_printer(initial_physical_printer_name);
+        // select_printer() falls back to the printer's first preset; only the exact saved
+        // pairing with the selected machine preset counts.
+        if (physical_printers.get_selected_full_printer_name() != initial_physical_printer_name ||
+            physical_printers.get_selected_printer_preset_name() != printers.get_edited_preset().name)
+            physical_printers.unselect_printer();
+    }
 
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": finished, preferred printer_model_id %1%")%preferred_selection.printer_model_id;
 }
@@ -3251,7 +3287,9 @@ void PresetBundle::export_selections(AppConfig &config)
     // BBS
     //config.set("presets", "sla_print",    sla_prints.get_selected_preset_name());
     //config.set("presets", "sla_material", sla_materials.get_selected_preset_name());
-    //config.set("presets", "physical_printer", physical_printers.get_selected_full_printer_name());
+    // Only physical printers with an identity are loaded (load_physical_units()).
+    if (physical_printers.has_selection())
+        config.set("presets", "physical_printer", physical_printers.get_selected_full_printer_name());
     //BBS: add config related log
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__
         << boost::format(": printer %1%, print %2%, filaments[%3%] %4%")
