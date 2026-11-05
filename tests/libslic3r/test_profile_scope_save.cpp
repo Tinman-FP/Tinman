@@ -3,6 +3,7 @@
 #include <boost/nowide/fstream.hpp>
 #include <utility>
 
+#include "libslic3r/AppConfig.hpp"
 #include "libslic3r/PresetBundle.hpp"
 
 using namespace Slic3r;
@@ -229,4 +230,123 @@ TEST_CASE("Scoped copies keep an existing child's direct parent across a fresh r
     CHECK(loaded->inherits() == "Public material parent");
     CHECK(loaded->config.option<ConfigOptionFloats>("filament_flow_ratio")->values == std::vector<double>{0.96});
     CHECK(is_compatible_with_physical_printer_scope(*loaded, fixture.bundle.printers.get_edited_preset(), 1));
+}
+
+// The calls the connection dialog and the save dialog make, end to end: two printers created
+// from one machine profile, a reload, scoped saves on printer A, and a stale dialog choice.
+TEST_CASE("Two printers created from one machine profile keep their own profiles", "[TinMan][Preset][ScopeSave][PhysicalUnit]")
+{
+    namespace fs = boost::filesystem;
+    const auto rule = ForwardCompatibilitySubstitutionRule::Disable;
+    const fs::path root = fs::temp_directory_path() / fs::unique_path("tinman-two-units-%%%%-%%%%");
+    struct Cleanup {
+        fs::path path;
+        ~Cleanup() { boost::system::error_code error; fs::remove_all(path, error); }
+    } cleanup{root};
+    for (const auto *subdir : {"machine", "process", "filament"})
+        fs::create_directories(root / subdir / "base"); // root user presets live in base/
+    const auto load_user_folder = [&](PresetBundle &bundle) {
+        PresetsConfigSubstitutions substitutions;
+        bundle.printers.load_presets(root.string(), "machine", substitutions, rule);
+        bundle.prints.load_presets(root.string(), "process", substitutions, rule);
+        bundle.filaments.load_presets(root.string(), "filament", substitutions, rule);
+        bundle.load_physical_units(root.string(), substitutions, rule);
+        // Stands in for a vendor profile shared by every printer of the model.
+        auto vendor = bundle.filaments.default_preset().config;
+        bundle.filaments.load_preset("", "Vendor material", vendor, false).is_system = true;
+    };
+
+    AppConfig app_config;
+    {
+        PresetBundle bundle;
+        load_user_folder(bundle);
+        CHECK(bundle.physical_printers.empty());
+        auto machine = bundle.printers.default_preset().config;
+        machine.set_key_value("nozzle_diameter", new ConfigOptionFloats{0.4});
+        bundle.printers.load_preset(bundle.printers.path_from_name("Model X", true), "Model X", machine, true);
+        bundle.printers.save_current_preset("Model X");
+        for (auto *collection : {static_cast<PresetCollection *>(&bundle.prints), static_cast<PresetCollection *>(&bundle.filaments)}) {
+            auto config = collection->default_preset().config;
+            collection->load_preset(collection->path_from_name("Shared", true), "Shared", config, true);
+            collection->save_current_preset("Shared");
+        }
+        for (const auto &unit : {std::make_pair("Printer A", id_a), std::make_pair("Printer B", id_b)}) {
+            bundle.printers.select_preset_by_name("Model X", true);
+            PhysicalPrinter connection(unit.first, bundle.physical_printers.default_config());
+            connection.config.set_key_value("tinman_physical_printer_id", new ConfigOptionString(unit.second));
+            fs::create_directories(bundle.physical_printers.dir_path());
+            std::string unbound;
+            REQUIRE_NOTHROW(bundle.save_physical_unit(bundle.printers.get_edited_preset(), connection, unit.first, {}, unbound));
+        }
+        bundle.printers.select_preset_by_name("Printer B", true);
+        bundle.physical_printers.select_printer("Printer B", "Printer B");
+        bundle.filament_presets = {"Shared"};
+        bundle.export_selections(app_config);
+    }
+    CHECK(app_config.get("presets", "physical_printer") == "Printer B * Printer B");
+
+    PresetBundle bundle; // after a restart
+    load_user_folder(bundle);
+    REQUIRE(bundle.physical_printers().size() == 2);
+    bundle.load_selections(app_config);
+    CHECK(bundle.printers.get_edited_preset().name == "Printer B");
+    CHECK(bundle.physical_printers.get_selected_full_printer_name() == "Printer B * Printer B");
+    {
+        // A saved pairing that does not exist is dropped, not replaced by the printer's first
+        // machine profile (select_printer()'s fallback would pick "Printer A * Printer A").
+        AppConfig mismatched_config(app_config);
+        mismatched_config.set("presets", "physical_printer", "Printer A * Printer B");
+        PresetBundle mismatched;
+        load_user_folder(mismatched);
+        mismatched.load_selections(mismatched_config);
+        CHECK(mismatched.printers.get_edited_preset().name == "Printer B");
+        CHECK_FALSE(mismatched.physical_printers.has_selection());
+    }
+    bundle.filament_presets = {"Shared"};
+    const auto select = [&](const std::string &printer) {
+        bundle.printers.select_preset_by_name(printer, true);
+        bundle.physical_printers.select_printer(printer, printer);
+        bundle.prints.select_preset_by_name("Shared", true);
+        bundle.filaments.select_preset_by_name("Shared", true);
+        bundle.update_compatible(PresetSelectCompatibleType::Never);
+    };
+    const auto offered = [&](const PresetCollection &collection, const std::string &name) {
+        const Preset *preset = collection.find_preset(name, false, true);
+        return preset != nullptr && preset->is_compatible;
+    };
+
+    select("Printer A");
+    auto target = current_profile_scope_save_target(bundle);
+    REQUIRE(target);
+    CHECK(target->physical_printer_name == "Printer A");
+    CHECK(target->nozzle_tool_index == std::optional<size_t>(0));
+    // A scope change needs a new name; the shared profile is kept.
+    CHECK_THROWS(bundle.save_changes_for_preset("Shared", Preset::TYPE_FILAMENT, {}, false, *target));
+    REQUIRE_NOTHROW(bundle.save_changes_for_preset("Shared - Printer A", Preset::TYPE_FILAMENT, {}, false, *target));
+    REQUIRE_NOTHROW(bundle.save_changes_for_preset("Shared - Printer A", Preset::TYPE_PRINT, {}, false, *target));
+
+    select("Printer A");
+    CHECK(offered(bundle.prints, "Shared - Printer A"));
+    CHECK(offered(bundle.filaments, "Shared - Printer A"));
+    CHECK(offered(bundle.prints, "Shared"));
+    CHECK(offered(bundle.filaments, "Shared"));
+    CHECK(offered(bundle.filaments, "Vendor material"));
+    select("Printer B");
+    CHECK_FALSE(offered(bundle.prints, "Shared - Printer A"));
+    CHECK_FALSE(offered(bundle.filaments, "Shared - Printer A"));
+    CHECK(offered(bundle.prints, "Shared"));
+    CHECK(offered(bundle.filaments, "Shared"));
+    CHECK(offered(bundle.filaments, "Vendor material"));
+
+    // The save dialog was opened on printer A; printer B is selected by the time it saves.
+    select("Printer A");
+    const auto stale = *current_profile_scope_save_target(bundle);
+    select("Printer B");
+    try {
+        bundle.save_changes_for_preset("Stale copy", Preset::TYPE_FILAMENT, {}, false, stale);
+        FAIL("A stale scope choice was saved");
+    } catch (const std::runtime_error &error) {
+        CHECK(std::string(error.what()) == "The selected physical printer or nozzle changed. Reopen the save dialog.");
+    }
+    CHECK(bundle.filaments.find_preset("Stale copy", false, true) == nullptr);
 }
