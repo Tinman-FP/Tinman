@@ -738,21 +738,23 @@ def main() -> int:
 
         material_payload = {
             "material_tuning": {
+                # Synthetic values: this checks material selection and the
+                # heavy-mode override, not real material limits.
                 "PA-CF + X-CCF": {
                     "default": {
-                        "min_radius": 12,
-                        "max_arc_segment_length": 3,
-                        "start_length": 15,
-                        "slow_length": 10,
-                        "normal_max_speed": 30,
-                        "finish_max_speed": 15,
-                        "min_route_length": 55,
-                        "perimeter_min_route_length": 55,
+                        "min_radius": 11,
+                        "max_arc_segment_length": 2.5,
+                        "start_length": 14,
+                        "slow_length": 9,
+                        "normal_max_speed": 28,
+                        "finish_max_speed": 14,
+                        "min_route_length": 60,
+                        "perimeter_min_route_length": 60,
                     },
                     "heavy": {
-                        "max_arc_segment_length": 1,
-                        "slow_length": 8,
-                        "normal_max_speed": 15,
+                        "max_arc_segment_length": 1.5,
+                        "slow_length": 7,
+                        "normal_max_speed": 16,
                     },
                 }
             }
@@ -769,12 +771,12 @@ def main() -> int:
         material_cfg = planner.planner_config(planner.parse_gcode(material_fixture), default_planner_args())
         if material_cfg.material_tuning_name != "PA-CF + X-CCF":
             raise SystemExit(f"PA-CF material tuning was not selected: {material_cfg.material_tuning_name!r}")
-        if material_cfg.max_arc_segment_length != 1 or material_cfg.slow_length != 8:
+        if material_cfg.max_arc_segment_length != 1.5 or material_cfg.slow_length != 7:
             raise SystemExit(
                 "PA-CF material tuning did not apply arc/slow-length overrides: "
                 f"arc={material_cfg.max_arc_segment_length}, slow={material_cfg.slow_length}"
             )
-        if round(material_cfg.fiber_feedrate / 60.0, 3) != 15:
+        if round(material_cfg.fiber_feedrate / 60.0, 3) != 16:
             raise SystemExit(f"PA-CF material tuning did not apply route speed: {material_cfg.fiber_feedrate / 60.0}")
 
         expected_pattern_angles = {
