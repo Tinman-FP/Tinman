@@ -383,7 +383,8 @@ fi
 exec "\$DIR/libexec/@SLIC3R_APP_CMD@-env" "\$DIR/bin/@SLIC3R_APP_CMD@" "\$@"
 EOF
 
-    chmod ug+x @SLIC3R_APP_CMD@
+    # 0755: AppImages run as other users, and appimagetool rejects 0754.
+    chmod 755 @SLIC3R_APP_CMD@
     cp -fl @SLIC3R_APP_CMD@ "$APPDIR/@SLIC3R_APP_CMD@"
 
     if [ -x "${CHECK_SCRIPT}" ] && [ -z "${ORCA_SKIP_APPIMAGE_AUDIT}" ]; then
@@ -406,6 +407,9 @@ echo -n "Creating Appimage for distribution..."
         rm -fR package_appimage
     else
         popd > /dev/null
+        echo
+        echo "Error: AppImage packaging failed (see build_appimage.sh output above)"
+        exit 1
     fi
 # } &> $ROOT/Build.log # Capture all command output
 echo "done"
