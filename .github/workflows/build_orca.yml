@@ -34,6 +34,11 @@ jobs:
       # suffix (nightly_suffix) so they never overwrite the main nightly assets.
       deploy_nightly: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/belt-printer' }}
       nightly_suffix: ${{ github.ref == 'refs/heads/belt-printer' && '_belt' || '' }}
+      # Sign and notarize the macOS DMG only for main and release/* builds, and only
+      # when the Developer ID certificate secret exists. PRs, other branches, forks
+      # and repos without the secrets build the unsigned DMG instead. A step `if:`
+      # can't read secrets, so this flag carries the check.
+      mac_sign: ${{ secrets.BUILD_CERTIFICATE_BASE64 != '' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/')) }}
 
     steps:
       - name: Checkout
@@ -183,7 +188,7 @@ jobs:
 
  # Thanks to RaySajuuk, it's working now
       - name: Sign app and notary
-        if: github.repository == 'OrcaSlicer/OrcaSlicer' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/belt-printer' || startsWith(github.ref, 'refs/heads/release/')) && runner.os == 'macOS' && inputs.macos-combine-only
+        if: env.mac_sign == 'true' && runner.os == 'macOS' && inputs.macos-combine-only
         working-directory: ${{ github.workspace }}
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
@@ -243,9 +248,10 @@ jobs:
             xcrun notarytool submit "OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg" --apple-id "${{ secrets.APPLE_DEV_ACCOUNT }}" --team-id "${{ secrets.TEAM_ID }}" --password "${{ secrets.APP_PWD }}" --wait
             xcrun stapler staple OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg
           fi
+          echo "macOS DMG: signed with Developer ID and notarized." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Create DMG without notary
-        if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/belt-printer' && runner.os == 'macOS' && inputs.macos-combine-only
+        if: env.mac_sign != 'true' && runner.os == 'macOS' && inputs.macos-combine-only
         working-directory: ${{ github.workspace }}
         run: |
           # Load the `retry` helper (retries flaky commands such as `hdiutil create`).
@@ -267,6 +273,7 @@ jobs:
             ln -sfn /Applications ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg/Applications
             retry hdiutil create -volname "OrcaSlicer Profile Validator" -srcfolder ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg -ov -format UDZO OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg
           fi
+          echo "macOS DMG: unsigned. Signing runs only for main and release/* when the Developer ID secrets are set." >> "$GITHUB_STEP_SUMMARY"
 
       # Delete the per-arch bundles only after signing/DMG creation succeeded, so a
       # failed run keeps them available for a re-run instead of forcing a full rebuild.
