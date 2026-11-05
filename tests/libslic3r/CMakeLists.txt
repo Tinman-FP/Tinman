@@ -21,6 +21,7 @@ add_executable(${_TEST_NAME}_tests
     test_physical_printer_recovery.cpp
     test_physical_profile_scope.cpp
     test_profile_scope_save.cpp
+    test_profile_scope_migration.cpp
     test_project_preset_recovery.cpp
     test_cloud_preset_recovery.cpp
     test_cloud_preset_removal.cpp

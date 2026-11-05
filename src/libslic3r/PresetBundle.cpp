@@ -10,6 +10,7 @@
 #include "Model.hpp"
 #include "libslic3r_version.h"
 #include "TinManMachineProfileContract.hpp"
+#include "ProfileScopeMigration.hpp"
 #include "ConfigResolutionTrace.hpp"
 
 #include <algorithm>
@@ -104,7 +105,7 @@ std::optional<ProfileScopeSaveSelection> current_profile_scope_save_target(const
 }
 
 void prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundle, const std::string &new_name,
-                                    const ProfileScopeSaveSelection &selection)
+                                    const ProfileScopeSaveSelection &selection, const Preset *copied_from)
 {
     if (candidate.type != Preset::TYPE_PRINT && candidate.type != Preset::TYPE_FILAMENT)
         return;
@@ -112,7 +113,7 @@ void prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundl
         return;
     const PresetCollection &collection = candidate.type == Preset::TYPE_PRINT ? static_cast<const PresetCollection &>(bundle.prints) :
                                                                                  static_cast<const PresetCollection &>(bundle.filaments);
-    const auto &source = collection.get_edited_preset();
+    const auto &source = copied_from ? *copied_from : collection.get_edited_preset();
     // The scope is saved as a whole, even when only selected options are being saved.
     for (const auto &key : profile_scope_keys(candidate.type)) {
         const ConfigOption *value = source.config.option(key);
@@ -155,15 +156,17 @@ void prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundl
     }
 }
 
+bool is_valid_profile_name(const std::string &name)
+{
+    return !name.empty() && name != "." && name != ".." && name.front() != ' ' && name.back() != ' ' &&
+           name.find_first_of("<>[]:/\\|?*\"\r\n\t") == std::string::npos && name.find(Preset::suffix_modified()) == std::string::npos;
+}
+
 void PresetBundle::save_physical_unit(const Preset &source, PhysicalPrinter connection, const std::string &machine_name,
                                       const std::string &assign_existing, std::string &unbound_machine_file)
 {
     unbound_machine_file.clear();
-    const auto valid_name = [](const std::string &name) {
-        return !name.empty() && name != "." && name != ".." && name.front() != ' ' && name.back() != ' ' &&
-               name.find_first_of("<>[]:/\\|?*\"\r\n\t") == std::string::npos && name.find(Preset::suffix_modified()) == std::string::npos;
-    };
-    if (!valid_name(connection.name) || !valid_name(machine_name))
+    if (!is_valid_profile_name(connection.name) || !is_valid_profile_name(machine_name))
         throw std::runtime_error("Choose a valid physical printer name and machine profile name.");
     if (source.is_default || source.printer_technology() != ptFFF || source.name != printers.get_edited_preset().name ||
         source.config != printers.get_edited_preset().config)
@@ -1282,6 +1285,7 @@ PresetsConfigSubstitutions PresetBundle::load_user_presets(std::string user, For
     }
     // After the machine presets, which the physical printers refer to.
     load_physical_units(dir_user_presets, substitutions, substitution_rule);
+    apply_hidden_profiles(*this);
     if (!errors_cummulative.empty()) throw Slic3r::RuntimeError(errors_cummulative);
     this->update_multi_material_filament_presets();
     this->update_compatible(PresetSelectCompatibleType::Never);
@@ -1359,6 +1363,7 @@ PresetsConfigSubstitutions PresetBundle::load_user_presets(AppConfig &          
 
     // Rewrite renamed compatible references in synced user presets before compatibility is evaluated.
     this->normalize_compatible_presets();
+    apply_hidden_profiles(*this);
 
     this->update_multi_material_filament_presets();
     this->update_compatible(PresetSelectCompatibleType::Never);
