@@ -993,7 +993,7 @@ void PhysicalPrinterDialog::add_physical_unit()
             if (!unbound_machine_file.empty())
                 message += "\n\n" + _L("Its machine profile was saved but is not linked to a physical printer:") + "\n" +
                            from_u8(unbound_machine_file);
-            show_error(this, message);
+            show_error(&dlg, message); // keeps the name prompt in front for the next try
             continue;
         }
 
