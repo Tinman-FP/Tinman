@@ -194,40 +194,98 @@ jobs:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-          CERTIFICATE_ID: ${{ secrets.MACOS_CERTIFICATE_ID }}
+          MACOS_CERTIFICATE_ID: ${{ secrets.MACOS_CERTIFICATE_ID }}
+          APPLE_DEV_ACCOUNT: ${{ secrets.APPLE_DEV_ACCOUNT }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          APP_PWD: ${{ secrets.APP_PWD }}
         run: |
           # Load the `retry` helper (retries flaky commands such as `hdiutil create`).
           source ${{ github.workspace }}/scripts/retry.sh
+
+          # mac_sign only checks the certificate secret. Name any other missing secret
+          # (never a value) up front instead of failing halfway with a cryptic error.
+          missing=""
+          for name in BUILD_CERTIFICATE_BASE64 P12_PASSWORD KEYCHAIN_PASSWORD MACOS_CERTIFICATE_ID APPLE_DEV_ACCOUNT TEAM_ID APP_PWD; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error title=macOS signing secrets missing::Set these repository secrets (or delete BUILD_CERTIFICATE_BASE64 to build unsigned):$missing"
+            exit 1
+          fi
+
           CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode --output $CERTIFICATE_PATH
-          security create-keychain -p $KEYCHAIN_PASSWORD $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p $KEYCHAIN_PASSWORD $KEYCHAIN_PATH
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode --output "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           # Set the temporary keychain as the default to prevent codesign from accessing the locked login keychain
           security default-keychain -s "$KEYCHAIN_PATH"
-          security import $CERTIFICATE_PATH -P $P12_PASSWORD -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          security list-keychain -d user -s $KEYCHAIN_PATH
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k $P12_PASSWORD $KEYCHAIN_PATH
+          security import "$CERTIFICATE_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+          # -k is the keychain's password. Upstream passed the .p12 password here,
+          # which only works when both secrets happen to hold the same value.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Developer ID signature with hardened runtime and a secure timestamp, both
+          # required for notarization. disable-library-validation is the only
+          # entitlement: Tinman loads the separately signed Bambu network plugin.
+          sign() {
+            codesign --deep --force --verbose --options runtime --timestamp --entitlements ${{ github.workspace }}/scripts/disable_validation.entitlements --sign "$MACOS_CERTIFICATE_ID" "$1"
+          }
+          # `codesign --deep` only signs nested code in the standard bundle locations
+          # (Frameworks, MacOS, PlugIns, ...). A Mach-O under Contents/Resources, such
+          # as the FFmpeg-based tinman-rtsp-bridge, is only sealed as data, and the
+          # notary service rejects any unsigned Mach-O. Sign those first, inside-out.
+          sign_resource_binaries() {
+            local f
+            while IFS= read -r -d '' f; do
+              if file -b "$f" | grep -q 'Mach-O'; then
+                codesign --force --verbose --options runtime --timestamp --sign "$MACOS_CERTIFICATE_ID" "$f"
+              fi
+            done < <(find "$1/Contents/Resources" -type f \( -perm -u+x -o -name '*.dylib' -o -name '*.so' \) -print0)
+          }
+          # Submit, wait, and staple. The step fails unless Apple answers "Accepted",
+          # and prints the notary log (which names each rejected file) when it doesn't.
+          notarize() {
+            local dmg="$1" result id status
+            result=$(xcrun notarytool submit "$dmg" --apple-id "$APPLE_DEV_ACCOUNT" --team-id "$TEAM_ID" --password "$APP_PWD" --wait --output-format json) || true
+            echo "$result"
+            id=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1]).get("id", ""))' "$result" 2>/dev/null) || id=""
+            status=$(python3 -c 'import json, sys; print(json.loads(sys.argv[1]).get("status", ""))' "$result" 2>/dev/null) || status=""
+            echo "$dmg notarization status: ${status:-unknown}"
+            if [ "$status" != "Accepted" ]; then
+              if [ -n "$id" ]; then
+                xcrun notarytool log "$id" --apple-id "$APPLE_DEV_ACCOUNT" --team-id "$TEAM_ID" --password "$APP_PWD" || true
+              fi
+              echo "::error title=Notarization failed::$dmg was not accepted (status: ${status:-unknown}). See the notarytool output and notary log above."
+              return 1
+            fi
+            xcrun stapler staple "$dmg"
+          }
+
           # Sign OrcaSlicer_profile_validator.app if it exists
           if [ -f "${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer_profile_validator.app/Contents/MacOS/OrcaSlicer_profile_validator" ]; then
-            codesign --deep --force --verbose --options runtime --timestamp --entitlements ${{ github.workspace }}/scripts/disable_validation.entitlements --sign "$CERTIFICATE_ID" ${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer_profile_validator.app
+            sign ${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer_profile_validator.app
           fi
           
           # Create main Tinman DMG without the profile validator helper.
           # The internal build folder is still named OrcaSlicer because that is
           # the upstream target/install path, but release-facing packaging must
-          # expose the Tinman application name.
+          # expose the Tinman application name. --skip-codesign: the packager's
+          # ad-hoc signature would be replaced by the Developer ID one below anyway.
           mkdir -p ${{ github.workspace }}/build/universal/OrcaSlicer_dmg
           rm -rf ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/*
           python3 ${{ github.workspace }}/scripts/package_tinman_macos.py \
             --source-app ${{ github.workspace }}/build/universal/OrcaSlicer/Tinman.app \
             --output-dir ${{ github.workspace }}/build/universal/OrcaSlicer_dmg \
-            --no-archive
-          codesign --deep --force --verbose --options runtime --timestamp --entitlements ${{ github.workspace }}/scripts/disable_validation.entitlements --sign "$CERTIFICATE_ID" ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/Tinman.app
+            --no-archive --skip-codesign
+          sign_resource_binaries ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/Tinman.app
+          sign ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/Tinman.app
+          codesign --verify --deep --strict --verbose=2 ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/Tinman.app
           ln -sfn /Applications ${{ github.workspace }}/build/universal/OrcaSlicer_dmg/Applications
           retry hdiutil create -volname "Tinman" -srcfolder ${{ github.workspace }}/build/universal/OrcaSlicer_dmg -ov -format UDZO Tinman_Mac_universal_${{ env.ver }}.dmg
-          codesign --deep --force --verbose --options runtime --timestamp --entitlements ${{ github.workspace }}/scripts/disable_validation.entitlements --sign "$CERTIFICATE_ID" Tinman_Mac_universal_${{ env.ver }}.dmg
+          sign Tinman_Mac_universal_${{ env.ver }}.dmg
           
           # Create separate OrcaSlicer_profile_validator DMG if the app exists
           if [ -f "${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer_profile_validator.app/Contents/MacOS/OrcaSlicer_profile_validator" ]; then
@@ -236,17 +294,12 @@ jobs:
             cp -R ${{ github.workspace }}/build/universal/OrcaSlicer/OrcaSlicer_profile_validator.app ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg/
             ln -sfn /Applications ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg/Applications
             retry hdiutil create -volname "OrcaSlicer Profile Validator" -srcfolder ${{ github.workspace }}/build/universal/OrcaSlicer_profile_validator_dmg -ov -format UDZO OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg
-            codesign --deep --force --verbose --options runtime --timestamp --entitlements ${{ github.workspace }}/scripts/disable_validation.entitlements --sign "$CERTIFICATE_ID" OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg
+            sign OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg
           fi
           
-          # Notarize main DMG
-          xcrun notarytool submit "Tinman_Mac_universal_${{ env.ver }}.dmg" --apple-id "${{ secrets.APPLE_DEV_ACCOUNT }}" --team-id "${{ secrets.TEAM_ID }}" --password "${{ secrets.APP_PWD }}" --wait
-          xcrun stapler staple Tinman_Mac_universal_${{ env.ver }}.dmg
-
-          # Notarize profile validator DMG if it exists
+          notarize Tinman_Mac_universal_${{ env.ver }}.dmg
           if [ -f "OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg" ]; then
-            xcrun notarytool submit "OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg" --apple-id "${{ secrets.APPLE_DEV_ACCOUNT }}" --team-id "${{ secrets.TEAM_ID }}" --password "${{ secrets.APP_PWD }}" --wait
-            xcrun stapler staple OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg
+            notarize OrcaSlicer_profile_validator_Mac_universal_${{ env.ver }}.dmg
           fi
           echo "macOS DMG: signed with Developer ID and notarized." >> "$GITHUB_STEP_SUMMARY"
 
