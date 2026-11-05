@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
+# Run from a copy of the Linux package directory (build_linux_image.sh -i).
+set -e
+
 APPIMAGETOOLURL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$(uname -m).AppImage"
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../../.." && pwd)"
+# Filled in by CMake; avoids guessing the source tree from the build directory.
+SOURCE_DIR="@CMAKE_SOURCE_DIR@"
+BUILD_DIR="@CMAKE_BINARY_DIR@"
+# Same desktop ID as the Flatpak and the in-app desktop integration.
+APP_ID="com.tinmanfp.Tinman"
 
 
 APP_IMAGE="@SLIC3R_APP_NAME@_Linux_V@TINMANX1_PACKAGE_VERSION@.AppImage"
@@ -14,31 +20,22 @@ sed '0,/AI\x02/{s|AI\x02|\x00\x00\x00|}' -i  ../appimagetool.AppImage
 fi
 
 mv @SLIC3R_APP_CMD@ AppRun
-chmod +x AppRun
+chmod 755 AppRun
 
-cp resources/images/@SLIC3R_APP_KEY@_192px.png @SLIC3R_APP_KEY@.png
+# Reuse the installed desktop entry; only Exec differs inside an AppImage.
+sed 's|^Exec=.*|Exec=AppRun %U|' "${SOURCE_DIR}/src/dev-utils/platform/unix/${APP_ID}.desktop" > ${APP_ID}.desktop
+ICON_NAME="$(sed -n 's/^Icon=//p' ${APP_ID}.desktop)"
+
+cp resources/images/${ICON_NAME}_192px.png ${ICON_NAME}.png
 mkdir -p usr/share/icons/hicolor/192x192/apps
-cp resources/images/@SLIC3R_APP_KEY@_192px.png usr/share/icons/hicolor/192x192/apps/@SLIC3R_APP_KEY@.png
-cat <<EOF > com.orcaslicer.@SLIC3R_APP_KEY@.desktop
-[Desktop Entry]
-Name=@SLIC3R_APP_KEY@
-Exec=AppRun %F
-Icon=@SLIC3R_APP_KEY@
-Type=Application
-PrefersNonDefaultGPU=true
-X-KDE-RunOnDiscreteGpu=true
-Categories=Utility;
-MimeType=model/stl;application/vnd.ms-3mfdocument;application/prs.wavefront-obj;application/x-amf;
-EOF
+cp resources/images/${ICON_NAME}_192px.png usr/share/icons/hicolor/192x192/apps/${ICON_NAME}.png
 
 mkdir -p usr/share/applications
-cp com.orcaslicer.@SLIC3R_APP_KEY@.desktop usr/share/applications/
+cp ${APP_ID}.desktop usr/share/applications/
 
 mkdir -p usr/share/metainfo
-cp "${REPO_ROOT}/scripts/flatpak/com.orcaslicer.@SLIC3R_APP_KEY@.metainfo.xml" \
-  "usr/share/metainfo/com.orcaslicer.@SLIC3R_APP_KEY@.metainfo.xml"
-cp "${REPO_ROOT}/scripts/flatpak/com.orcaslicer.@SLIC3R_APP_KEY@.metainfo.xml" \
-  "usr/share/metainfo/com.orcaslicer.@SLIC3R_APP_KEY@.appdata.xml"
+cp "${BUILD_DIR}/${APP_ID}.metainfo.xml" "usr/share/metainfo/${APP_ID}.metainfo.xml"
+cp "${BUILD_DIR}/${APP_ID}.metainfo.xml" "usr/share/metainfo/${APP_ID}.appdata.xml"
 
 
 export ARCH=$(uname -m)
@@ -49,5 +46,6 @@ else
   ../appimagetool.AppImage . $([ -n "${container}" ] && echo '--appimage-extract-and-run')
 fi
 
-mv @SLIC3R_APP_KEY@-$(uname -m).AppImage ${APP_IMAGE}
+# appimagetool names its output after the desktop entry's Name (Tinman).
+mv @SLIC3R_APP_NAME@-$(uname -m).AppImage ${APP_IMAGE}
 chmod +x ${APP_IMAGE}
