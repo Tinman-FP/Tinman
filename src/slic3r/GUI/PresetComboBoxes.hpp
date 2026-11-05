@@ -153,6 +153,8 @@ protected:
     void invalidate_selection();
     void validate_selection(bool predicate = false);
     void update_selection();
+    // Printer selectors: the "Physical printers" section.
+    void append_physical_printers();
 
 #ifdef __linux__
     static const char* separator_head() { return "-- "; }
