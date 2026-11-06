@@ -36,7 +36,6 @@ REQUIRED_FILES = [
     "manifests/tinmanx1-profile-resources.sha256",
     ".github/workflows/validate_public_helpers.yml",
     ".github/workflows/winget_updater.yml",
-    "patches/tinmanx1-v2.4.2-houseclean-native-fiber.patch",
     "resources/profiles/TinManX1.json",
     "resources/profiles/TinManX1/machine/FibreSeek Seeker 3 0.4+0.7 composite nozzle.json",
     "resources/profiles/TinManX1/process/0.20mm Plastic + Continuous Fiber Heavy @FibreSeek Seeker 3 0.4+0.7 nozzle.json",
@@ -171,11 +170,8 @@ PUBLIC_SCAN_PATHS = [
     "version.inc",
 ]
 
-PUBLIC_LINE_ALLOWLIST = {
-    "patches/tinmanx1-v2.4.2-houseclean-native-fiber.patch": [
-        re.compile(r'^-DEFAULT_HOST = "192\.168\.88\.9"$'),
-    ],
-}
+# Per-file regexes for lines that may match PRIVATE_PATTERNS on purpose.
+PUBLIC_LINE_ALLOWLIST = {}
 
 
 def iter_files() -> list[Path]:
