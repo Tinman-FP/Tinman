@@ -628,6 +628,9 @@ public:
     // All presets are marked as not modified and the new preset is activated.
     //BBS: add project embedded preset logic
     bool            save_current_preset(const std::string &new_name, bool detach = false, bool save_to_project = false, Preset* _curr_preset = nullptr);
+    // Save `preset` as the new preset new_name the way save_current_preset() does, but keep
+    // the current selection and its unsaved edits. Refuses to replace the selected preset.
+    bool            save_preset_copy(const std::string &new_name, bool detach, Preset &preset);
 
     // Delete the current preset, activate the first visible preset.
     // returns true if the preset was deleted successfully.

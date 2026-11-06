@@ -16,6 +16,7 @@
 #include <wx/textctrl.h>
 #include <wx/button.h>
 #include <wx/choicdlg.h>
+#include <wx/dirdlg.h>
 #include <wx/textdlg.h>
 #include <wx/statbox.h>
 #include <wx/wupdlock.h>
@@ -31,6 +32,7 @@
 #include "GUI_App.hpp"
 #include "MainFrame.hpp"
 #include "Plater.hpp"
+#include "ProfileMigrationDialog.hpp"
 #include "slic3r/Utils/NetworkAgentFactory.hpp"
 #include "format.hpp"
 #include "Tab.hpp"
@@ -132,6 +134,24 @@ PhysicalPrinterDialog::PhysicalPrinterDialog(wxWindow* parent) :
         unit_sizer->Add(unit_title, 0, wxBOTTOM, BORDER_W / 2);
         unit_sizer->Add(unit_label, 0, wxEXPAND | wxBOTTOM, BORDER_W / 2);
         unit_sizer->Add(m_add_unit_btn, 0);
+        // Existing profiles tied to this printer's model only by name can be copied onto it.
+        if (unit) {
+            m_move_profiles_btn = new Button(this, _L("Move profiles to this printer") + dots);
+            m_move_profiles_btn->SetStyle(ButtonStyle::Regular, ButtonType::Parameter);
+            m_move_profiles_btn->SetToolTip(_L("Copies process and filament profiles made for this printer model "
+                                               "and nozzle so that they belong to this printer alone. The originals "
+                                               "are not changed."));
+            m_move_profiles_btn->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { move_profiles(false); });
+            m_import_profiles_btn = new Button(this, _L("Import profiles from a folder") + dots);
+            m_import_profiles_btn->SetStyle(ButtonStyle::Regular, ButtonType::Parameter);
+            m_import_profiles_btn->SetToolTip(_L("Adds process and filament profile files (*.json) from a folder "
+                                                 "for this printer alone. The files are not changed."));
+            m_import_profiles_btn->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { move_profiles(true); });
+            auto *profile_buttons = new wxBoxSizer(wxHORIZONTAL);
+            profile_buttons->Add(m_move_profiles_btn, 0, wxRIGHT, BORDER_W / 2);
+            profile_buttons->Add(m_import_profiles_btn, 0);
+            unit_sizer->Add(profile_buttons, 0, wxTOP, BORDER_W / 2);
+        }
     }
 
     auto dlg_btns = new DialogButtons(this, {"OK"});
@@ -907,6 +927,10 @@ void PhysicalPrinterDialog::on_dpi_changed(const wxRect& suggested_rect)
         m_printhost_cafile_browse_btn->Rescale();
     if (m_add_unit_btn)
         m_add_unit_btn->Rescale();
+    if (m_move_profiles_btn)
+        m_move_profiles_btn->Rescale();
+    if (m_import_profiles_btn)
+        m_import_profiles_btn->Rescale();
 
     m_optgroup->msw_rescale();
 
@@ -1019,6 +1043,23 @@ void PhysicalPrinterDialog::add_physical_unit()
         });
         return;
     }
+}
+
+void PhysicalPrinterDialog::move_profiles(bool from_folder)
+{
+    // The dialog's connection fields are left as they are; only profiles are added.
+    const auto target = current_profile_scope_save_target(*wxGetApp().preset_bundle);
+    if (!target)
+        return;
+    std::string folder;
+    if (from_folder) {
+        wxDirDialog dlg(this, _L("Choose a folder of profile files"), "", wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+        if (dlg.ShowModal() != wxID_OK)
+            return;
+        folder = into_u8(dlg.GetPath());
+    }
+    ProfileMigrationDialog dlg(this, *target, folder);
+    dlg.ShowModal();
 }
 
 }}    // namespace Slic3r::GUI

@@ -375,6 +375,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/FilamentGroupPopup.cpp
     GUI/PhysicalPrinterDialog.cpp
     GUI/PhysicalPrinterDialog.hpp
+    GUI/ProfileMigrationDialog.cpp
+    GUI/ProfileMigrationDialog.hpp
     GUI/Plater.cpp
     GUI/Plater.hpp
     GUI/PlateSettingsDialog.cpp
