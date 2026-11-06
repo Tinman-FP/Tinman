@@ -890,16 +890,17 @@ if(BUILD_TESTS)
 endif()
 
 if (NOT WIN32 AND NOT APPLE)
-    set(SLIC3R_APP_CMD "orca-slicer")
+    # The AppImage script renames the launcher wrapper to AppRun, so it must use
+    # the binary name src/CMakeLists.txt actually builds (OUTPUT_NAME "tinman").
+    get_target_property(SLIC3R_APP_CMD OrcaSlicer OUTPUT_NAME)
     configure_file(${LIBDIR}/dev-utils/platform/unix/build_appimage.sh.in ${CMAKE_CURRENT_BINARY_DIR}/build_appimage.sh USE_SOURCE_PERMISSIONS @ONLY)
+    # AppStream metadata, shipped by both the Flatpak and the AppImage.
+    configure_file(src/dev-utils/platform/unix/com.tinmanfp.Tinman.metainfo.xml.in
+        ${CMAKE_BINARY_DIR}/com.tinmanfp.Tinman.metainfo.xml @ONLY)
 endif()
 
 
 # Resources install target, configure fhs.hpp on UNIX
-if(FLATPAK)
-    configure_file(src/dev-utils/platform/unix/com.tinmanfp.Tinman.metainfo.xml.in
-        ${CMAKE_BINARY_DIR}/com.tinmanfp.Tinman.metainfo.xml @ONLY)
-endif()
 if (WIN32)
     install(DIRECTORY "${SLIC3R_RESOURCES_DIR}/" DESTINATION "./resources")
     set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)

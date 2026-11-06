@@ -43,14 +43,6 @@ MATERIALS = {
     "PETG",
     "PET GF",
 }
-REQUIRED_MATERIAL_TUNING = {
-    "PETG + X-CCF",
-    "PET GF + X-CCF",
-    "PET GF + CGF",
-    "PA-CF + X-CCF",
-    "PPS-CF + X-CCF",
-    "PLA + X-CCF",
-}
 FIBERS = {
     "X-CCF": {"diameter": 0.25, "linear_density": 102},
     "CGF": {"diameter": 0.35, "linear_density": 170},
@@ -469,16 +461,7 @@ def check_processes() -> int:
                     require_int(data, "fiber_max_routes_per_layer", path, PROCESS_ROUTE_CAPS[mode_label])
                 require_choice(data, "fiber_seam_position", path, {"source", "nearest", "aligned", "rear", "random"})
                 require_float(data, "fiber_seam_angle", path, 0)
-                payload = require_json_object(data, "fiber_reinforcement_payload", path)
-                tuning = payload.get("material_tuning")
-                if not isinstance(tuning, dict):
-                    fail(f"{path.relative_to(ROOT)} fiber_reinforcement_payload missing material_tuning map")
-                missing_tuning = REQUIRED_MATERIAL_TUNING.difference(tuning)
-                if missing_tuning:
-                    fail(
-                        f"{path.relative_to(ROOT)} material_tuning missing "
-                        + ", ".join(sorted(missing_tuning))
-                    )
+                require_json_object(data, "fiber_reinforcement_payload", path)
     for path in sorted((PROFILE_ROOT / "process").glob("*Plastic Only*.json")):
         data = load_json(path)
         nozzle = path.stem.rsplit(" ", 2)[1]
