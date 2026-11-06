@@ -70,7 +70,24 @@ struct ScopeSaveFixture {
             throw std::runtime_error("Fixture target missing");
         return *target;
     }
+
+    PresetCollection &collection(Preset::Type type)
+    {
+        return type == Preset::TYPE_PRINT ? static_cast<PresetCollection &>(bundle.prints) : static_cast<PresetCollection &>(bundle.filaments);
+    }
+
+    void select_unit(const std::string &unit)
+    {
+        bundle.printers.select_preset_by_name("Machine " + unit, true);
+        bundle.physical_printers.select_printer("Unit " + unit, "Machine " + unit);
+    }
 };
+
+// A setting the scoped saves leave alone, to see whether later edits of another profile reach a copy.
+std::pair<std::string, std::string> probe(Preset::Type type)
+{
+    return type == Preset::TYPE_PRINT ? std::make_pair("wall_loops", "7") : std::make_pair("nozzle_temperature", "233");
+}
 } // namespace
 
 TEST_CASE("Scoped saves require the exact unique physical association and an explicit nozzle", "[TinMan][Preset][ScopeSave]")
@@ -153,7 +170,7 @@ TEST_CASE("Unsaved-change saves create a scoped copy without rewriting the gener
                                   substitutions, ForwardCompatibilitySubstitutionRule::Disable);
     const auto *loaded = fresh_collection.find_preset(name, false, true);
     REQUIRE(loaded);
-    CHECK(loaded->inherits() == source.name);
+    CHECK(loaded->inherits().empty()); // the source is a root user profile, so the copy is detached
     CHECK(is_compatible_with_physical_printer_scope(*loaded, fixture.bundle.printers.get_edited_preset()));
 }
 
@@ -230,6 +247,129 @@ TEST_CASE("Scoped copies keep an existing child's direct parent across a fresh r
     CHECK(loaded->inherits() == "Public material parent");
     CHECK(loaded->config.option<ConfigOptionFloats>("filament_flow_ratio")->values == std::vector<double>{0.96});
     CHECK(is_compatible_with_physical_printer_scope(*loaded, fixture.bundle.printers.get_edited_preset(), 1));
+}
+
+// save_current_preset() makes a copy of a root user profile inherit from it. A copy for another
+// scope must not, or tuning the original for one printer would change another printer's copy.
+TEST_CASE("Scoped copies of user profiles do not follow later edits of the original", "[TinMan][Preset][ScopeSave]")
+{
+    const auto type       = GENERATE(Preset::TYPE_PRINT, Preset::TYPE_FILAMENT);
+    const bool from_child = GENERATE(false, true); // the root itself, or a user profile inheriting from it
+    ScopeSaveFixture   fixture;
+    PresetCollection  &collection = fixture.collection(type);
+    const std::string  root       = collection.get_selected_preset().name;
+    REQUIRE(collection.get_selected_preset().is_user());
+    REQUIRE(collection.get_selected_preset().inherits().empty());
+    if (from_child) {
+        auto config = collection.get_selected_preset().config;
+        config.set_key_value("inherits", new ConfigOptionString(root));
+        collection.load_preset(collection.path_from_name("User child"), "User child", config, true);
+        REQUIRE(collection.save_current_preset("User child"));
+        REQUIRE(collection.get_selected_preset().inherits() == root);
+    }
+    const auto [key, tuned] = probe(type);
+    const std::string before = collection.get_selected_preset().config.opt_serialize(key);
+    REQUIRE(before != tuned);
+
+    auto target = fixture.target();
+    target.nozzle_tool_index = 1;
+    Preset candidate = collection.get_edited_preset();
+    candidate.base_id = "stale";
+    CHECK(prepare_profile_scope_for_save(candidate, fixture.bundle, "Copy for A", target));
+    CHECK(candidate.base_id.empty());
+    fixture.bundle.save_changes_for_preset("Copy for A", type, {}, false, target);
+    const Preset &copy = collection.get_selected_preset();
+    CHECK(copy.inherits().empty());
+    CHECK(copy.base_id.empty());
+    CHECK(boost::filesystem::path(copy.file).parent_path().filename().string() == "base"); // root user presets live in base/
+    // A generic template of that copy changes the scope again and is detached from it too.
+    ProfileScopeSaveSelection generic;
+    generic.mode = ProfileScopeSaveMode::GenericTemplate;
+    fixture.bundle.save_changes_for_preset("Template from A", type, {}, false, generic);
+    CHECK(collection.get_selected_preset().inherits().empty());
+
+    // Tune the root profile on printer B and save it over itself.
+    fixture.select_unit("B");
+    collection.select_preset_by_name(root, true);
+    collection.get_edited_preset().config.set_deserialize_strict(key, tuned);
+    fixture.bundle.save_changes_for_preset(root, type, {}, false);
+    CHECK(collection.find_preset(root, false, true)->config.opt_serialize(key) == tuned);
+    if (from_child) // still linked: the source's own inheritance is unchanged
+        CHECK(collection.find_preset("User child", false, true)->config.opt_serialize(key) == tuned);
+    CHECK(collection.find_preset("Copy for A", false, true)->config.opt_serialize(key) == before);
+    CHECK(collection.find_preset("Template from A", false, true)->config.opt_serialize(key) == before);
+
+    PresetBundle               fresh; // after a restart
+    PresetCollection          &fresh_collection = type == Preset::TYPE_PRINT ? static_cast<PresetCollection &>(fresh.prints) :
+                                                                               static_cast<PresetCollection &>(fresh.filaments);
+    PresetsConfigSubstitutions substitutions;
+    fresh_collection.load_presets(fixture.root.string(), type == Preset::TYPE_PRINT ? "process" : "filament", substitutions,
+                                  ForwardCompatibilitySubstitutionRule::Disable);
+    for (const auto *name : {"Copy for A", "Template from A"}) {
+        const Preset *loaded = fresh_collection.find_preset(name, false, true);
+        REQUIRE(loaded);
+        CHECK(loaded->inherits().empty());
+        CHECK(loaded->config.opt_serialize(key) == before);
+    }
+    const Preset *loaded = fresh_collection.find_preset("Copy for A", false, true);
+    fixture.select_unit("A");
+    CHECK(is_compatible_with_physical_printer_scope(*loaded, fixture.bundle.printers.get_edited_preset(),
+                                                   type == Preset::TYPE_FILAMENT ? std::optional<size_t>(1) : std::nullopt));
+}
+
+TEST_CASE("Scoped copies of a vendor profile or its child keep the vendor parent", "[TinMan][Preset][ScopeSave]")
+{
+    ScopeSaveFixture fixture;
+    auto vendor = fixture.bundle.filaments.default_preset().config;
+    Preset &parent = fixture.bundle.filaments.load_preset("", "Vendor material", vendor, false);
+    parent.is_system  = true;
+    parent.setting_id = "GFSVENDOR";
+    auto child = vendor;
+    child.set_key_value("inherits", new ConfigOptionString("Vendor material"));
+    child.set_key_value("filament_flow_ratio", new ConfigOptionFloats{0.96});
+    fixture.bundle.filaments.load_preset(fixture.bundle.filaments.path_from_name("Vendor child"), "Vendor child", child, true);
+    REQUIRE(fixture.bundle.filaments.save_current_preset("Vendor child"));
+    const std::string source = GENERATE(as<std::string>{}, "Vendor material", "Vendor child");
+    fixture.bundle.filaments.select_preset_by_name(source, true);
+    REQUIRE(fixture.bundle.filaments.get_edited_preset().name == source);
+
+    auto target = fixture.target();
+    target.nozzle_tool_index = 1;
+    Preset candidate = fixture.bundle.filaments.get_edited_preset();
+    CHECK_FALSE(prepare_profile_scope_for_save(candidate, fixture.bundle, "Copy for A", target));
+    fixture.bundle.save_changes_for_preset("Copy for A", Preset::TYPE_FILAMENT, {}, false, target);
+    const Preset &copy = fixture.bundle.filaments.get_selected_preset();
+    CHECK(copy.inherits() == "Vendor material");
+    CHECK(copy.base_id == "GFSVENDOR");
+    CHECK(copy.config.option<ConfigOptionFloats>("filament_flow_ratio")->values ==
+          fixture.bundle.filaments.find_preset(source, false, true)->config.option<ConfigOptionFloats>("filament_flow_ratio")->values);
+}
+
+TEST_CASE("Saves that keep the scope link copies to their source as before", "[TinMan][Preset][ScopeSave]")
+{
+    ScopeSaveFixture  fixture;
+    PresetCollection &filaments = fixture.bundle.filaments;
+    SECTION("Preserving an unscoped root profile") {
+        Preset candidate = filaments.get_edited_preset();
+        CHECK_FALSE(prepare_profile_scope_for_save(candidate, fixture.bundle, "Plain copy", {}));
+        fixture.bundle.save_changes_for_preset("Plain copy", Preset::TYPE_FILAMENT, {}, false);
+        CHECK(filaments.get_selected_preset().inherits() == "Generic material");
+    }
+    SECTION("A generic template of an unscoped root profile") {
+        ProfileScopeSaveSelection generic;
+        generic.mode = ProfileScopeSaveMode::GenericTemplate;
+        fixture.bundle.save_changes_for_preset("Plain copy", Preset::TYPE_FILAMENT, {}, false, generic);
+        CHECK(filaments.get_selected_preset().inherits() == "Generic material");
+    }
+    SECTION("Another copy for the same printer and nozzle") {
+        auto target = fixture.target();
+        target.nozzle_tool_index = 1;
+        fixture.bundle.save_changes_for_preset("Copy for A", Preset::TYPE_FILAMENT, {}, false, target);
+        Preset candidate = filaments.get_edited_preset();
+        CHECK_FALSE(prepare_profile_scope_for_save(candidate, fixture.bundle, "Second copy for A", target));
+        fixture.bundle.save_changes_for_preset("Second copy for A", Preset::TYPE_FILAMENT, {}, false, target);
+        CHECK(filaments.get_selected_preset().inherits() == "Copy for A");
+    }
 }
 
 // The calls the connection dialog and the save dialog make, end to end: two printers created
