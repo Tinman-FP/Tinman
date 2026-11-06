@@ -8362,7 +8362,8 @@ bool GUI_App::check_and_save_current_preset_changes(const wxString& caption, con
             //BBS: add project embedded preset relate logic
             try {
                 for (const UnsavedChangesDialog::PresetData& nt : dlg.get_names_and_types()) {
-                    preset_bundle->save_changes_for_preset(nt.name, nt.type, dlg.get_unselected_options(nt.type), nt.save_to_project);
+                    preset_bundle->save_changes_for_preset(nt.name, nt.type, dlg.get_unselected_options(nt.type), nt.save_to_project,
+                                                          nt.profile_scope);
                     nt.connection_update.apply(*preset_bundle);
                 }
             } catch (const std::exception &error) {
@@ -8434,7 +8435,8 @@ bool GUI_App::check_and_keep_current_preset_changes(const wxString& caption, con
             if (dlg.save_preset()) {
                 try {
                     for (const UnsavedChangesDialog::PresetData& nt : preset_names_and_types) {
-                        preset_bundle->save_changes_for_preset(nt.name, nt.type, dlg.get_unselected_options(nt.type), nt.save_to_project);
+                        preset_bundle->save_changes_for_preset(nt.name, nt.type, dlg.get_unselected_options(nt.type), nt.save_to_project,
+                                                          nt.profile_scope);
                         nt.connection_update.apply(*preset_bundle);
                     }
                 } catch (const std::exception &error) {

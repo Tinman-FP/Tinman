@@ -890,6 +890,28 @@ void PresetComboBox::fill_width_height()
     wide_space_icon_width = lroundf(6 * scale_f);
 }
 
+// Tinman: only physical printers with their own identity are loaded (PresetBundle::load_physical_units()),
+// so this section is empty unless the user created one. The label is the full "printer * preset" name
+// that selection_is_changed_according_to_physical_printers() parses, without a modified suffix.
+void PresetComboBox::append_physical_printers()
+{
+    const PhysicalPrinterCollection &ph_printers = m_preset_bundle->physical_printers;
+    if (ph_printers.empty())
+        return;
+    set_label_marker(Append(_L("Physical printers"), wxNullBitmap, DD_ITEM_STYLE_SPLIT_ITEM));
+    for (PhysicalPrinterCollection::ConstIterator it = ph_printers.begin(); it != ph_printers.end(); ++it) {
+        for (const std::string &preset_name : it->get_preset_names()) {
+            const Preset *preset = m_collection->find_preset(preset_name);
+            if (!preset || !preset->is_visible)
+                continue;
+            wxBitmap *bmp = get_bmp(*preset);
+            assert(bmp);
+            set_label_marker(Append(from_u8(it->get_full_name(preset_name)), *bmp), LABEL_ITEM_PHYSICAL_PRINTER);
+            validate_selection(ph_printers.is_selected(it, preset_name));
+        }
+    }
+}
+
 wxString PresetComboBox::separator(const std::string& label)
 {
     return wxString::FromUTF8(separator_head()) + _(label) + wxString::FromUTF8(separator_tail());
@@ -1834,29 +1856,8 @@ void PlaterPresetComboBox::update()
     if (wxGetApp().app_config->get_bool("show_unsupported_presets"))
         add_presets(uncompatible_presets, {}, L("Unsupported presets"), _L("Unsupported") + " ");
 
-    //BBS: remove unused pysical printer logic
-    /*if (m_type == Preset::TYPE_PRINTER)
-    {
-        // add Physical printers, if any exists
-        if (!m_preset_bundle->physical_printers.empty()) {
-            set_label_marker(Append(separator(L("Physical printers")), wxNullBitmap));
-            const PhysicalPrinterCollection& ph_printers = m_preset_bundle->physical_printers;
-
-            for (PhysicalPrinterCollection::ConstIterator it = ph_printers.begin(); it != ph_printers.end(); ++it) {
-                for (const std::string& preset_name : it->get_preset_names()) {
-                    Preset* preset = m_collection->find_preset(preset_name);
-                    if (!preset || !preset->is_visible)
-                        continue;
-                    std::string main_icon_name, bitmap_key = main_icon_name = preset->printer_technology() == ptSLA ? "sla_printer" : m_main_bitmap_name;
-                    wxBitmap* bmp = get_bmp(main_icon_name, wide_icons, main_icon_name);
-                    assert(bmp);
-
-                    set_label_marker(Append(from_u8(it->get_full_name(preset_name) + suffix(preset)), *bmp), LABEL_ITEM_PHYSICAL_PRINTER);
-                    validate_selection(ph_printers.is_selected(it, preset_name));
-                }
-            }
-        }
-    }*/
+    if (m_type == Preset::TYPE_PRINTER)
+        append_physical_printers();
 
     if (m_type == Preset::TYPE_PRINTER || m_type == Preset::TYPE_FILAMENT || m_type == Preset::TYPE_SLA_MATERIAL) {
         wxBitmap* bmp = get_bmp("edit_preset_list", wide_icons, "edit_uni");
@@ -2260,27 +2261,7 @@ void TabPresetComboBox::update()
 
     if (m_type == Preset::TYPE_PRINTER)
     {
-        //BBS: remove unused pysical printer logic
-        /*// add Physical printers, if any exists
-        if (!m_preset_bundle->physical_printers.empty()) {
-            set_label_marker(Append(separator(L("Physical printers")), wxNullBitmap));
-            const PhysicalPrinterCollection& ph_printers = m_preset_bundle->physical_printers;
-
-            for (PhysicalPrinterCollection::ConstIterator it = ph_printers.begin(); it != ph_printers.end(); ++it) {
-                for (const std::string& preset_name : it->get_preset_names()) {
-                    Preset* preset = m_collection->find_preset(preset_name);
-                    if (!preset || !preset->is_visible)
-                        continue;
-                    std::string main_icon_name = preset->printer_technology() == ptSLA ? "sla_printer" : m_main_bitmap_name;
-
-                    wxBitmap* bmp = get_bmp(main_icon_name, main_icon_name, "", true, true, false);
-                    assert(bmp);
-
-                    set_label_marker(Append(from_u8(it->get_full_name(preset_name) + suffix(preset)), *bmp), LABEL_ITEM_PHYSICAL_PRINTER);
-                    validate_selection(ph_printers.is_selected(it, preset_name));
-                }
-            }
-        }*/
+        append_physical_printers();
 
         // add "Add/Remove printers" item
         //std::string icon_name = "edit_uni";

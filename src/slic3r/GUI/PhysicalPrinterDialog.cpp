@@ -6,13 +6,17 @@
 #include <vector>
 #include <string>
 #include <boost/algorithm/string.hpp>
+#include <boost/filesystem/operations.hpp>
 #include <boost/regex.hpp>
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid_io.hpp>
 
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
 #include <wx/button.h>
 #include <wx/choicdlg.h>
+#include <wx/textdlg.h>
 #include <wx/statbox.h>
 #include <wx/wupdlock.h>
 
@@ -26,6 +30,7 @@
 #include "GUI.hpp"
 #include "GUI_App.hpp"
 #include "MainFrame.hpp"
+#include "Plater.hpp"
 #include "slic3r/Utils/NetworkAgentFactory.hpp"
 #include "format.hpp"
 #include "Tab.hpp"
@@ -104,6 +109,31 @@ PhysicalPrinterDialog::PhysicalPrinterDialog(wxWindow* parent) :
     check_host_key_valid();
     build_printhost_settings(m_optgroup.get());
 
+    // Tinman: printers of one model share their process and filament profiles. A separate
+    // physical printer gets its own identity and machine profile, so profiles can then be
+    // saved for that printer alone (see SavePresetDialog).
+    wxBoxSizer *unit_sizer = nullptr;
+    if (m_original_preset.printer_technology() == ptFFF && !m_original_preset.is_default) {
+        const auto unit = current_profile_scope_save_target(*wxGetApp().preset_bundle);
+        auto *unit_title = new wxStaticText(this, wxID_ANY, _L("Per-printer profiles"));
+        unit_title->SetFont(::Label::Head_14);
+        auto *unit_label = new wxStaticText(this, wxID_ANY, unit ?
+            format_wxstr(_L("This is the physical printer \"%1%\". Process and filament profiles can be saved for it alone."),
+                         unit->physical_printer_name) :
+            _L("Printers of the same model share process and filament profiles. Add a physical printer to give it "
+               "its own machine profile, so that profiles can be saved for it alone."));
+        unit_label->Wrap(FromDIP(400));
+        m_add_unit_btn = new Button(this, _L("Add a separate physical printer") + dots);
+        m_add_unit_btn->SetStyle(ButtonStyle::Regular, ButtonType::Parameter);
+        m_add_unit_btn->SetToolTip(format_wxstr(_L("Copies the machine profile \"%1%\" without its connection settings."),
+                                                m_original_preset.name));
+        m_add_unit_btn->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { add_physical_unit(); });
+        unit_sizer = new wxBoxSizer(wxVERTICAL);
+        unit_sizer->Add(unit_title, 0, wxBOTTOM, BORDER_W / 2);
+        unit_sizer->Add(unit_label, 0, wxEXPAND | wxBOTTOM, BORDER_W / 2);
+        unit_sizer->Add(m_add_unit_btn, 0);
+    }
+
     auto dlg_btns = new DialogButtons(this, {"OK"});
 
     btnOK = dlg_btns->GetOK();
@@ -114,6 +144,8 @@ PhysicalPrinterDialog::PhysicalPrinterDialog(wxWindow* parent) :
     // topSizer->Add(label_top           , 0, wxEXPAND | wxLEFT | wxTOP | wxRIGHT, BORDER_W);
     topSizer->Add(input_sizer         , 0, wxEXPAND | wxALL, BORDER_W);
     topSizer->Add(m_optgroup->sizer   , 1, wxEXPAND | wxLEFT | wxTOP | wxRIGHT, BORDER_W);
+    if (unit_sizer)
+        topSizer->Add(unit_sizer, 0, wxEXPAND | wxALL, 2 * BORDER_W);
     topSizer->Add(dlg_btns, 0, wxEXPAND);
 
     Bind(wxEVT_CLOSE_WINDOW, [this](auto& e) {this->EndModal(wxID_NO);});
@@ -873,6 +905,8 @@ void PhysicalPrinterDialog::on_dpi_changed(const wxRect& suggested_rect)
     m_printhost_logout_btn->Rescale();
     if (m_printhost_cafile_browse_btn)
         m_printhost_cafile_browse_btn->Rescale();
+    if (m_add_unit_btn)
+        m_add_unit_btn->Rescale();
 
     m_optgroup->msw_rescale();
 
@@ -934,6 +968,57 @@ void PhysicalPrinterDialog::OnOK(wxEvent& event)
         if (wxGetApp().preset_bundle->printers.get_edited_preset().name == saved_name)
             wxGetApp().switch_printer_agent(true);
     });
+}
+
+void PhysicalPrinterDialog::add_physical_unit()
+{
+    PresetBundle &bundle = *wxGetApp().preset_bundle;
+    wxTextEntryDialog dlg(this,
+                          _L("Name of the new physical printer. Its machine profile gets the same name.") + "\n\n" +
+                              _L("The printer starts without connection settings; set them once it is selected. "
+                                 "Unsaved changes in this dialog are discarded."),
+                          _L("Add physical printer"));
+    while (dlg.ShowModal() == wxID_OK) {
+        const std::string name = into_u8(wxString(dlg.GetValue()).Trim(true).Trim(false));
+        // No connection is copied: a new printer must never send to another printer's address.
+        PhysicalPrinter unit(name, bundle.physical_printers.default_config());
+        unit.config.set_key_value("tinman_physical_printer_id",
+                                  new ConfigOptionString(boost::uuids::to_string(boost::uuids::random_generator()())));
+        std::string unbound_machine_file;
+        try {
+            boost::filesystem::create_directories(bundle.physical_printers.dir_path());
+            bundle.save_physical_unit(m_original_preset, unit, name, {}, unbound_machine_file);
+        } catch (const std::exception &error) {
+            wxString message = _L("The physical printer was not added.") + "\n\n" + from_u8(error.what());
+            if (!unbound_machine_file.empty())
+                message += "\n\n" + _L("Its machine profile was saved but is not linked to a physical printer:") + "\n" +
+                           from_u8(unbound_machine_file);
+            show_error(&dlg, message); // keeps the name prompt in front for the next try
+            continue;
+        }
+
+        // The connection fields of this dialog belong to the previous printer and are not saved.
+        const std::string previous_machine  = m_original_preset.name;
+        const std::string previous_physical = bundle.physical_printers.get_selected_full_printer_name();
+        EndModal(wxID_CANCEL);
+        wxGetApp().CallAfter([name, previous_machine, previous_physical] {
+            PresetBundle &bundle = *wxGetApp().preset_bundle;
+            // Saved either way; only switch if nothing else was selected in the meantime.
+            if (bundle.printers.get_edited_preset().name != previous_machine ||
+                bundle.physical_printers.get_selected_full_printer_name() != previous_physical)
+                return;
+            bundle.physical_printers.select_printer(name, name);
+            if (!wxGetApp().get_tab(Preset::TYPE_PRINTER)->select_preset(name, false, previous_physical, false, true)) {
+                if (previous_physical.empty())
+                    bundle.physical_printers.unselect_printer();
+                else
+                    bundle.physical_printers.select_printer(previous_physical);
+            } else
+                bundle.export_selections(*wxGetApp().app_config);
+            wxGetApp().sidebar().update_all_preset_comboboxes();
+        });
+        return;
+    }
 }
 
 }}    // namespace Slic3r::GUI

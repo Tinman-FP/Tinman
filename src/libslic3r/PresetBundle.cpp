@@ -103,13 +103,13 @@ std::optional<ProfileScopeSaveSelection> current_profile_scope_save_target(const
     return result;
 }
 
-void prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundle, const std::string &new_name,
+bool prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundle, const std::string &new_name,
                                     const ProfileScopeSaveSelection &selection)
 {
     if (candidate.type != Preset::TYPE_PRINT && candidate.type != Preset::TYPE_FILAMENT)
-        return;
+        return false;
     if (bundle.printers.get_edited_preset().printer_technology() != ptFFF)
-        return;
+        return false;
     const PresetCollection &collection = candidate.type == Preset::TYPE_PRINT ? static_cast<const PresetCollection &>(bundle.prints) :
                                                                                  static_cast<const PresetCollection &>(bundle.filaments);
     const auto &source = collection.get_edited_preset();
@@ -150,9 +150,16 @@ void prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundl
             throw std::runtime_error("Save the profile under a new name to change which printer it belongs to. "
                                      "The original profile is kept unchanged.");
         candidate.description += "\nCopied from " + source.name + " with a different printer scope; it requires validation on that printer.";
+        // save_current_preset() makes a system or root user candidate the copy's parent.
+        const Preset *parent = collection.is_base_preset(candidate) ? &candidate : collection.get_preset_parent(candidate);
+        if (!(parent && parent->is_system)) {
+            candidate.base_id.clear(); // root presets have no base_id
+            return true;
+        }
     } else if (existing && !same_profile_scope(*existing, candidate)) {
         throw std::runtime_error("That name belongs to a profile for another printer. Choose a new profile name.");
     }
+    return false;
 }
 
 void PresetBundle::save_physical_unit(const Preset &source, PhysicalPrinter connection, const std::string &machine_name,
@@ -233,6 +240,30 @@ void PresetBundle::save_physical_unit(const Preset &source, PhysicalPrinter conn
     printers          = staged_machines;
     physical_printers = staged_connections;
     unbound_machine_file.clear();
+}
+
+void PresetBundle::load_physical_units(const std::string &dir_user_presets, PresetsConfigSubstitutions &substitutions,
+                                       ForwardCompatibilitySubstitutionRule rule)
+{
+    const std::string previous_selection = physical_printers.get_selected_full_printer_name();
+    const std::string previous_folder    = physical_printers.m_dir_path;
+    physical_printers = PhysicalPrinterCollection(PhysicalPrinter::printer_options(), this);
+    try {
+        physical_printers.load_printers(dir_user_presets, "physical_printer", substitutions, rule);
+    } catch (const std::runtime_error &err) {
+        // The valid records are already loaded; a damaged one must not block the user's presets.
+        BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << ": " << err.what();
+    }
+    auto &units = physical_printers.m_printers;
+    units.erase(std::remove_if(units.begin(), units.end(), [](const PhysicalPrinter &unit) {
+                    const auto *id = unit.config.option<ConfigOptionString>("tinman_physical_printer_id");
+                    return !id || !is_valid_physical_printer_id(id->value);
+                }), units.end());
+    if (!previous_selection.empty() && physical_printers.m_dir_path == previous_folder) {
+        physical_printers.select_printer(previous_selection);
+        if (physical_printers.get_selected_full_printer_name() != previous_selection)
+            physical_printers.unselect_printer();
+    }
 }
 
 static std::vector<std::string> s_project_options {
@@ -1256,6 +1287,8 @@ PresetsConfigSubstitutions PresetBundle::load_user_presets(std::string user, For
     } catch (const std::runtime_error &err) {
         errors_cummulative += err.what();
     }
+    // After the machine presets, which the physical printers refer to.
+    load_physical_units(dir_user_presets, substitutions, substitution_rule);
     if (!errors_cummulative.empty()) throw Slic3r::RuntimeError(errors_cummulative);
     this->update_multi_material_filament_presets();
     this->update_compatible(PresetSelectCompatibleType::Never);
@@ -2732,12 +2765,12 @@ void PresetBundle::save_changes_for_preset(const std::string& new_name, Preset::
     if (!unselected_options.empty()) {
         candidate.config.apply_only(presets.get_selected_preset().config, unselected_options);
     }
-    prepare_profile_scope_for_save(candidate, *this, new_name, scope);
+    const bool detach = prepare_profile_scope_for_save(candidate, *this, new_name, scope);
 
     // Save the preset into Slic3r::data_dir / presets / section_name / preset_name.ini
     //BBS: add project embedded preset logic
     //presets.save_current_preset(new_name);
-    if (!presets.save_current_preset(new_name, false, save_to_project, &candidate))
+    if (!presets.save_current_preset(new_name, detach, save_to_project, &candidate))
         throw std::runtime_error("The selected preset cannot be overwritten: " + new_name);
     // Mark the print & filament enabled if they are compatible with the currently selected preset.
     // If saving the preset changes compatibility with other presets, keep the now incompatible dependent presets selected, however with a "red flag" icon showing that they are no more compatible.
@@ -2970,7 +3003,10 @@ void PresetBundle::load_selections(AppConfig &config, const PresetPreferences& p
             initial_printer = canonical;
         }
     }
-    if (initial_printer != nullptr &&
+    // A physical printer's own machine profile is never one of the curated names, but it is
+    // not a stray copy either: replacing it would drop that printer's selection on restart.
+    const auto *initial_unit_id = initial_printer ? initial_printer->config.option<ConfigOptionString>("tinman_physical_printer_id") : nullptr;
+    if (initial_printer != nullptr && !(initial_unit_id && is_valid_physical_printer_id(initial_unit_id->value)) &&
         !tinmanx_machine_preset_allowed(initial_printer->name, initial_printer->config.opt_string("printer_model"))) {
         const std::string canonical_name = tinmanx_canonical_machine_preset_name(
             initial_printer->name,
@@ -3180,8 +3216,15 @@ void PresetBundle::load_selections(AppConfig &config, const PresetPreferences& p
     std::string initial_physical_printer_name = remove_ini_suffix(config.get("presets", "physical_printer"));
 
     // Activate physical printer from the config
-    if (!initial_physical_printer_name.empty())
+    physical_printers.unselect_printer();
+    if (!initial_physical_printer_name.empty()) {
         physical_printers.select_printer(initial_physical_printer_name);
+        // select_printer() falls back to the printer's first preset; only the exact saved
+        // pairing with the selected machine preset counts.
+        if (physical_printers.get_selected_full_printer_name() != initial_physical_printer_name ||
+            physical_printers.get_selected_printer_preset_name() != printers.get_edited_preset().name)
+            physical_printers.unselect_printer();
+    }
 
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": finished, preferred printer_model_id %1%")%preferred_selection.printer_model_id;
 }
@@ -3251,7 +3294,9 @@ void PresetBundle::export_selections(AppConfig &config)
     // BBS
     //config.set("presets", "sla_print",    sla_prints.get_selected_preset_name());
     //config.set("presets", "sla_material", sla_materials.get_selected_preset_name());
-    //config.set("presets", "physical_printer", physical_printers.get_selected_full_printer_name());
+    // Only physical printers with an identity are loaded (load_physical_units()).
+    if (physical_printers.has_selection())
+        config.set("presets", "physical_printer", physical_printers.get_selected_full_printer_name());
     //BBS: add config related log
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__
         << boost::format(": printer %1%, print %2%, filaments[%3%] %4%")

@@ -5,6 +5,7 @@
 
 #include "libslic3r/Preset.hpp"
 #include "libslic3r/PrinterConnectionUpdate.hpp"
+#include "libslic3r/ProfileScopeSave.hpp"
 #include "wxExtensions.hpp"
 #include "GUI_Utils.hpp"
 #include "Widgets/RadioGroup.hpp"
@@ -17,6 +18,7 @@ class wxString;
 class wxStaticText;
 class wxComboBox;
 class wxStaticBitmap;
+class wxChoice;
 
 #define SAVE_PRESET_DIALOG_DEF_COLOUR wxColour(255, 255, 255)
 #define SAVE_PRESET_DIALOG_INPUT_SIZE wxSize(FromDIP(360), FromDIP(24))
@@ -58,6 +60,8 @@ class SavePresetDialog : public DPIDialog
 
         // Method to get detach state
         bool is_detached() const { return m_detach; }
+        // Per-printer scope chosen for a process or filament profile; Preserve when not offered.
+        ProfileScopeSaveSelection profile_scope() const;
 
         Preset::Type    m_type;
         ValidationType  m_valid_type;
@@ -77,6 +81,17 @@ class SavePresetDialog : public DPIDialog
         bool                m_detach{false};
         wxCheckBox*         m_detach_checkbox{nullptr};
 
+        // Per-printer scope, shown only when a physical printer with an identity is
+        // selected or the profile already has a scope.
+        wxChoice*                            m_scope_choice{nullptr};
+        wxChoice*                            m_scope_nozzle{nullptr};
+        std::vector<ProfileScopeSaveMode>    m_scope_modes;
+        std::optional<ProfileScopeSaveSelection> m_scope_target;
+        std::string                          m_initial_name;
+        std::string                          m_suggested_name;
+
+        void add_profile_scope(wxBoxSizer *sizer);
+        void on_profile_scope_changed();
         void update();
     };
 
@@ -112,6 +127,7 @@ public:
     bool get_save_to_project_selection(Preset::Type type);
     // Method to get the detach state
     bool get_detach_value(Preset::Type type);
+    ProfileScopeSaveSelection get_profile_scope_selection(Preset::Type type) const;
 
 protected:
     void on_dpi_changed(const wxRect& suggested_rect) override;

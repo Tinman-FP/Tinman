@@ -6,6 +6,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/log/trivial.hpp>
 
+#include <wx/choice.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/wupdlock.h>
@@ -111,6 +112,10 @@ SavePresetDialog::Item::Item(Preset::Type type, const std::string &suffix, wxBox
 
     sizer->Add(m_radio_group, 0, wxEXPAND | wxTOP | wxLEFT, BORDER_W);
 
+    m_initial_name = preset_name;
+    if (m_type == Preset::TYPE_PRINT || m_type == Preset::TYPE_FILAMENT)
+        add_profile_scope(sizer);
+
     if (parent->m_mode == comDevelop) {
         m_detach_checkbox = new wxCheckBox(parent, wxID_ANY, _L("Detach from parent"));
         sizer->Add(m_detach_checkbox, 0, wxALIGN_LEFT | wxALL, BORDER_W);
@@ -130,6 +135,104 @@ SavePresetDialog::Item::Item(Preset::Type type, const std::string &suffix, wxBox
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ", create item: type" << Preset::get_type_string(m_type) << ", preset " << m_preset_name
                             << ", is_project_embedded = " << is_project_embedded;
     update();
+}
+
+// The physical printer (and nozzle, for a filament) a profile is scoped to, or empty if unscoped.
+static wxString profile_scope_owner(const Preset &preset, const PhysicalPrinterCollection &physical_printers)
+{
+    const bool process = preset.type == Preset::TYPE_PRINT;
+    std::string id;
+    if (process) {
+        if (const auto *opt = preset.config.option<ConfigOptionString>("tinman_process_scope_physical_id"))
+            id = opt->value;
+    } else if (const auto *opt = preset.config.option<ConfigOptionStrings>("tinman_filament_scope_physical_id"); opt && !opt->values.empty())
+        id = opt->values.front();
+    if (id.empty())
+        return {};
+    wxString owner = _L("a physical printer that is not set up here");
+    for (const PhysicalPrinter &unit : physical_printers)
+        if (const auto *unit_id = unit.config.option<ConfigOptionString>("tinman_physical_printer_id"); unit_id && unit_id->value == id)
+            owner = from_u8(unit.name);
+    const auto *tool = process ? nullptr : preset.config.option<ConfigOptionInts>("tinman_filament_scope_tool");
+    return tool && tool->values.size() == 1 && tool->values.front() >= 0 ?
+               format_wxstr(_L("%1%, nozzle %2%"), owner, tool->values.front() + 1) : owner;
+}
+
+void SavePresetDialog::Item::add_profile_scope(wxBoxSizer *sizer)
+{
+    const PresetBundle &bundle = *wxGetApp().preset_bundle;
+    if (bundle.printers.get_edited_preset().printer_technology() != ptFFF)
+        return;
+    m_scope_target       = current_profile_scope_save_target(bundle);
+    const wxString owner = profile_scope_owner(m_presets->get_edited_preset(), bundle.physical_printers);
+    // Nothing to choose for users who never give a printer its own identity.
+    if (!m_scope_target && owner.empty())
+        return;
+
+    auto *label = new wxStaticText(m_parent, wxID_ANY, _L("Printer scope"));
+    label->SetFont(::Label::Body_14);
+    label->SetForegroundColour(wxColour(38, 46, 48));
+    m_scope_choice = new wxChoice(m_parent, wxID_ANY);
+    m_scope_choice->Append(owner.empty() ? _L("Keep: all compatible printers") : format_wxstr(_L("Keep: %1%"), owner));
+    m_scope_modes.push_back(ProfileScopeSaveMode::Preserve);
+    if (m_scope_target) {
+        m_scope_choice->Append(format_wxstr(_L("This physical printer and nozzle: %1%"), m_scope_target->physical_printer_name));
+        m_scope_modes.push_back(ProfileScopeSaveMode::ThisPhysicalPrinter);
+    }
+    if (!owner.empty()) {
+        m_scope_choice->Append(_L("Generic template: all compatible printers"));
+        m_scope_modes.push_back(ProfileScopeSaveMode::GenericTemplate);
+    }
+    m_scope_choice->SetSelection(0);
+    m_scope_choice->SetToolTip(_L("A profile saved for a physical printer is offered only on that printer, so tuning it "
+                                  "never changes another printer of the same model. Changing the scope saves a new profile "
+                                  "and keeps the original unchanged."));
+    m_scope_choice->Bind(wxEVT_CHOICE, [this](wxCommandEvent &) { on_profile_scope_changed(); });
+    sizer->Add(label, 0, wxEXPAND | wxLEFT | wxTOP, BORDER_W);
+    sizer->Add(m_scope_choice, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, BORDER_W);
+
+    // A filament is tuned on one nozzle; on a multi-nozzle printer the user has to say which.
+    if (m_type == Preset::TYPE_FILAMENT && m_scope_target && !m_scope_target->nozzle_tool_index) {
+        m_scope_nozzle = new wxChoice(m_parent, wxID_ANY);
+        m_scope_nozzle->Append(_L("Choose the nozzle this filament was tuned on"));
+        for (size_t i = 0; i < m_scope_target->nozzle_diameters.size(); ++i)
+            m_scope_nozzle->Append(format_wxstr(_L("Nozzle %1% (%2% mm)"), i + 1, m_scope_target->nozzle_diameters[i]));
+        m_scope_nozzle->SetSelection(0);
+        m_scope_nozzle->Bind(wxEVT_CHOICE, [this](wxCommandEvent &) { update(); });
+        sizer->Add(m_scope_nozzle, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP, BORDER_W);
+    }
+    on_profile_scope_changed();
+}
+
+void SavePresetDialog::Item::on_profile_scope_changed()
+{
+    const bool this_printer = profile_scope().mode == ProfileScopeSaveMode::ThisPhysicalPrinter;
+    if (m_scope_nozzle)
+        m_scope_nozzle->Show(this_printer);
+    // A new scope needs a new name. Propose one, but never replace a name the user typed.
+    const std::string current = into_u8(m_input_ctrl->GetTextCtrl()->GetValue());
+    if (current == m_initial_name || current == m_suggested_name) {
+        const Preset &selected = m_presets->get_selected_preset();
+        const std::string base = selected.is_system ? selected.name : m_initial_name; // without " - Copy"
+        m_suggested_name = this_printer ? base + " - " + m_scope_target->physical_printer_name : std::string();
+        m_input_ctrl->GetTextCtrl()->SetValue(from_u8(this_printer ? m_suggested_name : m_initial_name));
+    }
+    update();
+}
+
+ProfileScopeSaveSelection SavePresetDialog::Item::profile_scope() const
+{
+    ProfileScopeSaveSelection result;
+    const int index = m_scope_choice ? m_scope_choice->GetSelection() : wxNOT_FOUND;
+    if (index < 0 || size_t(index) >= m_scope_modes.size())
+        return result;
+    if (m_scope_modes[index] == ProfileScopeSaveMode::ThisPhysicalPrinter && m_scope_target) {
+        result = *m_scope_target;
+        if (m_scope_nozzle && m_scope_nozzle->GetSelection() > 0)
+            result.nozzle_tool_index = size_t(m_scope_nozzle->GetSelection() - 1);
+    }
+    result.mode = m_scope_modes[index];
+    return result;
 }
 
 void SavePresetDialog::Item::update()
@@ -194,6 +297,18 @@ void SavePresetDialog::Item::update()
     if (m_valid_type == Valid && m_presets->get_preset_name_by_alias(m_preset_name) != m_preset_name) {
         info_line    = _L("The name cannot be the same as a preset alias name.");
         m_valid_type = NoValid;
+    }
+
+    // The scope engine has the last word on names and nozzles; show its reason here
+    // rather than only after OK. It runs again on the live selection when saving.
+    if (m_valid_type != NoValid && m_scope_choice) {
+        try {
+            Preset candidate = m_presets->get_edited_preset();
+            prepare_profile_scope_for_save(candidate, *wxGetApp().preset_bundle, m_preset_name, profile_scope());
+        } catch (const std::exception &error) {
+            info_line    = from_u8(error.what());
+            m_valid_type = NoValid;
+        }
     }
 
     // BBS: add project embedded presets logic
@@ -317,6 +432,14 @@ bool SavePresetDialog::get_save_to_project_selection(Preset::Type type)
     for (const Item *item : m_items)
         if (item->type() == type) return item->save_to_project();
     return false;
+}
+
+ProfileScopeSaveSelection SavePresetDialog::get_profile_scope_selection(Preset::Type type) const
+{
+    for (const Item *item : m_items)
+        if (item->type() == type)
+            return item->profile_scope();
+    return {};
 }
 
 bool SavePresetDialog::get_detach_value(Preset::Type type)
