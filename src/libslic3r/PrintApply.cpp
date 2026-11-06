@@ -2,6 +2,7 @@
 #include "Model.hpp"
 #include "Print.hpp"
 #include "TinManMachineProfileContract.hpp"
+#include "FilamentSelection.hpp"
 
 #include <boost/log/trivial.hpp>
 #include <algorithm>
@@ -1141,6 +1142,17 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
     check_model_ids_validity(model);
 #endif /* _DEBUG */
 
+    // Check per-printer scope before the normalization below can clamp or repair the filament map.
+    {
+        const auto *maps    = new_full_config.option<ConfigOptionInts>("filament_map");
+        const auto *mode    = new_full_config.option<ConfigOptionEnum<FilamentMapMode>>("filament_map_mode");
+        const auto *nozzles = new_full_config.option<ConfigOptionFloats>("nozzle_diameter");
+        const bool resolved = !mode || mode->value >= fmmManual || (nozzles && nozzles->values.size() == 1);
+        std::string scope_error;
+        if (!profile_scope_filament_map_valid(new_full_config, maps ? maps->values : std::vector<int>{}, resolved, scope_error))
+            throw SlicingError(scope_error);
+    }
+
     //BBS: add more logs
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(", Line %1%: enter")%__LINE__;
     // Normalize the config.
@@ -1304,6 +1316,14 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
     size_t num_extruders  = m_config.filament_diameter.size();
     bool   num_extruders_changed  = false;
     if (! full_config_diff.empty()) {
+        // A changed filament scope can change the automatic filament map even when
+        // the extrusion settings are identical, so the map must be recomputed.
+        for (const char *key : {"tinman_filament_scope_physical_id", "tinman_filament_scope_nozzle_diameter", "tinman_filament_scope_tool"})
+            if (std::find(full_config_diff.begin(), full_config_diff.end(), key) != full_config_diff.end()) {
+                update_apply_status(this->invalidate_step(psWipeTower));
+                m_has_auto_filament_map_result = false;
+                break;
+            }
         //BBS: add more logs
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(" %1%: found full_config_diff changed.")%__LINE__;
         update_apply_status(this->invalidate_step(psGCodeExport));
