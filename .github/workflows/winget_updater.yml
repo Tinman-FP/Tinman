@@ -51,7 +51,7 @@ jobs:
 
       - name: Submit WinGet update
         # Pinned instead of following a mutable branch.
-        uses: vedantmgoyal9/winget-releaser@b3a5dae0047c6180023acba3f548c55fdf6b7193
+        uses: vedantmgoyal9/winget-releaser@b7370d4d152efdce803a26cc6ca9eee58cb2ad54
         with:
           identifier: TinmanFP.Tinman
           version: ${{ steps.package.outputs.version }}
