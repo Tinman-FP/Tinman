@@ -4,12 +4,11 @@ Use this directory for public source patches or patch notes that can be reviewed
 
 Do not place full app bundles, native binaries, downloaded installers, or private Application Support data here.
 
-## Current Patch
+## Patches
 
-- `tinmanx1-v2.4.2-houseclean-native-fiber.patch`: current TinManX1 source patch on the Orca Slicer 2.4.2 source line. It includes rebrand cleanup, startup splash correction, native FibreSeek planning, fiber preview/summary support, fiber infill density/angle controls, fiber-only seam controls, profile/process generator and lint checks, Rocket/TinManX1 comparison tooling, Wave Overhangs, Arc Support, Strength Lens, helper resources, attribution, smoke checks, the FibreSeek layup editor contract, and Bambu networking plug-in `02.06.00.50` recognition without redistributing native plug-in binaries.
-- `tinmanx1-v2.4.1-houseclean-native-fiber.patch`: archived 2.4.1 patch kept for traceability and comparison.
 - `tinmanx1-v2.4.1-bambu-network-plugin-version.patch`: archived follow-up patch for the 2.4.1 line that recognized Bambu networking plug-in `02.06.00.50`.
-- `tinmanx1-v2.4.0-houseclean-native-fiber.patch`: archived 2.4.0 patch kept for traceability and comparison.
+
+The TinManX1 houseclean source patches for 2.4.0, 2.4.1 and 2.4.2 were removed on 2026-11-05. Tinman's own git history is the record of those changes, and the patches also embedded research derived from decompiling Rocket Slicer, which does not belong in this public repository.
 
 Patch files preserve the regenerated source diff byte-for-byte, including whitespace inside upstream or generated hunks. Run whitespace checks against the public docs/scripts outside `patches/*.patch`, and use `checks/verify_release.py` for patch privacy and attribution validation.
 

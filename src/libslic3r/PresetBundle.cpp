@@ -104,13 +104,13 @@ std::optional<ProfileScopeSaveSelection> current_profile_scope_save_target(const
     return result;
 }
 
-void prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundle, const std::string &new_name,
+bool prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundle, const std::string &new_name,
                                     const ProfileScopeSaveSelection &selection, const Preset *copied_from)
 {
     if (candidate.type != Preset::TYPE_PRINT && candidate.type != Preset::TYPE_FILAMENT)
-        return;
+        return false;
     if (bundle.printers.get_edited_preset().printer_technology() != ptFFF)
-        return;
+        return false;
     const PresetCollection &collection = candidate.type == Preset::TYPE_PRINT ? static_cast<const PresetCollection &>(bundle.prints) :
                                                                                  static_cast<const PresetCollection &>(bundle.filaments);
     const auto &source = copied_from ? *copied_from : collection.get_edited_preset();
@@ -151,9 +151,16 @@ void prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundl
             throw std::runtime_error("Save the profile under a new name to change which printer it belongs to. "
                                      "The original profile is kept unchanged.");
         candidate.description += "\nCopied from " + source.name + " with a different printer scope; it requires validation on that printer.";
+        // save_current_preset() makes a system or root user candidate the copy's parent.
+        const Preset *parent = collection.is_base_preset(candidate) ? &candidate : collection.get_preset_parent(candidate);
+        if (!(parent && parent->is_system)) {
+            candidate.base_id.clear(); // root presets have no base_id
+            return true;
+        }
     } else if (existing && !same_profile_scope(*existing, candidate)) {
         throw std::runtime_error("That name belongs to a profile for another printer. Choose a new profile name.");
     }
+    return false;
 }
 
 bool is_valid_profile_name(const std::string &name)
@@ -2763,12 +2770,12 @@ void PresetBundle::save_changes_for_preset(const std::string& new_name, Preset::
     if (!unselected_options.empty()) {
         candidate.config.apply_only(presets.get_selected_preset().config, unselected_options);
     }
-    prepare_profile_scope_for_save(candidate, *this, new_name, scope);
+    const bool detach = prepare_profile_scope_for_save(candidate, *this, new_name, scope);
 
     // Save the preset into Slic3r::data_dir / presets / section_name / preset_name.ini
     //BBS: add project embedded preset logic
     //presets.save_current_preset(new_name);
-    if (!presets.save_current_preset(new_name, false, save_to_project, &candidate))
+    if (!presets.save_current_preset(new_name, detach, save_to_project, &candidate))
         throw std::runtime_error("The selected preset cannot be overwritten: " + new_name);
     // Mark the print & filament enabled if they are compatible with the currently selected preset.
     // If saving the preset changes compatibility with other presets, keep the now incompatible dependent presets selected, however with a "red flag" icon showing that they are no more compatible.

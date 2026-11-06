@@ -39,7 +39,10 @@ std::optional<ProfileScopeSaveSelection> current_profile_scope_save_target(const
 // different scope. Changing the scope always requires a new name, so the original
 // preset is never rewritten for another printer. copied_from is the preset being
 // copied when it is not the edited one (moving or importing profiles).
-void prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundle,
+// Returns true when the candidate must be saved detached (its base_id is then cleared):
+// a copy with a new scope keeps only a system parent, because inheriting from a user
+// profile would let edits made to that profile for its own printer(s) flow into the copy.
+bool prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundle,
                                     const std::string &new_name, const ProfileScopeSaveSelection &selection,
                                     const Preset *copied_from = nullptr);
 } // namespace Slic3r

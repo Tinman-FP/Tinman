@@ -333,17 +333,12 @@ std::vector<std::string> copy_profiles_to_physical_printer(PresetBundle &bundle,
         if (request.nozzle_tool_index)
             selection.nozzle_tool_index = request.nozzle_tool_index;
         try {
-            prepare_profile_scope_for_save(copy.preset, bundle, request.copy_name, selection, &source);
+            // Same rule as the save dialog: the copy keeps only a system parent, so edits
+            // made to a user profile for other printers never flow into this printer's copy.
+            copy.detach = prepare_profile_scope_for_save(copy.preset, bundle, request.copy_name, selection, &source);
         } catch (const std::exception &err) {
             throw std::runtime_error(source.name + ": " + err.what());
         }
-        // Inheriting from a user profile (or being a copy of a root user profile, which
-        // save_current_preset() would make the parent) would let edits made for other
-        // printers flow into this printer's copy.
-        const Preset *parent = collection.get_preset_parent(source);
-        copy.detach          = !(parent && parent->is_system);
-        if (copy.detach)
-            copy.preset.base_id.clear(); // root presets have no base_id
         copies.push_back(std::move(copy));
     }
 

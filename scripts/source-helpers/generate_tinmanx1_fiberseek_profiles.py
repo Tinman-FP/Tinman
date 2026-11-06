@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Generate TinManX1 FibreSeek system presets.
 
-The values here are TinManX1-native presets derived from the sanitized
-FibreSeek/Rocket comparison work and generic Orca material baselines. The
+The values here are TinManX1-native presets built from generic Orca material
+baselines and FibreSeek's machine contract. The ROCKET_COMPARE_* process
+lanes exist only to compare emitted G-code against Rocket Slicer output. The
 generator intentionally writes normal plastic profiles separately from
 plastic-plus-continuous-fiber profiles so the UI can group the process lanes
 cleanly.
@@ -553,151 +554,6 @@ ROCKET_COMPARE_MODE_OVERRIDES = {
 }
 
 
-ROCKET_REFERENCE = "Rocket Slicer 1.3.1.480 / default preset pack"
-
-ROCKET_132_MATERIAL_TUNING = {
-    # Rocket keeps the hard FibreSeek machine contract common, then varies a
-    # small set of material/profile route limits. TinManX1 consumes this through
-    # fiber_reinforcement_payload so the UI stays streamlined.
-    "PETG + X-CCF": {
-        "source": "Rocket Slicer 1.3.1.480 PETG CFC X-CCF profile set",
-        "default": {
-            "min_radius": 12,
-            "max_arc_segment_length": 3,
-            "start_length": 15,
-            "slow_length": 10,
-            "normal_max_speed": 30,
-            "finish_max_speed": 15,
-            "min_route_length": 55,
-            "perimeter_min_route_length": 55,
-        },
-        "heavy": {
-            "min_radius": 10,
-            "max_arc_segment_length": 4,
-            "start_length": 5,
-            "slow_length": 5,
-            "start_max_speed": 2,
-            "start_min_speed": 2,
-            "start_min_limit_speed": 2,
-            "normal_max_speed": 40,
-            "normal_min_speed": 5,
-            "normal_min_limit_speed": 3,
-            "finish_max_speed": 15,
-            "finish_min_speed": 3,
-            "finish_min_limit_speed": 3,
-            "after_cut_plastic_extrusion_multiplier": 0.72,
-            "line_width": 0.7,
-        },
-    },
-    "PET GF + CGF": {
-        "source": "Rocket Slicer 1.3.2.637 PET-GF CFC CGF profile set",
-        "default": {
-            "min_radius": 12,
-            "max_arc_segment_length": 3,
-            "start_length": 10,
-            "slow_length": 10,
-            "normal_max_speed": 15,
-            "finish_max_speed": 15,
-            "min_route_length": 55,
-            "perimeter_min_route_length": 55,
-        },
-    },
-    "PET GF + X-CCF": {
-        "source": "Rocket Slicer 1.3.2.637 PET-GF CFC X-CCF profile set",
-        "default": {
-            "min_radius": 12,
-            "max_arc_segment_length": 3,
-            "start_length": 15,
-            "slow_length": 10,
-            "normal_max_speed": 30,
-            "finish_max_speed": 15,
-            "min_route_length": 55,
-            "perimeter_min_route_length": 55,
-        },
-        "heavy": {
-            "min_radius": 10,
-            "max_arc_segment_length": 4,
-            "start_length": 5,
-            "slow_length": 5,
-            "normal_max_speed": 40,
-        },
-    },
-    "PA-CF + X-CCF": {
-        "source": "Rocket Slicer 1.3.2.637 PA-CF CFC X-CCF profile set",
-        "default": {
-            "min_radius": 12,
-            "max_arc_segment_length": 3,
-            "start_length": 15,
-            "slow_length": 10,
-            "normal_max_speed": 30,
-            "finish_max_speed": 15,
-            "min_route_length": 55,
-            "perimeter_min_route_length": 55,
-        },
-        "medium": {
-            "min_radius": 10,
-            "max_arc_segment_length": 4,
-            "normal_max_speed": 30,
-        },
-        "heavy": {
-            "min_radius": 12,
-            "max_arc_segment_length": 1,
-            "slow_length": 8,
-            "normal_max_speed": 15,
-        },
-    },
-    "PPS-CF + X-CCF": {
-        "source": "Rocket Slicer 1.3.2.637 PPS-CF CFC X-CCF profile set",
-        "default": {
-            "min_radius": 12,
-            "max_arc_segment_length": 3,
-            "start_length": 15,
-            "slow_length": 10,
-            "normal_max_speed": 25,
-            "finish_max_speed": 15,
-            "min_route_length": 55,
-            "perimeter_min_route_length": 55,
-        },
-        "medium": {
-            "max_arc_segment_length": 1,
-            "normal_max_speed": 25,
-        },
-        "heavy": {
-            "max_arc_segment_length": 3,
-            "slow_length": 5,
-            "normal_max_speed": 15,
-        },
-    },
-    "PLA + X-CCF": {
-        "source": "Rocket Slicer 1.3.2.637 PLA CFC X-CCF profile set",
-        "default": {
-            "min_radius": 12,
-            "max_arc_segment_length": 3,
-            "start_length": 15,
-            "slow_length": 10,
-            "normal_max_speed": 20,
-            "finish_max_speed": 15,
-            "min_route_length": 55,
-            "perimeter_min_route_length": 55,
-        },
-        "medium": {
-            "min_radius": 10,
-            "max_arc_segment_length": 4,
-            "start_length": 5,
-            "slow_length": 5,
-            "normal_max_speed": 40,
-        },
-        "heavy": {
-            "min_radius": 12,
-            "max_arc_segment_length": 3,
-            "start_length": 15,
-            "slow_length": 10,
-            "normal_max_speed": 20,
-        },
-    },
-}
-
-
 CONTINUOUS_FIBERS = [
     {
         "label": "X-CCF Carbon fiber 0.25 mm",
@@ -771,10 +627,10 @@ def load_layup_payload_helper():
 
 
 def layup_payload_for_template(template: str) -> str:
-    payload: dict[str, object] = {
-        "rocket_reference": ROCKET_REFERENCE,
-        "material_tuning": ROCKET_132_MATERIAL_TUNING,
-    }
+    # No per-material route limits are embedded here; the planner falls back to
+    # the process and filament settings. Material-specific limits belong in
+    # values measured on FibreSeek hardware, not in another slicer's presets.
+    payload: dict[str, object] = {}
     if template == "none":
         return json.dumps(payload, separators=(",", ":"), sort_keys=True)
     helper = load_layup_payload_helper()
