@@ -2,6 +2,7 @@
 #define slic3r_PresetBundle_hpp_
 
 #include "Preset.hpp"
+#include "ProfileScopeSave.hpp"
 #include "AppConfig.hpp"
 #include "enum_bitmask.hpp"
 
@@ -321,6 +322,16 @@ public:
 	const PresetCollection& 	materials(PrinterTechnology pt) const { return pt == ptFFF ? this->filaments : this->sla_materials; }
     PrinterPresetCollection     printers;
     PhysicalPrinterCollection   physical_printers;
+
+    // Give a physical printer its own identity: save machine_name as a copy of the
+    // machine preset `source` carrying the connection's tinman_physical_printer_id,
+    // and save the connection with that preset. Neither live selection changes.
+    // assign_existing names the selected physical printer when an existing printer
+    // without an identity is being assigned one. If the connection cannot be saved
+    // after the machine preset was written, unbound_machine_file names that file.
+    void save_physical_unit(const Preset &source, PhysicalPrinter connection,
+                            const std::string &machine_name, const std::string &assign_existing,
+                            std::string &unbound_machine_file);
     // Filament preset names for a multi-extruder or multi-material print.
     // extruders.size() should be the same as printers.get_edited_preset().config.nozzle_diameter.size()
     std::vector<std::string>    filament_presets;
@@ -467,7 +478,8 @@ public:
     // Save current preset of a provided type under a new name. If the name is different from the old one,
     // Unselected option would be reverted to the beginning values
     //BBS: add project embedded preset logic
-    void                        save_changes_for_preset(const std::string& new_name, Preset::Type type, const std::vector<std::string>& unselected_options, bool save_to_project = false);
+    void                        save_changes_for_preset(const std::string& new_name, Preset::Type type, const std::vector<std::string>& unselected_options, bool save_to_project = false,
+                                                        const ProfileScopeSaveSelection &scope = {});
 
     std::pair<PresetsConfigSubstitutions, std::string> load_system_models_from_json(ForwardCompatibilitySubstitutionRule compatibility_rule);
     std::pair<PresetsConfigSubstitutions, std::string> load_system_filaments_json(ForwardCompatibilitySubstitutionRule compatibility_rule);

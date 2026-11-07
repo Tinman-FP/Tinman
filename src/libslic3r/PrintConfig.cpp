@@ -1865,6 +1865,36 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(1));
 
+    // Per-printer profile scope (see is_compatible_with_physical_printer_scope()).
+    // A machine preset and its physical printer share one UUID; a process or
+    // filament preset may be bound to that UUID and the nozzle(s) it was tuned on.
+    // Defaults mean "unscoped", which keeps the existing compatibility rules.
+    def = this->add("tinman_physical_printer_id", coString);
+    def->set_default_value(new ConfigOptionString());
+    def->cli = ConfigOptionDef::nocli;
+
+    def = this->add("tinman_process_scope_physical_id", coString);
+    def->set_default_value(new ConfigOptionString());
+    def->cli = ConfigOptionDef::nocli;
+
+    def = this->add("tinman_process_scope_nozzle_diameters", coFloats);
+    // An empty numeric vector deserializes as {0}, so {0} is the unscoped value.
+    def->set_default_value(new ConfigOptionFloats{0.0});
+    def->cli = ConfigOptionDef::nocli;
+
+    def = this->add("tinman_filament_scope_physical_id", coStrings);
+    def->set_default_value(new ConfigOptionStrings{""});
+    def->cli = ConfigOptionDef::nocli;
+
+    def = this->add("tinman_filament_scope_nozzle_diameter", coFloats);
+    def->set_default_value(new ConfigOptionFloats{0.0});
+    def->cli = ConfigOptionDef::nocli;
+
+    // Index into the printer's nozzle_diameter vector, not a material slot or firmware T number.
+    def = this->add("tinman_filament_scope_tool", coInts);
+    def->set_default_value(new ConfigOptionInts{-1});
+    def->cli = ConfigOptionDef::nocli;
+
     def = this->add("compatible_printers", coStrings);
     def->label = L("Select printers");
     def->mode = comAdvanced;

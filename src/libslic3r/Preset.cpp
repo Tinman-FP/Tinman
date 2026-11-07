@@ -24,6 +24,7 @@
 #endif /* L */
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -812,6 +813,9 @@ bool is_compatible_with_print(const PresetWithVendorProfile &preset, const Prese
 // can't be changed by user.
 bool is_compatible_with_parent_printer(const PresetWithVendorProfile& preset, const PresetWithVendorProfile& active_printer)
 {
+    // Inheriting from the same system printer does not make two physical printers interchangeable.
+    if (!is_compatible_with_physical_printer_scope(preset.preset, active_printer.preset))
+        return false;
     auto *compatible_printers     = dynamic_cast<const ConfigOptionStrings*>(preset.preset.config.option("compatible_printers"));
     bool  has_compatible_printers = compatible_printers != nullptr && ! compatible_printers->values.empty();
     //BBS: FIXME only check the parent now, but should check grand-parent as well.
@@ -820,8 +824,96 @@ bool is_compatible_with_parent_printer(const PresetWithVendorProfile& preset, co
                compatible_printers->values.end();
 }
 
+bool is_valid_physical_printer_id(const std::string &id)
+{
+    // Lower-case 8-4-4-4-12 hex form; the nil UUID is not an identity.
+    if (id.size() != 36)
+        return false;
+    bool nonzero = false;
+    for (size_t i = 0; i < id.size(); ++i) {
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            if (id[i] != '-')
+                return false;
+        } else if ((id[i] >= '0' && id[i] <= '9') || (id[i] >= 'a' && id[i] <= 'f')) {
+            nonzero = nonzero || id[i] != '0';
+        } else {
+            return false;
+        }
+    }
+    return nonzero;
+}
+
+namespace {
+bool is_valid_nozzle_diameter(double diameter) { return std::isfinite(diameter) && diameter > 0.; }
+
+bool same_nozzle_diameter(double scoped, double actual)
+{
+    return is_valid_nozzle_diameter(scoped) && is_valid_nozzle_diameter(actual) && std::abs(scoped - actual) <= 1e-6;
+}
+} // namespace
+
+bool is_compatible_with_physical_printer_scope(const Preset &preset, const Preset &active_printer, std::optional<size_t> nozzle_tool_index)
+{
+    if ((preset.type != Preset::TYPE_PRINT && preset.type != Preset::TYPE_FILAMENT) || active_printer.printer_technology() == ptSLA)
+        return true;
+
+    const bool  process = preset.type == Preset::TYPE_PRINT;
+    const auto &config  = preset.config;
+    const ConfigOption *id_option     = config.option(process ? "tinman_process_scope_physical_id" : "tinman_filament_scope_physical_id");
+    const ConfigOption *nozzle_option = config.option(process ? "tinman_process_scope_nozzle_diameters" : "tinman_filament_scope_nozzle_diameter");
+    const ConfigOption *tool_option   = process ? nullptr : config.option("tinman_filament_scope_tool");
+    const auto *process_id  = dynamic_cast<const ConfigOptionString *>(id_option);
+    const auto *filament_id = dynamic_cast<const ConfigOptionStrings *>(id_option);
+    const auto *nozzles     = dynamic_cast<const ConfigOptionFloats *>(nozzle_option);
+    const auto *tools       = dynamic_cast<const ConfigOptionInts *>(tool_option);
+
+    // A scope option of the wrong type is damaged data, never "unscoped".
+    if ((id_option && (process ? process_id == nullptr : filament_id == nullptr)) || (nozzle_option && !nozzles) ||
+        (tool_option && !tools))
+        return false;
+
+    // Absent keys or their defaults: unscoped, the existing rules apply.
+    if (process) {
+        if ((!process_id || process_id->value.empty()) &&
+            (!nozzles || nozzles->values.empty() || nozzles->values == std::vector<double>{0.}))
+            return true;
+    } else if ((!filament_id || filament_id->values == std::vector<std::string>{""}) &&
+               (!nozzles || nozzles->values == std::vector<double>{0.}) && (!tools || tools->values == std::vector<int>{-1})) {
+        return true;
+    }
+
+    // Scoped, also when only part of the scope is present: the active machine
+    // preset must belong to the same physical printer and have usable nozzles.
+    const auto *printer_id = active_printer.config.option<ConfigOptionString>("tinman_physical_printer_id");
+    const auto *actual     = active_printer.config.option<ConfigOptionFloats>("nozzle_diameter");
+    if (!printer_id || !is_valid_physical_printer_id(printer_id->value) || !actual || actual->values.empty() ||
+        !std::all_of(actual->values.begin(), actual->values.end(), is_valid_nozzle_diameter))
+        return false;
+
+    if (process) {
+        // A process is tuned for the whole tool head: every nozzle, in order.
+        if (!process_id || process_id->value != printer_id->value || !nozzles || nozzles->values.size() != actual->values.size())
+            return false;
+        for (size_t i = 0; i < actual->values.size(); ++i)
+            if (!same_nozzle_diameter(nozzles->values[i], actual->values[i]))
+                return false;
+        return true;
+    }
+
+    // A filament is tuned on one nozzle of that printer.
+    if (!filament_id || filament_id->values.size() != 1 || filament_id->values.front() != printer_id->value || !nozzles ||
+        nozzles->values.size() != 1 || !tools || tools->values.size() != 1 || tools->values.front() < 0)
+        return false;
+    const size_t tool = size_t(tools->values.front());
+    return tool < actual->values.size() && (!nozzle_tool_index || *nozzle_tool_index == tool) &&
+           same_nozzle_diameter(nozzles->values.front(), actual->values[tool]);
+}
+
 bool is_compatible_with_printer(const PresetWithVendorProfile &preset, const PresetWithVendorProfile &active_printer, const DynamicPrintConfig *extra_config)
 {
+    // Must come before the default-preset, explicit-list, condition and parent-printer shortcuts below.
+    if (!is_compatible_with_physical_printer_scope(preset.preset, active_printer.preset))
+        return false;
     // Orca: we allow cross vendor compatibility
 	// if (preset.vendor != nullptr && preset.vendor != active_printer.vendor)
 	// 	// The current profile has a vendor assigned and it is different from the active print's vendor.
@@ -1017,6 +1109,7 @@ bool Preset::has_cali_lines(PresetBundle* preset_bundle)
 }
 
 static std::vector<std::string> s_Preset_print_options{
+    "tinman_process_scope_physical_id", "tinman_process_scope_nozzle_diameters",
     "layer_height",
     "initial_layer_print_height",
     "wall_loops",
@@ -1420,6 +1513,7 @@ static std::vector<std::string> s_Preset_print_options{
 };
 
 static std::vector<std::string> s_Preset_filament_options {/*"filament_colour", */ "default_filament_colour", "required_nozzle_HRC", "filament_diameter", "pellet_flow_coefficient", "volumetric_speed_coefficients", "filament_type",
+    "tinman_filament_scope_physical_id", "tinman_filament_scope_nozzle_diameter", "tinman_filament_scope_tool",
                                                           "filament_soluble", "filament_is_support", "filament_printable",
     "filament_max_volumetric_speed", "filament_adaptive_volumetric_speed",
     "filament_flow_ratio", "filament_density", "filament_adhesiveness_category", "filament_cost", "filament_minimal_purge_on_wipe_tower",
@@ -1481,6 +1575,7 @@ static std::vector<std::string> s_Preset_machine_limits_options {
 };
 
 static std::vector<std::string> s_Preset_printer_options {
+    "tinman_physical_printer_id",
     "printer_technology",
     "printable_area", "extruder_printable_area", "support_parallel_printheads", "parallel_printheads_count", "parallel_printheads_bed_exclude_areas", "bed_exclude_area","bed_custom_texture", "bed_custom_model", "gcode_flavor",
     "fan_kickstart", "part_cooling_fan_min_pwm", "fan_speedup_time", "fan_speedup_overhangs",
@@ -1683,6 +1778,13 @@ void PresetCollection::add_default_preset(const std::vector<std::string> &keys, 
     // Insert just the default preset.
     m_presets.emplace_back(Preset(this->type(), preset_name, true));
     m_presets.back().config.apply_only(defaults, keys.empty() ? defaults.keys() : keys);
+    // The scope keys exist only in the config definition, not in the static
+    // defaults, so give the default preset their declared (unscoped) values.
+    for (const char *key : {"tinman_physical_printer_id", "tinman_process_scope_physical_id",
+                            "tinman_process_scope_nozzle_diameters", "tinman_filament_scope_physical_id",
+                            "tinman_filament_scope_nozzle_diameter", "tinman_filament_scope_tool"})
+        if (std::find(keys.begin(), keys.end(), key) != keys.end())
+            m_presets.back().config.set_key_value(key, print_config_def.get(key)->default_value->clone());
     m_presets.back().loaded = true;
     ++ m_num_default_presets;
 }
@@ -4135,6 +4237,7 @@ std::string PhysicalPrinter::separator()
 }
 
 static std::vector<std::string> s_PhysicalPrinter_opts {
+    "tinman_physical_printer_id",
     "preset_name", // temporary option to compatibility with older Slicer
     "preset_names",
     "printer_technology",

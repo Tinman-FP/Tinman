@@ -13,6 +13,7 @@
 #include "ConfigResolutionTrace.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <mutex>
 #include <set>
 #include <stdexcept>
@@ -42,6 +43,197 @@
 //#define SLIC3R_PROFILE_USE_PRESETS_SUBDIR
 
 namespace Slic3r {
+
+namespace {
+const std::vector<std::string> &profile_scope_keys(Preset::Type type)
+{
+    static const std::vector<std::string> process{"tinman_process_scope_physical_id", "tinman_process_scope_nozzle_diameters"};
+    static const std::vector<std::string> filament{"tinman_filament_scope_physical_id", "tinman_filament_scope_nozzle_diameter",
+                                                   "tinman_filament_scope_tool"};
+    return type == Preset::TYPE_PRINT ? process : filament;
+}
+
+// Absent scope keys compare equal to their defaults.
+bool same_profile_scope(const Preset &left, const Preset &right)
+{
+    for (const auto &key : profile_scope_keys(left.type)) {
+        const ConfigOption *a = left.config.option(key);
+        const ConfigOption *b = right.config.option(key);
+        if (!a) a = print_config_def.get(key)->default_value.get();
+        if (!b) b = print_config_def.get(key)->default_value.get();
+        if (a->type() != b->type() || a->serialize() != b->serialize())
+            return false;
+    }
+    return true;
+}
+} // namespace
+
+std::optional<ProfileScopeSaveSelection> current_profile_scope_save_target(const PresetBundle &bundle)
+{
+    if (!bundle.physical_printers.has_selection())
+        return std::nullopt;
+    const auto &machine    = bundle.printers.get_edited_preset();
+    const auto &physical   = bundle.physical_printers.get_selected_printer();
+    const auto *machine_id = machine.config.option<ConfigOptionString>("tinman_physical_printer_id");
+    const auto *unit_id    = physical.config.option<ConfigOptionString>("tinman_physical_printer_id");
+    const auto *nozzles    = machine.config.option<ConfigOptionFloats>("nozzle_diameter");
+    if (machine.printer_technology() != ptFFF || !machine_id || !unit_id || !is_valid_physical_printer_id(machine_id->value) ||
+        machine_id->value != unit_id->value || bundle.physical_printers.get_selected_printer_preset_name() != machine.name ||
+        physical.get_preset_names().count(machine.name) != 1 || !nozzles || nozzles->values.empty())
+        return std::nullopt;
+    for (double diameter : nozzles->values)
+        if (!std::isfinite(diameter) || diameter <= 0.)
+            return std::nullopt;
+    // Two connection records claiming one identity make the destination ambiguous.
+    size_t matches = 0;
+    for (const auto &peer : bundle.physical_printers)
+        if (const auto *id = peer.config.option<ConfigOptionString>("tinman_physical_printer_id"); id && id->value == unit_id->value)
+            ++matches;
+    if (matches != 1)
+        return std::nullopt;
+
+    ProfileScopeSaveSelection result;
+    result.mode                  = ProfileScopeSaveMode::ThisPhysicalPrinter;
+    result.physical_printer_name = physical.name;
+    result.physical_id           = unit_id->value;
+    result.machine_preset_name   = machine.name;
+    result.nozzle_diameters      = nozzles->values;
+    if (nozzles->values.size() == 1)
+        result.nozzle_tool_index = 0;
+    return result;
+}
+
+void prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundle, const std::string &new_name,
+                                    const ProfileScopeSaveSelection &selection)
+{
+    if (candidate.type != Preset::TYPE_PRINT && candidate.type != Preset::TYPE_FILAMENT)
+        return;
+    if (bundle.printers.get_edited_preset().printer_technology() != ptFFF)
+        return;
+    const PresetCollection &collection = candidate.type == Preset::TYPE_PRINT ? static_cast<const PresetCollection &>(bundle.prints) :
+                                                                                 static_cast<const PresetCollection &>(bundle.filaments);
+    const auto &source = collection.get_edited_preset();
+    // The scope is saved as a whole, even when only selected options are being saved.
+    for (const auto &key : profile_scope_keys(candidate.type)) {
+        const ConfigOption *value = source.config.option(key);
+        candidate.config.set_key_value(key, (value ? value : print_config_def.get(key)->default_value.get())->clone());
+    }
+
+    if (selection.mode == ProfileScopeSaveMode::GenericTemplate) {
+        for (const auto &key : profile_scope_keys(candidate.type))
+            candidate.config.set_key_value(key, print_config_def.get(key)->default_value->clone());
+    } else if (selection.mode == ProfileScopeSaveMode::ThisPhysicalPrinter) {
+        const auto current = current_profile_scope_save_target(bundle);
+        if (!current || current->physical_id != selection.physical_id ||
+            current->physical_printer_name != selection.physical_printer_name ||
+            current->machine_preset_name != selection.machine_preset_name || current->nozzle_diameters != selection.nozzle_diameters)
+            throw std::runtime_error("The selected physical printer or nozzle changed. Reopen the save dialog.");
+        if (candidate.type == Preset::TYPE_PRINT) {
+            candidate.config.set_key_value("tinman_process_scope_physical_id", new ConfigOptionString(current->physical_id));
+            candidate.config.set_key_value("tinman_process_scope_nozzle_diameters", new ConfigOptionFloats(current->nozzle_diameters));
+        } else {
+            if (!selection.nozzle_tool_index || *selection.nozzle_tool_index >= current->nozzle_diameters.size())
+                throw std::runtime_error("Choose the nozzle this filament was tuned on.");
+            const size_t tool = *selection.nozzle_tool_index;
+            candidate.config.set_key_value("tinman_filament_scope_physical_id", new ConfigOptionStrings{current->physical_id});
+            candidate.config.set_key_value("tinman_filament_scope_nozzle_diameter", new ConfigOptionFloats{current->nozzle_diameters[tool]});
+            candidate.config.set_key_value("tinman_filament_scope_tool", new ConfigOptionInts{int(tool)});
+        }
+    } else if (selection.mode != ProfileScopeSaveMode::Preserve) {
+        throw std::runtime_error("Invalid profile scope choice.");
+    }
+
+    const Preset *existing = collection.find_preset(new_name, false, true);
+    if (!same_profile_scope(source, candidate)) {
+        // Re-scoping makes a new preset; the original keeps serving its own printer(s).
+        if (new_name == source.name || existing)
+            throw std::runtime_error("Save the profile under a new name to change which printer it belongs to. "
+                                     "The original profile is kept unchanged.");
+        candidate.description += "\nCopied from " + source.name + " with a different printer scope; it requires validation on that printer.";
+    } else if (existing && !same_profile_scope(*existing, candidate)) {
+        throw std::runtime_error("That name belongs to a profile for another printer. Choose a new profile name.");
+    }
+}
+
+void PresetBundle::save_physical_unit(const Preset &source, PhysicalPrinter connection, const std::string &machine_name,
+                                      const std::string &assign_existing, std::string &unbound_machine_file)
+{
+    unbound_machine_file.clear();
+    const auto valid_name = [](const std::string &name) {
+        return !name.empty() && name != "." && name != ".." && name.front() != ' ' && name.back() != ' ' &&
+               name.find_first_of("<>[]:/\\|?*\"\r\n\t") == std::string::npos && name.find(Preset::suffix_modified()) == std::string::npos;
+    };
+    if (!valid_name(connection.name) || !valid_name(machine_name))
+        throw std::runtime_error("Choose a valid physical printer name and machine profile name.");
+    if (source.is_default || source.printer_technology() != ptFFF || source.name != printers.get_edited_preset().name ||
+        source.config != printers.get_edited_preset().config)
+        throw std::runtime_error("The machine profile changed or is unavailable. Reopen the physical printer dialog.");
+    const auto *id = connection.config.option<ConfigOptionString>("tinman_physical_printer_id");
+    if (!id || !is_valid_physical_printer_id(id->value))
+        throw std::runtime_error("The physical printer identity is invalid.");
+    for (const auto &peer : physical_printers)
+        if (const auto *peer_id = peer.config.option<ConfigOptionString>("tinman_physical_printer_id"); peer_id && peer_id->value == id->value)
+            throw std::runtime_error("This identity already belongs to a physical printer. Edit that printer instead.");
+    const PhysicalPrinter *existing = physical_printers.find_printer(connection.name, false);
+    if (assign_existing.empty()) {
+        if (existing)
+            throw std::runtime_error("A physical printer already has that name.");
+    } else {
+        const auto *old_id = existing ? existing->config.option<ConfigOptionString>("tinman_physical_printer_id") : nullptr;
+        if (!existing || existing->name != assign_existing || connection.name != assign_existing ||
+            physical_printers.get_selected_printer_name() != assign_existing ||
+            physical_printers.get_selected_printer_preset_name() != source.name || (old_id && !old_id->value.empty()))
+            throw std::runtime_error("Only the selected physical printer without an identity can be assigned one.");
+    }
+    if (printers.find_preset(machine_name, false, true))
+        throw std::runtime_error("A machine profile with that name already exists. Choose another name.");
+
+    Preset candidate(source);
+    candidate.config.set_key_value("tinman_physical_printer_id", new ConfigOptionString(id->value));
+    // Reset connection settings to the defaults rather than erasing them, so the
+    // copy cannot pick up a parent's endpoint or credentials when it is reopened.
+    const auto &defaults = printers.default_preset().config;
+    for (const auto &key : candidate.config.keys()) {
+        if (!tinmanx_runtime_connection_option(key))
+            continue;
+        if (const auto *value = defaults.option(key))
+            candidate.config.set_key_value(key, value->clone());
+        else
+            candidate.config.erase(key);
+    }
+    const boost::filesystem::path machine_file(printers.path_from_name(machine_name));
+    const boost::filesystem::path connection_file(physical_printers.path_from_name(connection.name));
+    if (!machine_file.is_absolute() || !connection_file.is_absolute() || !boost::filesystem::is_directory(machine_file.parent_path()) ||
+        !boost::filesystem::is_directory(connection_file.parent_path()) || boost::filesystem::exists(machine_file) ||
+        (assign_existing.empty() && boost::filesystem::exists(connection_file)))
+        throw std::runtime_error("The profile folder is unavailable or a file with that name already exists. Nothing was changed.");
+
+    // Save into copies and publish both collections only after both saves succeed.
+    // The two files are not one transaction: if the connection save fails, the
+    // machine preset already on disk is reported through unbound_machine_file.
+    PrinterPresetCollection staged_machines;
+    staged_machines = printers;
+    PhysicalPrinterCollection staged_connections(physical_printers);
+    if (!staged_machines.save_current_preset(machine_name, false, false, &candidate))
+        throw std::runtime_error("The machine profile could not be saved.");
+    unbound_machine_file = staged_machines.get_selected_preset().file;
+    if (assign_existing.empty())
+        connection.reset_presets();
+    else
+        connection.preset_names = existing->preset_names; // Keep the printer's existing machine presets.
+    connection.add_preset(machine_name);
+    staged_connections.save_printer(connection);
+    staged_machines.select_preset_by_name(printers.get_selected_preset_name(), true);
+    staged_machines.m_edited_preset = printers.m_edited_preset;
+    staged_machines.m_saved_preset  = printers.m_saved_preset;
+    if (physical_printers.has_selection())
+        staged_connections.select_printer(physical_printers.get_selected_full_printer_name());
+    else
+        staged_connections.unselect_printer();
+    printers          = staged_machines;
+    physical_printers = staged_connections;
+    unbound_machine_file.clear();
+}
 
 static std::vector<std::string> s_project_options {
     "flush_volumes_vector",
@@ -2527,7 +2719,8 @@ const int PresetBundle::get_required_hrc_by_filament_type(const std::string& fil
 
 //BBS: add project embedded preset logic
 void PresetBundle::save_changes_for_preset(const std::string& new_name, Preset::Type type,
-                                           const std::vector<std::string>& unselected_options, bool save_to_project)
+                                           const std::vector<std::string>& unselected_options, bool save_to_project,
+                                           const ProfileScopeSaveSelection &scope)
 {
     PresetCollection& presets = type == Preset::TYPE_PRINT          ? prints :
                                 type == Preset::TYPE_SLA_PRINT      ? sla_prints :
@@ -2539,6 +2732,7 @@ void PresetBundle::save_changes_for_preset(const std::string& new_name, Preset::
     if (!unselected_options.empty()) {
         candidate.config.apply_only(presets.get_selected_preset().config, unselected_options);
     }
+    prepare_profile_scope_for_save(candidate, *this, new_name, scope);
 
     // Save the preset into Slic3r::data_dir / presets / section_name / preset_name.ini
     //BBS: add project embedded preset logic
