@@ -274,6 +274,29 @@ TEST_CASE("TinMan connection overlay follows a machine across nozzle presets", "
     CHECK(target.opt_string("printer_agent") == "qidi");
 }
 
+TEST_CASE("TinMan connection overlay skips a physical printer's own machine profile", "[Preset][TinMan][PhysicalUnit]")
+{
+    AppConfig app_config;
+    DynamicPrintConfig shared;
+    shared.set_key_value("printer_model", new ConfigOptionString("Qidi X-Plus 4"));
+    shared.set_key_value("printer_agent", new ConfigOptionString("qidi"));
+    shared.set_key_value("print_host", new ConfigOptionString("192.0.2.145"));
+    shared.set_key_value("print_host_webui", new ConfigOptionString("http://192.0.2.145"));
+    REQUIRE(tinmanx_remember_machine_connection(app_config, "Qidi X-Plus 4 0.4 nozzle - TinMan Codex", shared));
+
+    DynamicPrintConfig unit(shared);
+    unit.set_key_value("tinman_physical_printer_id", new ConfigOptionString("12345678-1234-4234-8234-123456789abc"));
+    unit.set_key_value("print_host", new ConfigOptionString("192.0.2.150"));
+    unit.set_key_value("print_host_webui", new ConfigOptionString("http://192.0.2.150"));
+    // Saving printer B's connection must not become the address of every printer of the model ...
+    CHECK_FALSE(tinmanx_remember_machine_connection(app_config, "Workshop B", unit));
+    CHECK(app_config.get("ip_address", "Qidi X-Plus 4 0.4 nozzle - TinMan Codex") == "192.0.2.145");
+    // ... and the model-wide address must not replace printer B's own.
+    tinmanx_restore_machine_connection(app_config, "Workshop B", unit);
+    CHECK(unit.opt_string("print_host") == "192.0.2.150");
+    CHECK(unit.opt_string("print_host_webui") == "http://192.0.2.150");
+}
+
 TEST_CASE("TinMan connection routing cannot downgrade specialized printer agents", "[Preset][TinMan]")
 {
     CHECK(tinmanx_expected_printer_agent("Creality K2 Plus 0.6 nozzle - TinMan Codex") == "crealityprint");

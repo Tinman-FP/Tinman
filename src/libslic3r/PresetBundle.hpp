@@ -332,6 +332,12 @@ public:
     void save_physical_unit(const Preset &source, PhysicalPrinter connection,
                             const std::string &machine_name, const std::string &assign_existing,
                             std::string &unbound_machine_file);
+    // Rebuild physical_printers from <dir_user_presets>/physical_printer, keeping only the
+    // printers that have an identity (save_physical_unit()). Other records stay on disk
+    // unused, as before. A damaged record is logged and skipped. The previous selection
+    // is kept only when it came from the same folder.
+    void load_physical_units(const std::string &dir_user_presets, PresetsConfigSubstitutions &substitutions,
+                             ForwardCompatibilitySubstitutionRule rule);
     // Filament preset names for a multi-extruder or multi-material print.
     // extruders.size() should be the same as printers.get_edited_preset().config.nozzle_diameter.size()
     std::vector<std::string>    filament_presets;

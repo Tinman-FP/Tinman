@@ -43,9 +43,12 @@ class PhysicalPrinterDialog : public DPIDialog
     wxStaticText*       m_valid_label                       {nullptr};
     wxTextCtrl*         m_input_ctrl                        {nullptr};
     Button*             btnOK                               {nullptr};
+    Button*             m_add_unit_btn                      {nullptr};
 
     void build_printhost_settings(ConfigOptionsGroup* optgroup);
     void OnOK(wxEvent& event);
+    // Create a separate physical printer of this model with its own machine profile.
+    void add_physical_unit();
 
 public:
     PhysicalPrinterDialog(wxWindow* parent);

@@ -345,3 +345,41 @@ TEST_CASE("Creating a physical printer identity saves its own machine profile wi
         CHECK_FALSE(fs::exists(machines.path_from_name(machine_name)));
     }
 }
+
+TEST_CASE("Only physical printers with an identity are loaded from the user folder", "[Preset][ConnectionRecovery][PhysicalUnit]")
+{
+    ConnectionFixture fixture;
+    const std::string id = "12345678-1234-4234-8234-123456789abc";
+    auto identified = fixture.config();
+    identified.set_key_value("tinman_physical_printer_id", new ConfigOptionString(id));
+    fixture.bundle.physical_printers.load_printer(fixture.file("Unit A"), "Unit A", std::move(identified), false, true);
+    fixture.add("Legacy");
+    write_file_with_replace(fixture.file("Broken"), "{ broken");
+    const auto legacy_bytes = read_bytes(fixture.file("Legacy"));
+    PresetsConfigSubstitutions substitutions;
+    auto &printers = fixture.bundle.physical_printers;
+
+    REQUIRE_NOTHROW(fixture.bundle.load_physical_units(fixture.root.string(), substitutions,
+                                                       ForwardCompatibilitySubstitutionRule::Disable));
+    CHECK(printers().size() == 1);
+    REQUIRE(printers.find_printer("Unit A") != nullptr);
+    CHECK(printers.find_printer("Unit A")->config.opt_string("tinman_physical_printer_id") == id);
+    CHECK(printers.find_printer("Legacy") == nullptr);
+    CHECK(printers.find_printer("Broken") == nullptr);
+    CHECK(read_bytes(fixture.file("Legacy")) == legacy_bytes);
+    CHECK_FALSE(printers.has_selection());
+    CHECK(printers.path_from_name("Unit B") == fixture.file("Unit B"));
+
+    printers.select_printer("Unit A", "Machine A");
+    REQUIRE_NOTHROW(fixture.bundle.load_physical_units(fixture.root.string(), substitutions,
+                                                       ForwardCompatibilitySubstitutionRule::Disable));
+    CHECK(printers.get_selected_full_printer_name() == "Unit A * Machine A");
+
+    // Another account folder starts without the previous account's printers or selection.
+    const fs::path other = fixture.root / "other-account";
+    fs::create_directories(other / "physical_printer");
+    REQUIRE_NOTHROW(fixture.bundle.load_physical_units(other.string(), substitutions,
+                                                       ForwardCompatibilitySubstitutionRule::Disable));
+    CHECK(printers.empty());
+    CHECK_FALSE(printers.has_selection());
+}

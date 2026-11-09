@@ -6675,7 +6675,8 @@ bool Tab::may_discard_current_dirty_preset(PresetCollection *presets /*= nullptr
             const Preset draft = presets->get_edited_preset();
             // revert unselected options to the old values
             presets->get_edited_preset().config.apply_only(presets->get_selected_preset().config, unselected_options);
-            const SaveContext save_context{nullptr, dlg.get_names_and_types().front().connection_update};
+            const SaveContext save_context{nullptr, dlg.get_names_and_types().front().connection_update,
+                                           dlg.get_names_and_types().front().profile_scope};
             if (!save_preset(name, false, save_to_project, false, "", &save_context)) {
                 presets->get_edited_preset() = draft;
                 return false;
@@ -6684,7 +6685,8 @@ bool Tab::may_discard_current_dirty_preset(PresetCollection *presets /*= nullptr
         else
         {
             try {
-                m_preset_bundle->save_changes_for_preset(name, presets->type(), unselected_options, save_to_project);
+                m_preset_bundle->save_changes_for_preset(name, presets->type(), unselected_options, save_to_project,
+                                                        dlg.get_names_and_types().front().profile_scope);
                 dlg.get_names_and_types().front().connection_update.apply(*m_preset_bundle);
             } catch (const std::exception &error) {
                 show_error(this, _L("Could not complete the save. Earlier successful saves have been kept.") + "\n\n" + wxString::FromUTF8(error.what()));
@@ -7031,6 +7033,30 @@ bool Tab::transfer_options(const std::string &name_from, const std::string &name
     return true;
 }
 
+// A machine profile's tinman_physical_printer_id names one physical printer. A copy saved under
+// another name keeps it only if the copy stays with that printer (added to it or replacing its
+// profile); any other copy becomes an ordinary machine profile, so the printer's own process
+// and filament profiles are not offered on it. Overwriting a profile keeps that profile's identity.
+static void keep_physical_printer_identity_with_its_printer(Preset &candidate, const PresetBundle &bundle, const std::string &name,
+                                                            const PendingPhysicalPrinterUpdate &connection_update)
+{
+    auto *id = candidate.config.option<ConfigOptionString>("tinman_physical_printer_id");
+    if (candidate.type != Preset::TYPE_PRINTER || !id || id->value.empty() || name == candidate.name)
+        return;
+    if (const Preset *existing = bundle.printers.find_preset(name, false, true)) {
+        const auto *existing_id = existing->config.option<ConfigOptionString>("tinman_physical_printer_id");
+        id->value = existing_id ? existing_id->value : std::string();
+        return;
+    }
+    using Action = PendingPhysicalPrinterUpdate::Action;
+    const auto &physical = bundle.physical_printers;
+    const auto *unit_id = physical.has_selection() ?
+        physical.get_selected_printer().config.option<ConfigOptionString>("tinman_physical_printer_id") : nullptr;
+    if ((connection_update.action != Action::Replace && connection_update.action != Action::Add) || !unit_id ||
+        unit_id->value != id->value)
+        id->value.clear();
+}
+
 // Save the current preset into file.
 // This removes the "dirty" flag of the preset, possibly creates a new preset under a new name,
 // and activates the new preset.
@@ -7048,6 +7074,7 @@ bool Tab::save_preset(std::string name /*= ""*/, bool detach, bool save_to_proje
     // focus currently.is there anything better than this ?
 //!	m_tabctrl->OnSetFocus();
     PendingPhysicalPrinterUpdate connection_update = context ? context->connection_update : PendingPhysicalPrinterUpdate{};
+    ProfileScopeSaveSelection    profile_scope     = context ? context->profile_scope : ProfileScopeSaveSelection{};
     if (from_input) {
         SavePresetDialog dlg(m_parent, m_type, m_mode, detach ? _u8L("Detached") : "");
         dlg.Show(false);
@@ -7061,6 +7088,7 @@ bool Tab::save_preset(std::string name /*= ""*/, bool detach, bool save_to_proje
         name = input_name;
         detach = dlg.get_detach_value(m_type);
         connection_update = dlg.pending_physical_printer_update(name);
+        profile_scope = {}; // A dialog the user never saw cannot change a profile's scope.
     }
 
     if (name.empty()) {
@@ -7074,11 +7102,21 @@ bool Tab::save_preset(std::string name /*= ""*/, bool detach, bool save_to_proje
         save_to_project = dlg.get_save_to_project_selection(m_type);
         detach          = dlg.get_detach_value(m_type);
         connection_update = dlg.pending_physical_printer_update(name);
+        profile_scope     = dlg.get_profile_scope_selection(m_type);
     }
 
     //BBS record current preset name
     Preset edited_preset = context && context->candidate ? *context->candidate : m_presets->get_edited_preset();
     std::string curr_preset_name = edited_preset.name;
+    try {
+        // Checked against the live printer selection, which may have changed since the dialog opened.
+        if (prepare_profile_scope_for_save(edited_preset, *m_preset_bundle, name, profile_scope))
+            detach = true;
+    } catch (const std::exception &error) {
+        show_error(this, _L("The preset was not saved.") + "\n\n" + wxString::FromUTF8(error.what()));
+        return false;
+    }
+    keep_physical_printer_identity_with_its_printer(edited_preset, *m_preset_bundle, name, connection_update);
 
     bool exist_preset = false;
     Preset* new_preset = m_presets->find_preset(name, false);

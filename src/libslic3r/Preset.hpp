@@ -1168,6 +1168,8 @@ public:
 
     // Generate a file path from a profile name. Add the ".ini" suffix if it is missing.
     std::string     path_from_name(const std::string& new_name) const;
+    // Folder of the printer files, set by load_printers() even when it does not exist yet.
+    const std::string& dir_path() const { return m_dir_path; }
 
     const DynamicPrintConfig& default_config() const { return m_default_config; }
 
