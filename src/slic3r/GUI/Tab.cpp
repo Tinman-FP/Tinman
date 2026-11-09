@@ -2164,9 +2164,11 @@ void Tab::on_presets_changed()
 
     if (m_type == Preset::TYPE_PRINTER) {
 
-        // Trigger per-vendor preset update check
+        // Trigger per-vendor preset update check.
+        // Tinman: upstream runs it even in stealth mode. It sends the vendor id and app version to
+        // profile_update_url at startup and on printer switches, so stealth mode skips it like the startup preset sync.
         const Preset& printer_preset = m_preset_bundle->printers.get_edited_preset();
-        if (printer_preset.vendor) {
+        if (printer_preset.vendor && !wxGetApp().app_config->get_stealth_mode()) {
             wxGetApp().get_preset_updater()->check_vendor_update(printer_preset.vendor->id);
         }
     }

@@ -964,9 +964,12 @@ void GUI_App::post_init()
                 std::string network_ver = Slic3r::NetworkAgent::get_version();
                 bool        sys_preset  = app_config->get("sync_system_preset") == "true";
                 this->preset_updater->sync(http_url, language, network_ver, sys_preset ? preset_bundle : nullptr);
+
+                // Tinman: upstream runs this check even in stealth mode. It sends the install id, version,
+                // OS and arch to version_check_url, so stealth mode skips it. Help > Check for Updates still works.
+                this->check_new_version_sf();
             }
 
-            this->check_new_version_sf();
             const auto cloud_provider = get_printer_cloud_provider();
             if (is_user_login(cloud_provider) && !app_config->get_stealth_mode()) {
               // this->check_privacy_version(0);
