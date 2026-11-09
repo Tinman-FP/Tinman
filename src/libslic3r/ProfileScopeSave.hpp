@@ -26,6 +26,10 @@ struct ProfileScopeSaveSelection {
     std::optional<size_t> nozzle_tool_index;
 };
 
+// A name the save dialog would accept for a profile or physical printer: not empty, no
+// leading or trailing space, none of <>[]:/\|?*" or line breaks, no "(modified)" suffix.
+bool is_valid_profile_name(const std::string &name);
+
 // The selected physical printer, if it has an identity that its selected machine
 // preset shares and no other physical printer uses. Otherwise scoping is unavailable.
 std::optional<ProfileScopeSaveSelection> current_profile_scope_save_target(const PresetBundle &bundle);
@@ -33,10 +37,12 @@ std::optional<ProfileScopeSaveSelection> current_profile_scope_save_target(const
 // Apply the selection to the preset about to be saved as new_name. Throws, leaving
 // nothing saved, if the selection is stale or would overwrite a preset with a
 // different scope. Changing the scope always requires a new name, so the original
-// preset is never rewritten for another printer.
+// preset is never rewritten for another printer. copied_from is the preset being
+// copied when it is not the edited one (moving or importing profiles).
 // Returns true when the candidate must be saved detached (its base_id is then cleared):
 // a copy with a new scope keeps only a system parent, because inheriting from a user
 // profile would let edits made to that profile for its own printer(s) flow into the copy.
 bool prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundle,
-                                    const std::string &new_name, const ProfileScopeSaveSelection &selection);
+                                    const std::string &new_name, const ProfileScopeSaveSelection &selection,
+                                    const Preset *copied_from = nullptr);
 } // namespace Slic3r

@@ -44,11 +44,15 @@ class PhysicalPrinterDialog : public DPIDialog
     wxTextCtrl*         m_input_ctrl                        {nullptr};
     Button*             btnOK                               {nullptr};
     Button*             m_add_unit_btn                      {nullptr};
+    Button*             m_move_profiles_btn                 {nullptr};
+    Button*             m_import_profiles_btn               {nullptr};
 
     void build_printhost_settings(ConfigOptionsGroup* optgroup);
     void OnOK(wxEvent& event);
     // Create a separate physical printer of this model with its own machine profile.
     void add_physical_unit();
+    // Copy existing profiles (from the library, or from a folder of files) onto this physical printer.
+    void move_profiles(bool from_folder);
 
 public:
     PhysicalPrinterDialog(wxWindow* parent);

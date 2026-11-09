@@ -3237,6 +3237,23 @@ bool PresetCollection::save_current_preset(const std::string &new_name, bool det
     return true;
 }
 
+bool PresetCollection::save_preset_copy(const std::string &new_name, bool detach, Preset &preset)
+{
+    std::lock_guard<std::recursive_mutex> guard(m_mutex);
+    const std::string selected = this->get_selected_preset_name();
+    if (new_name == selected)
+        return false;
+    // save_current_preset() selects what it saved, which would drop the editor's draft.
+    Preset edited = m_edited_preset;
+    Preset saved  = m_saved_preset;
+    if (!this->save_current_preset(new_name, detach, false, &preset))
+        return false;
+    this->select_preset_by_name(selected, true);
+    m_edited_preset = std::move(edited);
+    m_saved_preset  = std::move(saved);
+    return true;
+}
+
 bool PresetCollection::delete_current_preset()
 {
     Preset &selected = this->get_selected_preset();
