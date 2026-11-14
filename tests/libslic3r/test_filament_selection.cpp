@@ -365,11 +365,9 @@ TEST_CASE("Material deletion keeps each palette vector aligned independently", "
     bundle.update_num_filaments(removed);
     const size_t count = std::max<size_t>(tools, 3);
     REQUIRE(bundle.filament_presets.size() == count);
-    // As in OrcaSlicer 2.5, a top-up to the tool count grows filament_presets alone; the palette
-    // keeps the three remaining materials.
     for (const char *key : {"filament_colour", "filament_multi_colour", "filament_colour_type", "filament_map"}) {
         const auto *current = dynamic_cast<const ConfigOptionVectorBase *>(bundle.project_config.option(key));
-        REQUIRE(current->size() == 3);
+        REQUIRE(current->size() == count);
         const auto old_values = dynamic_cast<const ConfigOptionVectorBase *>(before.option(key))->vserialize();
         for (size_t i = 0; i < 3; ++i) {
             const size_t source = i >= removed ? i + 1 : i;
@@ -377,7 +375,12 @@ TEST_CASE("Material deletion keeps each palette vector aligned independently", "
                 CHECK(current->vserialize()[i] == old_values[source]);
         }
     }
-    REQUIRE(bundle.ams_multi_color_filment.size() == 3);
+    REQUIRE(bundle.ams_multi_color_filment.size() == count);
+    // G-code export (GCode.cpp, "Flush volumes matrix do not match") needs one purge-matrix row per
+    // colour and one block per flush multiplier.
+    const size_t colours     = bundle.project_config.option<ConfigOptionStrings>("filament_colour")->values.size();
+    const size_t multipliers = bundle.project_config.option<ConfigOptionFloats>("flush_multiplier")->values.size();
+    CHECK(bundle.project_config.option<ConfigOptionFloats>("flush_volumes_matrix")->values.size() == colours * colours * multipliers);
 }
 
 // "Partial color requests initialize only the available new slots" tested the per-slot colour

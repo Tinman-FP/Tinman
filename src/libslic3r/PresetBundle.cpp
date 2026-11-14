@@ -9056,8 +9056,10 @@ void PresetBundle::update_multi_material_filament_presets(size_t to_delete_filam
     size_t num_filaments = this->filament_presets.size();
     // The slots the per-filament arrays (colours, tool map) cover. A top-up to the tool count below
     // grows filament_presets alone, as in OrcaSlicer 2.5: set_num_filaments() then gives a slot it
-    // opens its colour by array position.
-    const size_t material_slots = num_filaments;
+    // opens its colour by array position. After a deletion nothing opens the slot again, so the
+    // arrays follow the top-up there (below), or G-code export would see fewer colours than the
+    // purge matrix has rows.
+    size_t material_slots = num_filaments;
     const size_t min_filaments = min_filament_count();
     if (min_filaments > num_filaments) {
         // Append the rest of filament presets.
@@ -9076,6 +9078,8 @@ void PresetBundle::update_multi_material_filament_presets(size_t to_delete_filam
     const bool valid_old_layout = old_materials > 0 &&
         matrix.size() % old_tools == 0 && matrix.size() / old_tools == old_plane_size;
     const bool deleting = to_delete_filament_id != size_t(-1);
+    if (deleting)
+        material_slots = num_filaments;
     const auto old_index = [=](size_t index) {
         return deleting && index >= to_delete_filament_id ? index + 1 : index;
     };
