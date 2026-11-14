@@ -45,22 +45,29 @@ private:
     std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> m_ctx;
 };
 
-// "0.4,0.7" -> {0.4, 0.7}, independent of the C locale. Empty on a bad value.
+// One positive number, independent of the C locale; 0 if malformed.
+double parse_number(std::string text)
+{
+    boost::trim(text);
+    size_t parsed = 0;
+    double value  = 0.;
+    try {
+        value = string_to_double_decimal_point(text, &parsed);
+    } catch (...) {
+        return 0.;
+    }
+    return !text.empty() && parsed == text.size() && std::isfinite(value) && value > 0. ? value : 0.;
+}
+
+// "0.4,0.7" -> {0.4, 0.7}. Empty if any value is malformed.
 std::vector<double> parse_numbers(const std::string &list)
 {
     std::vector<std::string> parts;
     boost::split(parts, list, boost::is_any_of(","));
     std::vector<double> out;
-    for (std::string part : parts) {
-        boost::trim(part);
-        size_t parsed = 0;
-        double value  = 0.;
-        try {
-            value = string_to_double_decimal_point(part, &parsed);
-        } catch (...) {
-            return {};
-        }
-        if (part.empty() || parsed != part.size() || !std::isfinite(value) || value <= 0.)
+    for (const std::string &part : parts) {
+        const double value = parse_number(part);
+        if (value == 0.)
             return {};
         out.push_back(value);
     }
@@ -71,12 +78,24 @@ std::vector<double> parse_numbers(const std::string &list)
 void scan_line(std::string line, JobInfo &job)
 {
     boost::trim(line);
-    // Tinman's config block: "; key = value". Later values win, so the
-    // config block at the end of the file overrides any header comment.
-    if (boost::starts_with(line, "; printer_model = "))
-        job.printer_model = boost::trim_copy(line.substr(18));
-    else if (boost::starts_with(line, "; nozzle_diameter = "))
-        job.nozzle_diameters = parse_numbers(line.substr(20));
+    std::string value;
+    const auto  is = [&](const char *key) {
+        const std::string prefix = std::string("; ") + key + " = ";
+        if (!boost::starts_with(line, prefix))
+            return false;
+        value = line.substr(prefix.size());
+        return true;
+    };
+    // Tinman's config block. Later values win, so the config block at the end
+    // of the file overrides any header comment.
+    if (is("printer_model"))
+        job.printer_model = boost::trim_copy(value);
+    else if (is("nozzle_diameter"))
+        job.nozzle_diameters = parse_numbers(value);
+    else if (is("plastic_nozzle_diameter"))
+        job.plastic_nozzle = parse_number(value);
+    else if (is("composite_nozzle_diameter"))
+        job.composite_nozzle = parse_number(value);
     else if (!job.continuous_fiber) {
         // Fibre load, cut and finish commands (docs/fiberseek-gcode-contract.md).
         for (const char *command : {"M1001", "M1002", "M2800"})
@@ -85,8 +104,8 @@ void scan_line(std::string line, JobInfo &job)
     }
 }
 
-// The named member if it is an object, else an empty object, so that a reply
-// of an unexpected shape reads as "nothing reported" instead of throwing.
+// The named member if it is an object, else an empty object, so a reply of an
+// unexpected shape reads as "nothing reported" instead of throwing.
 const json &child(const json &object, const char *key)
 {
     static const json empty = json::object();
@@ -102,36 +121,35 @@ const json &unwrap(const json &reply) { return reply.contains("result") ? child(
 // Status objects of a /printer/objects/query reply.
 const json &status_of(const json &reply, const char *object) { return child(child(unwrap(reply), "status"), object); }
 
-bool flag(const json &object, const char *key)
+const json *member(const json &object, const char *key)
 {
+    if (!object.is_object())
+        return nullptr;
     const auto it = object.find(key);
-    return it != object.end() && it->is_boolean() && it->get<bool>();
+    return it == object.end() ? nullptr : &*it;
+}
+
+// A string member, or nullptr when it is missing or not a string.
+const std::string *string_member(const json &object, const char *key)
+{
+    const json *value = member(object, key);
+    return value && value->is_string() ? value->get_ptr<const std::string *>() : nullptr;
 }
 
 bool parse(const std::string &body, json &out, std::string &reason, const char *what)
 {
     try {
         out = json::parse(body);
-        return out.is_object();
-    } catch (const std::exception &) {
-        reason = (boost::format("The printer sent an unreadable reply to the %1% request.") % what).str();
-        return false;
-    }
+        if (out.is_object())
+            return true;
+    } catch (const std::exception &) {}
+    reason = (boost::format("The printer sent an unreadable reply to the %1% request.") % what).str();
+    return false;
 }
 
-std::string string_at(const json &object, const char *key)
-{
-    return object.is_object() && object.contains(key) && object[key].is_string() ? object[key].get<std::string>() : std::string();
-}
+std::string mm(double value) { return float_to_string_decimal_point(value, 2) + " mm"; }
 
-// Klipper may report a loaded file with its full path or with a root prefix.
-bool same_file(std::string reported, const std::string &remote_path)
-{
-    if (reported.empty())
-        return false;
-    boost::replace_all(reported, "\\", "/");
-    return reported == remote_path || boost::ends_with(reported, "/" + remote_path);
-}
+bool same(double a, double b) { return std::abs(a - b) < 0.01; }
 
 } // namespace
 
@@ -172,7 +190,7 @@ bool read_job(const boost::filesystem::path &path, JobInfo &job, std::string &re
             first_chunk = false;
             // Binary G-code ("GCDE") or a zip archive such as .gcode.3mf ("PK").
             if ((count >= 4 && std::string(chunk.data(), 4) == "GCDE") || (count >= 2 && chunk[0] == 'P' && chunk[1] == 'K')) {
-                reason = "The FibreSeek Seeker 3 prints plain G-code. Turn off binary G-code and 3MF export for this printer.";
+                reason = "The FibreSeek Seeker 3 prints plain G-code. Send the .gcode file, not a 3MF or binary G-code.";
                 return false;
             }
         }
@@ -201,6 +219,42 @@ bool read_job(const boost::filesystem::path &path, JobInfo &job, std::string &re
     return true;
 }
 
+std::string remote_file_name(const std::string &local_name, const std::string &sha256, const std::string &stamp)
+{
+    std::string stem = local_name;
+    if (boost::iends_with(stem, ".gcode"))
+        stem.resize(stem.size() - 6);
+    // Only ASCII letters, digits, '_' and '-': no path separators, dots,
+    // spaces, shell or URL characters.
+    std::string clean;
+    for (unsigned char c : stem) {
+        if ((c < 128 && std::isalnum(c)) || c == '-')
+            clean.push_back(char(c));
+        else if (clean.empty() || clean.back() != '_')
+            clean.push_back('_');
+    }
+    boost::trim_if(clean, boost::is_any_of("_-"));
+    if (clean.size() > 64)
+        clean.resize(64);
+    if (clean.empty())
+        clean = "job";
+    return clean + "-" + sha256.substr(0, 8) + "-" + stamp + ".gcode";
+}
+
+std::string gcode_root_path(std::string path)
+{
+    boost::replace_all(path, "\\", "/");
+    // Klipper can report an absolute path into Moonraker's G-code folder.
+    const std::string root = "printer_data/gcodes/";
+    if (const size_t at = path.rfind(root); at != std::string::npos)
+        path = path.substr(at + root.size());
+    while (boost::starts_with(path, "/"))
+        path.erase(0, 1);
+    if (boost::starts_with(path, "gcodes/"))
+        path.erase(0, 7);
+    return path;
+}
+
 bool printer_is_idle(const std::string &body, std::string &reason)
 {
     json reply;
@@ -210,117 +264,149 @@ bool printer_is_idle(const std::string &body, std::string &reason)
     const json &stats    = status_of(reply, "print_stats");
     const json &sdcard   = status_of(reply, "virtual_sdcard");
 
-    const std::string klipper = string_at(webhooks, "state");
-    if (klipper != "ready") {
-        reason = "Klipper on the printer is not ready (" + (klipper.empty() ? std::string("no state reported") : klipper) + ")";
-        if (const std::string message = string_at(webhooks, "state_message"); !message.empty())
-            reason += ": " + message;
+    const std::string *klipper = string_member(webhooks, "state");
+    if (!klipper || *klipper != "ready") {
+        reason = "Klipper on the printer is not ready (" + (klipper ? *klipper : std::string("no state reported")) + ")";
+        if (const std::string *message = string_member(webhooks, "state_message"); message && !message->empty())
+            reason += ": " + *message;
         reason += ".";
         return false;
     }
-    const std::string state = string_at(stats, "state");
-    if (state == "error") {
+    const std::string *state    = string_member(stats, "state");
+    const std::string *filename = string_member(stats, "filename");
+    const json        *active   = member(sdcard, "is_active");
+    const json        *path     = member(sdcard, "file_path");
+    if (!state || !filename || !active || !active->is_boolean() || !path || !(path->is_null() || path->is_string())) {
+        reason = "The printer did not report its print state completely, so Tinman cannot tell whether it is idle.";
+        return false;
+    }
+    if (*state == "error") {
         reason = "The printer still shows an error from its last job. Clear it on the printer, then send again.";
         return false;
     }
-    // Unknown states count as busy: only these mean nothing is loaded or running.
-    if (state != "standby" && state != "complete" && state != "cancelled") {
-        reason = "The printer is busy (" + (state.empty() ? std::string("no state reported") : state) +
-                 "). Wait until it is idle, then send again.";
+    // Only these Klipper states mean nothing is running; anything else is busy.
+    if (*state != "standby" && *state != "complete" && *state != "cancelled") {
+        reason = "The printer is busy (" + *state + "). Wait until it is idle, then send again.";
         return false;
     }
-    if (!flag(sdcard, "is_active"))
-        return true;
-    reason = "The printer is still reading a file. Wait until it is idle, then send again.";
-    return false;
-}
-
-bool printer_nozzle_diameters(const std::string &body, std::vector<double> &diameters, std::string &reason)
-{
-    diameters.clear();
-    json reply;
-    if (!parse(body, reply, reason, "printer configuration"))
-        return false;
-    const json &config = child(status_of(reply, "configfile"), "config");
-    for (const auto &[section, values] : config.items()) {
-        // [extruder], [extruder1], ... Klipper keeps raw config values as strings.
-        if (!boost::starts_with(section, "extruder") ||
-            !std::all_of(section.begin() + 8, section.end(), [](unsigned char c) { return std::isdigit(c); }))
-            continue;
-        const std::vector<double> value = parse_numbers(string_at(values, "nozzle_diameter"));
-        if (value.size() == 1)
-            diameters.push_back(value.front());
-    }
-    if (!diameters.empty())
-        return true;
-    reason = "The printer did not report its nozzle sizes, so Tinman cannot check that they match the slice.";
-    return false;
-}
-
-bool nozzles_match(const std::vector<double> &job, const std::vector<double> &printer, std::string &reason)
-{
-    if (job.empty()) {
-        reason = "The G-code does not say which nozzles it was sliced for. Slice it again in Tinman.";
+    if (active->get<bool>()) {
+        reason = "The printer is still reading a file. Wait until it is idle, then send again.";
         return false;
     }
-    const auto list = [](const std::vector<double> &values) {
-        std::string out;
-        for (double value : values)
-            out += (out.empty() ? "" : ", ") + float_to_string_decimal_point(value, 2) + " mm";
-        return out;
-    };
-    for (double wanted : job) {
-        if (std::none_of(printer.begin(), printer.end(), [wanted](double fitted) { return std::abs(fitted - wanted) < 0.01; })) {
-            reason = "The printer reports nozzles of " + list(printer) + ", but this job was sliced for " + list(job) +
-                     ". Fit the right nozzles or slice with the matching printer profile.";
-            return false;
-        }
+    const std::string loaded = !filename->empty() ? *filename : path->is_string() ? path->get<std::string>() : std::string();
+    if (!loaded.empty()) {
+        // A loaded file (for example after M23, or a finished job not yet
+        // cleared) would be replaced by the new start.
+        reason = "The printer still has \"" + gcode_root_path(loaded) +
+                 "\" loaded. Clear it on the printer (the SDCARD_RESET_FILE command), then send again.";
+        return false;
     }
     return true;
 }
 
-bool upload_reply_ok(const std::string &body, uint64_t local_size, std::string &remote_path, std::string &reason)
+bool printer_tool_nozzles(const std::string &body, double &t0, double &t1, std::string &reason)
+{
+    t0 = t1 = 0.;
+    json reply;
+    if (!parse(body, reply, reason, "printer configuration"))
+        return false;
+    const json &config = child(status_of(reply, "configfile"), "config");
+    const auto  nozzle = [&config](const char *section) {
+        const std::string *value = string_member(child(config, section), "nozzle_diameter");
+        return value ? parse_number(*value) : 0.;
+    };
+    t0 = nozzle("extruder");
+    t1 = nozzle("extruder1");
+    if (t0 > 0. && t1 > 0.)
+        return true;
+    reason = "The printer did not report the nozzles of both tools ([extruder] for T0, [extruder1] for T1), so Tinman cannot check them.";
+    return false;
+}
+
+bool tools_match(const JobInfo &job, double t0, double t1, std::string &reason)
+{
+    const auto &nozzles = job.nozzle_diameters;
+    if (job.plastic_nozzle <= 0. || nozzles.empty() || nozzles.size() > 2) {
+        reason = "This G-code does not describe the Seeker 3's two tools (plastic_nozzle_diameter and nozzle_diameter). "
+                 "Slice it with a Seeker 3 profile.";
+        return false;
+    }
+    // The profile's nozzle list must agree with its role diameters.
+    const bool uses_t0 = nozzles.size() == 2 || job.continuous_fiber;
+    if (!same(nozzles[0], job.plastic_nozzle) ||
+        (uses_t0 && (job.composite_nozzle <= 0. || nozzles.size() != 2 || !same(nozzles[1], job.composite_nozzle)))) {
+        reason = "The printer profile's nozzle list does not match its polymer (T1) and composite (T0) nozzle sizes. "
+                 "Fix the printer profile and slice again.";
+        return false;
+    }
+    if (!same(t1, job.plastic_nozzle)) {
+        reason = "The printer's T1 polymer nozzle is " + mm(t1) + ", but this job was sliced for " + mm(job.plastic_nozzle) + ".";
+        return false;
+    }
+    if (uses_t0 && !same(t0, job.composite_nozzle)) {
+        reason = "The printer's T0 matrix and fibre nozzle is " + mm(t0) + ", but this job was sliced for " + mm(job.composite_nozzle) + ".";
+        return false;
+    }
+    return true;
+}
+
+bool upload_reply_ok(const std::string &body, uint64_t local_size, const std::string &remote_name, std::string &reason)
 {
     json reply;
     if (!parse(body, reply, reason, "upload"))
         return false;
-    const json &result = unwrap(reply);
-    if (flag(result, "print_started") || flag(result, "print_queued")) {
-        reason = "The printer started or queued the file on upload although Tinman asked it not to. Check the printer now.";
+    const json &result  = unwrap(reply);
+    const json *started = member(result, "print_started");
+    const json *queued  = member(result, "print_queued");
+    if (!started || !started->is_boolean() || started->get<bool>() || !queued || !queued->is_boolean() || queued->get<bool>()) {
+        reason = "The printer did not confirm that it left the upload unstarted. Check the printer now.";
         return false;
     }
-    const json &item = child(result, "item");
-    remote_path     = string_at(item, "path");
-    const std::string root = string_at(item, "root");
-    if (remote_path.empty() || (!root.empty() && root != "gcodes")) {
-        reason = "The printer did not store the upload in its G-code folder.";
+    const json        &item = child(result, "item");
+    const std::string *path = string_member(item, "path");
+    const std::string *root = string_member(item, "root");
+    const json        *size = member(item, "size");
+    if (!path || *path != remote_name || !root || *root != "gcodes") {
+        reason = "The printer did not store the upload as \"" + remote_name + "\" in its G-code folder.";
         return false;
     }
-    if (item.contains("size") && item["size"].is_number_unsigned() && item["size"].get<uint64_t>() != local_size) {
+    if (!size || !size->is_number_unsigned() || size->get<uint64_t>() != local_size) {
         reason = "The printer stored a file of a different size than the one sent.";
         return false;
     }
     return true;
 }
 
-StartState start_state(const std::string &body, const std::string &remote_path, std::string &detail)
+std::string printer_identity(const std::string &body)
+{
+    json        reply;
+    std::string ignored;
+    if (!parse(body, reply, ignored, "printer info"))
+        return {};
+    const std::string *hostname = string_member(unwrap(reply), "hostname");
+    return hostname ? *hostname : std::string();
+}
+
+StartState start_state(const std::string &body, const std::string &remote_name, std::string &detail)
 {
     json reply;
     if (!parse(body, reply, detail, "printer state"))
         return StartState::Waiting;
-    const json       &stats = status_of(reply, "print_stats");
-    const std::string state = string_at(stats, "state");
-    detail                  = state;
+    const json        &stats    = status_of(reply, "print_stats");
+    const std::string *state    = string_member(stats, "state");
+    const std::string *filename = string_member(stats, "filename");
+    detail                      = state ? *state : std::string("no state reported");
     // Until Klipper loads our file, print_stats still describes the previous job.
-    if (!same_file(string_at(stats, "filename"), remote_path))
+    if (!state || !filename || gcode_root_path(*filename) != remote_name)
         return StartState::Waiting;
-    if (state == "error" || state == "cancelled") {
-        if (const std::string message = string_at(stats, "message"); !message.empty())
-            detail += ": " + message;
+    if (*state == "printing")
+        return StartState::Started;
+    if (*state == "error" || *state == "cancelled" || *state == "paused") {
+        if (const std::string *message = string_member(stats, "message"); message && !message->empty())
+            detail += ": " + *message;
         return StartState::Failed;
     }
-    // Klipper reports "printing"; a printer may first report its own preparation state.
-    return state == "standby" || state.empty() ? StartState::Waiting : StartState::Started;
+    return StartState::Waiting;
 }
 
 } // namespace Slic3r::FibreSeekSend

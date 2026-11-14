@@ -60,7 +60,7 @@ def validate_repo() -> list[str]:
             errors.append(f"{model}: model is missing from hardware aliases")
         if definition["connection_mode"] not in {
             "inherited", "bambu", "creality", "qidi_moonraker", "snapmaker", "moonraker",
-            "prusalink",
+            "prusalink", "fibreseek",
         }:
             errors.append(f"{model}: unknown hardware connection mode")
         for alias in definition["aliases"]:

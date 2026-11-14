@@ -124,6 +124,7 @@ struct Http::priv
     std::string headers;
 	size_t limit;
 	bool cancel;
+	bool follow_redirects = true;
     std::unique_ptr<form_file> putFile;
 
 	std::thread io_thread;
@@ -427,7 +428,7 @@ std::string Http::priv::body_size_error()
 
 void Http::priv::http_perform()
 {
-	::curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+	::curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, follow_redirects ? 1L : 0L);
 	::curl_easy_setopt(curl, CURLOPT_POSTREDIR, CURL_REDIR_POST_ALL);
 	::curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writecb);
 	::curl_easy_setopt(curl, CURLOPT_WRITEDATA, static_cast<void*>(this));
@@ -620,6 +621,12 @@ Http& Http::ca_file(const std::string &name)
 		::curl_easy_setopt(p->curl, CURLOPT_CAINFO, name.c_str());
 	}
 
+	return *this;
+}
+
+Http& Http::follow_redirects(bool enable)
+{
+	if (p) { p->follow_redirects = enable; }
 	return *this;
 }
 
