@@ -465,6 +465,22 @@ void WebViewPanel::load_cloud_url(const wxString& url)
         m_cloud_base_url = origin;
     if (!m_cloud_browser)
         return;
+    // Tinman: stealth mode loads nothing from the cloud, whichever path asks (opening the pane,
+    // re-seeding after a login, the sign-out page, a rebuild after a language switch). The pane
+    // says why instead.
+    if (wxGetApp().app_config != nullptr && wxGetApp().app_config->get_stealth_mode()) {
+        BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << ": stealth mode, not loading the cloud pane";
+        const wxString html = wxString::Format(
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>"
+            "body{font-family:-apple-system,'Segoe UI',sans-serif;margin:48px;color:#363636;background:#fff}"
+            "@media (prefers-color-scheme:dark){body{color:#dcdcdc;background:#2d2d31}}"
+            "h2{font-weight:600}</style></head><body><h2>%s</h2><p>%s</p></body></html>",
+            _L("Tinman Cloud is off in stealth mode"),
+            _L("Stealth mode keeps Tinman offline: it does not sign in, sync profiles or download plugins. "
+               "To use Tinman Cloud, turn off Stealth mode in Preferences."));
+        m_cloud_browser->SetPage(html, wxString());
+        return;
+    }
     // Raw LoadURL: WebView::LoadUrl re-serialises through wxURI, which must not alter the
     // fragment that carries the one-time handoff token. Log only the redacted URL.
     BOOST_LOG_TRIVIAL(trace) << __FUNCTION__ << ": " << WebView::RedactUrl(url).ToUTF8().data();
