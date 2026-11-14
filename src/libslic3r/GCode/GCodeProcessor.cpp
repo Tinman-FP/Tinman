@@ -2485,12 +2485,12 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
             orcaslicer_codex_config_float_option(
                 config,
                 "continuous_fiber_diameter",
-                orcaslicer_codex_config_float_option(config, "fiber_diameter", 0.25f)),
+                orcaslicer_codex_config_float_option(config, "fiber_diameter", 0.0f)),
             0.001f);
         const float fiber_linear_density = orcaslicer_codex_config_float_option(
             config,
             "continuous_fiber_linear_density",
-            orcaslicer_codex_config_float_option(config, "fiber_linear_density", 102.0f));
+            orcaslicer_codex_config_float_option(config, "fiber_linear_density", 0.0f)); // not set: no fibre mass
         const std::string fiber_name = orcaslicer_codex_config_string_option(config, "continuous_fiber_name");
         const float configured_fiber_line_width = orcaslicer_codex_config_float_option(config, "fiber_line_width", fiber_diameter * 2.0f);
         m_orcaslicer_codex_continuous_fiber_preview_width_mm = std::clamp(

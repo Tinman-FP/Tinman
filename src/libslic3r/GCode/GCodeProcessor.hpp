@@ -943,8 +943,9 @@ class Print;
         void register_commands();
         void apply_config(const DynamicPrintConfig& config);
         bool ensure_orcaslicer_codex_continuous_fiber_preview_filament(
-            float fiber_diameter = 0.25f,
-            float fiber_linear_density = 102.0f,
+            // No strand data means no fibre mass in the preview, not a guess.
+            float fiber_diameter = 0.0f,
+            float fiber_linear_density = 0.0f,
             const std::string& fiber_name = std::string());
         void apply_config_simplify3d(const std::string& filename);
         void apply_config_superslicer(const std::string& filename);

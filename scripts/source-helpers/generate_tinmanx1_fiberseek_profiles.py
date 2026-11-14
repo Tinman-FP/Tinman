@@ -893,7 +893,8 @@ def composite_filament(material: str, values: dict, fiber: dict) -> dict:
         "fiber_type": arr(fiber["type"]),
         "fiber_manufacturer": arr(fiber["manufacturer"]),
         "fiber_diameter": arr(fiber["diameter"]),
-        "fiber_linear_density": arr(fiber["linear_density"]),
+        "fiber_linear_density": arr(fiber["linear_density"]),  # g/km
+        "fiber_feed_factor": arr("0"),  # not set: calibrate per fibre (see docs/fibreseek-first-prints.md)
         "fiber_spool_length_km": arr("0.5"),
         "fiber_cost": arr(fiber["cost"]),
         "fiber_plastic_name": arr(values.get("fiber_plastic_name", material)),

@@ -254,45 +254,118 @@ std::optional<std::string> resolve_continuous_fiber_filament(const PresetBundle 
     return std::nullopt;
 }
 
+double fiber_linear_density_g_per_km(double value)
+{
+    if (!std::isfinite(value) || value <= 0.)
+        return 0.;
+    // g/km is the unit throughout (profiles, project and both writers). The
+    // filament setting was once labelled g/m; a value below 1 g/km is not a
+    // printable strand, so it is read as g/m.
+    return value < 1. ? value * 1000. : value;
+}
+
+namespace {
+// The first value of a per-filament float option at `slot`, or 0 when unset.
+double positive_at(const DynamicConfig &config, const char *key, size_t slot)
+{
+    const auto *values = dynamic_cast<const ConfigOptionFloats *>(config.option(key));
+    if (!values || slot >= values->values.size())
+        return 0.;
+    const double value = values->values[slot];
+    return std::isfinite(value) && value > 0. ? value : 0.;
+}
+} // namespace
+
 void copy_continuous_fiber_metadata(const Preset &composite, DynamicPrintConfig &project)
 {
     const auto text = [&composite](const char *key) { return single_string(composite.config, key).value_or(std::string()); };
-    const auto first = [&composite](const char *key) {
-        const auto *values = composite.config.option<ConfigOptionFloats>(key);
-        return values && !values->values.empty() && std::isfinite(values->values.front()) && values->values.front() > 0. ?
-                   values->values.front() : 0.;
-    };
+    // The identity always follows the composite, so no other product's name stays behind.
     project.set_key_value("continuous_fiber_name", new ConfigOptionString(text("fiber_name")));
     project.set_key_value("continuous_fiber_type", new ConfigOptionString(text("fiber_type")));
     project.set_key_value("continuous_fiber_material_kind", new ConfigOptionString(text("fiber_material_kind")));
     project.set_key_value("continuous_fiber_source_material_id", new ConfigOptionString(text("fiber_source_material_id")));
-    // Material data comes from the user's composite profile only; 0 means not set.
-    project.set_key_value("continuous_fiber_diameter", new ConfigOptionFloat(first("fiber_diameter")));
-    project.set_key_value("continuous_fiber_linear_density", new ConfigOptionFloat(first("fiber_linear_density")));
+    // Strand data only when the profile sets it: an explicit project value is never
+    // replaced by an unset one.
+    if (const double diameter = positive_at(composite.config, "fiber_diameter", 0))
+        project.set_key_value("continuous_fiber_diameter", new ConfigOptionFloat(diameter));
+    if (const double density = fiber_linear_density_g_per_km(positive_at(composite.config, "fiber_linear_density", 0)))
+        project.set_key_value("continuous_fiber_linear_density", new ConfigOptionFloat(density));
+}
+
+std::optional<size_t> continuous_fiber_composite_slot(const DynamicConfig &config)
+{
+    const auto *types = dynamic_cast<const ConfigOptionStrings *>(config.option("filament_type"));
+    if (!types)
+        return std::nullopt;
+    for (size_t slot = 0; slot < types->values.size(); ++slot)
+        if (trim_copy(types->values[slot]) == "CFC")
+            return slot;
+    return std::nullopt;
+}
+
+double continuous_fiber_composite_value(const DynamicConfig &config, const char *key)
+{
+    const auto slot = continuous_fiber_composite_slot(config);
+    return slot ? positive_at(config, key, *slot) : 0.;
+}
+
+void apply_continuous_fiber_strand_data(DynamicPrintConfig &config)
+{
+    // The writers read the strand data from continuous_fiber_*; take it from the
+    // effective composite in this configuration when that profile sets it, so any
+    // CFC profile works, not only the panel's catalogue products.
+    if (const double diameter = continuous_fiber_composite_value(config, "fiber_diameter"))
+        config.set_key_value("continuous_fiber_diameter", new ConfigOptionFloat(diameter));
+    if (const double density = fiber_linear_density_g_per_km(continuous_fiber_composite_value(config, "fiber_linear_density")))
+        config.set_key_value("continuous_fiber_linear_density", new ConfigOptionFloat(density));
+}
+
+std::vector<std::string> missing_continuous_fiber_settings(const Preset &composite)
+{
+    std::vector<std::string> missing;
+    if (!positive_at(composite.config, "fiber_diameter", 0))
+        missing.emplace_back("Fiber diameter");
+    if (!positive_at(composite.config, "fiber_linear_density", 0))
+        missing.emplace_back("Fiber linear density");
+    if (!positive_at(composite.config, "fiber_feed_factor", 0))
+        missing.emplace_back("Fiber feed factor");
+    return missing;
+}
+
+ContinuousFiberSelectionSnapshot::ContinuousFiberSelectionSnapshot(const PresetBundle &bundle)
+    : filament_presets(bundle.filament_presets)
+    , project_config(bundle.project_config)
+    , ams_multi_color_filment(bundle.ams_multi_color_filment)
+    , fibreseek_mapping(bundle.fibreseek_mapping)
+{}
+
+void ContinuousFiberSelectionSnapshot::restore(PresetBundle &bundle) const
+{
+    bundle.filament_presets        = filament_presets;
+    bundle.project_config          = project_config;
+    bundle.ams_multi_color_filment = ams_multi_color_filment;
+    bundle.fibreseek_mapping       = fibreseek_mapping;
 }
 
 bool commit_continuous_fiber_choice(PresetBundle &bundle, const ContinuousFiberFilamentIdentity &identity, std::string &reason)
 {
+    // Resolution validates the effective composite (the edited copy when open in
+    // the editor); slot selection checks that same copy.
     const auto name = resolve_continuous_fiber_filament(bundle, identity, reason);
     if (!name)
         return false;
-    // Material 2 and the project's fibre data change together or not at all.
-    const auto slots   = bundle.filament_presets;
-    const auto project = bundle.project_config;
-    const auto restore = [&]() {
-        bundle.filament_presets = slots;
-        bundle.project_config   = project;
-    };
+    const Preset *composite = bundle.filaments.find_preset(*name, false);
+    if (composite == nullptr || !filament_fits_continuous_fiber_lane(bundle, 1, *composite)) {
+        reason = "The composite profile is no longer available for material 2.";
+        return false;
+    }
+    // Material 2, the palette, the role map and the project's fibre data change
+    // together or not at all. Adding the second slot touches all of them.
+    const ContinuousFiberSelectionSnapshot before(bundle);
     if (bundle.filament_presets.size() < 2)
         bundle.set_num_filaments(2);
     if (!apply_filament_slot_selection(bundle, {1, *name, bundle.printers.get_edited_preset().name, std::nullopt}, reason)) {
-        restore();
-        return false;
-    }
-    const Preset *composite = bundle.filaments.find_preset(*name, false);
-    if (composite == nullptr) {
-        restore();
-        reason = "The composite profile is no longer available.";
+        before.restore(bundle);
         return false;
     }
     copy_continuous_fiber_metadata(*composite, bundle.project_config);

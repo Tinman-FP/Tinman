@@ -4555,6 +4555,8 @@ DynamicPrintConfig PresetBundle::full_fff_config(bool apply_extruder, std::optio
         trace->checkpoint(out, {ConfigOriginKind::Normalization});
         if (normalized) trace->warn("Tool/material dimensions or invalid routes required normalization.");
     }
+    // FibreSeek: the fibre writers' strand data comes from the effective composite profile.
+    apply_continuous_fiber_strand_data(out);
     return out;
 }
 

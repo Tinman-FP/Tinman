@@ -75,10 +75,39 @@ std::optional<std::string> resolve_continuous_fiber_filament(const PresetBundle 
                                                              const ContinuousFiberFilamentIdentity &identity,
                                                              std::string &reason);
 
-// Copies the composite profile's fibre identity and material data (fiber_diameter,
-// fiber_linear_density; 0 when the profile has none) into the project's
-// continuous_fiber_* options. Tinman ships no fibre material data of its own.
+// Linear density in g/km, the unit used throughout. Values below 1 are read as
+// g/m, the filament setting's earlier label; 0 means not set.
+double fiber_linear_density_g_per_km(double value);
+
+// Copies the composite's fibre identity into the project's continuous_fiber_*
+// options, and its strand data (fiber_diameter, fiber_linear_density) only when
+// the profile sets it, so an explicit project value is never replaced by an unset
+// one. Tinman ships no fibre material data of its own.
 void copy_continuous_fiber_metadata(const Preset &composite, DynamicPrintConfig &project);
+
+// In an assembled print configuration (PresetBundle::full_fff_config): the CFC
+// material's slot, a positive per-filament value at that slot (0 when unset), and
+// the strand data copied into continuous_fiber_* when that profile sets it.
+std::optional<size_t> continuous_fiber_composite_slot(const DynamicConfig &config);
+double continuous_fiber_composite_value(const DynamicConfig &config, const char *key);
+void apply_continuous_fiber_strand_data(DynamicPrintConfig &config);
+
+// The composite settings a fibre slice needs that this profile leaves unset, by
+// their labels: Fiber diameter, Fiber linear density, Fiber feed factor.
+std::vector<std::string> missing_continuous_fiber_settings(const Preset &composite);
+
+// The bundle fields a fibre choice can change (slots, project, palette, role-map
+// memory), for an all-or-nothing commit.
+struct ContinuousFiberSelectionSnapshot
+{
+    explicit ContinuousFiberSelectionSnapshot(const PresetBundle &bundle);
+    void restore(PresetBundle &bundle) const;
+
+    std::vector<std::string>              filament_presets;
+    DynamicPrintConfig                    project_config;
+    std::vector<std::vector<std::string>> ams_multi_color_filment;
+    FibreSeekMappingMemory                fibreseek_mapping;
+};
 
 // Resolves the composite for material 2 and, only when that succeeds, puts it on
 // material 2 and copies its fibre data into the project, together. On failure

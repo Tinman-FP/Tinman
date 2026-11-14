@@ -127,8 +127,9 @@ class PlannerConfig:
     # Material data comes from the G-code's config block (the composite profile); 0 = not set.
     fiber_diameter: float = 0.0
     fiber_linear_density: float = 0.0
-    fiber_p_value: float = 0.041
-    fiber_v_per_mm: float = 0.041
+    fiber_feed_factor: float = 0.0  # composite "Fiber feed factor"; no default, calibrated per fibre
+    fiber_p_value: float = 0.0      # computed from diameter and feed factor
+    fiber_v_per_mm: float = 0.0
     fiber_width: float = 0.80
     min_radius: float = 12.0
     max_arc_segment_length: float = 3.0
@@ -160,7 +161,7 @@ class PlannerConfig:
     feedrate_percent: float = 100.0
     correction_move_feedrate: float = 0.0
     correction_move_feedrate_percent: float = 0.0
-    after_cut_plastic_extrusion_multiplier: float = 0.72
+    after_cut_plastic_extrusion_multiplier: float = 1.0  # 1 = unchanged; set by fiber_after_cut_plastic_extrusion_multiplier
     generate_perimeters: bool = False
     generate_infill: bool = False
     infill_source_policy: str = "explicit"
@@ -560,6 +561,20 @@ def parse_first_float(value: str | None, default: float, prefer_last_nonzero: bo
                 return item
         return default
     return matches[0]
+
+
+def first_set_float(comments: dict, *keys: str) -> float:
+    """The first positive value among config-block keys; "0" or a missing key is not set."""
+    for key in keys:
+        value = parse_first_float(comments.get(key), 0.0, prefer_last_nonzero=True)
+        if value > EPSILON:
+            return value
+    return 0.0
+
+
+def linear_density_g_per_km(value: float) -> float:
+    """g/km throughout; a value below 1 is read as g/m, the setting's earlier label."""
+    return value * 1000.0 if 0.0 < value < 1.0 else value
 
 
 def parse_float_values(value: str | None) -> list[float]:
@@ -1187,21 +1202,26 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
     cfg.restart_length = parse_first_positive_float(comments.get("fiber_restart_length"), cfg.restart_length)
     cfg.start_length = parse_first_positive_float(comments.get("fiber_start_length"), cfg.start_length)
     cfg.slow_length = parse_first_positive_float(comments.get("fiber_slow_length"), cfg.slow_length)
-    cfg.fiber_diameter = parse_first_float(
-        comments.get("continuous_fiber_diameter") or comments.get("fiber_diameter"),
-        cfg.fiber_diameter, prefer_last_nonzero=True,
-    )
-    cfg.fiber_linear_density = parse_first_float(
-        comments.get("continuous_fiber_linear_density") or comments.get("fiber_linear_density"),
-        cfg.fiber_linear_density, prefer_last_nonzero=True,
-    )
+    # Strand data comes from the composite profile (Tinman copies it into
+    # continuous_fiber_*); "0" or a missing key means not set.
+    cfg.fiber_diameter = first_set_float(comments, "continuous_fiber_diameter", "fiber_diameter")
+    cfg.fiber_linear_density = linear_density_g_per_km(
+        first_set_float(comments, "continuous_fiber_linear_density", "fiber_linear_density"))
+    cfg.fiber_feed_factor = first_set_float(comments, "fiber_feed_factor")
+    cfg.after_cut_plastic_extrusion_multiplier = parse_first_positive_float(
+        comments.get("fiber_after_cut_plastic_extrusion_multiplier"), cfg.after_cut_plastic_extrusion_multiplier)
     cfg.fiber_width = parse_first_positive_float(comments.get("fiber_line_width"), cfg.fiber_width)
     if cfg.fiber_diameter <= 0.0:
         raise SystemExit(
-            "The continuous fiber diameter is not set. Enter the fiber diameter in the composite "
-            "filament profile, then choose the fiber again."
+            "The continuous fiber's diameter is not set. Enter Fiber diameter in the composite filament profile."
         )
-    cfg.fiber_p_value = round(math.pi * (cfg.fiber_diameter / 2.0) ** 2 * 0.835, 5)
+    if cfg.fiber_feed_factor <= 0.0:
+        raise SystemExit(
+            "The continuous fiber's feed factor is not set. Enter Fiber feed factor in the composite filament profile."
+        )
+    # Fibre feed (P, and V at 100%) per mm of route: the strand's cross-section
+    # area pi*(d/2)^2 times the calibrated feed factor.
+    cfg.fiber_p_value = round(math.pi * (cfg.fiber_diameter / 2.0) ** 2 * cfg.fiber_feed_factor, 5)
     cfg.fiber_v_per_mm = cfg.fiber_p_value
     profile_min_radius = parse_first_positive_float(comments.get("fiber_min_radius"), cfg.min_radius)
     cfg.min_radius = max(profile_min_radius, cfg.min_radius)

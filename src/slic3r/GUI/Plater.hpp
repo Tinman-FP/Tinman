@@ -165,6 +165,7 @@ public:
     // Shows the continuous-fiber panel only for continuous-fiber printers.
     void update_continuous_fiber_visibility();
     void refresh_continuous_fiber_choice();
+void notify_missing_continuous_fiber_settings(const Preset &composite);
     void refresh_continuous_fiber_slot_choice();
     bool apply_continuous_fiber_material_to_slot(const SidebarContinuousFiberMaterial& material, bool notify_plater = true);
     bool sync_continuous_fiber_selector_from_filament_preset(const std::string& preset_name, bool notify_plater = true);

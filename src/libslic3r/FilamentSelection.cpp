@@ -18,8 +18,9 @@ bool apply_filament_slot_selection(PresetBundle &bundle, const FilamentSlotSelec
         reason = "The selected filament slot is no longer available.";
         return false;
     }
+    // The effective preset (the edited copy when open in the editor) is what slicing uses.
     const Preset *preset = bundle.filaments.find_preset(
-        Preset::remove_suffix_modified(selection.preset_name), false, true);
+        Preset::remove_suffix_modified(selection.preset_name), false);
     if (!preset || !preset->is_visible) {
         reason = "The selected filament preset is no longer available.";
         return false;

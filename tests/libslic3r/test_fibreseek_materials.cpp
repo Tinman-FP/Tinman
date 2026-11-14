@@ -645,3 +645,135 @@ TEST_CASE("The fiber choice checks a composite's unsaved edits, as slicing does"
     bundle.filaments.discard_current_changes();
     CHECK(resolve_continuous_fiber_filament(bundle, fixture.identity, reason));
 }
+
+TEST_CASE("Fiber linear density is g/km throughout", "[TinMan][Preset][FibreSeek][CfcUnits]")
+{
+    CHECK(fiber_linear_density_g_per_km(102.) == Catch::Approx(102.));
+    // A value below 1 can only be g/m, the setting's earlier label.
+    CHECK(fiber_linear_density_g_per_km(0.102) == Catch::Approx(102.));
+    CHECK(fiber_linear_density_g_per_km(0.) == 0.);
+    CHECK(fiber_linear_density_g_per_km(-5.) == 0.);
+}
+
+TEST_CASE("Strand data is copied only when the composite sets it", "[TinMan][Preset][FibreSeek][CfcCommit]")
+{
+    Preset composite(Preset::TYPE_FILAMENT, "CFC Custom composite", false);
+    composite.config.set_key_value("fiber_name", new ConfigOptionStrings{"Custom fiber"});
+    DynamicPrintConfig project;
+    project.set_key_value("continuous_fiber_diameter", new ConfigOptionFloat(0.27));
+    project.set_key_value("continuous_fiber_linear_density", new ConfigOptionFloat(90.));
+    project.set_key_value("continuous_fiber_name", new ConfigOptionString("Old fiber"));
+    SECTION("an unset profile keeps the project's explicit values") {
+        copy_continuous_fiber_metadata(composite, project);
+        CHECK(project.opt_float("continuous_fiber_diameter") == Catch::Approx(0.27));
+        CHECK(project.opt_float("continuous_fiber_linear_density") == Catch::Approx(90.));
+        CHECK(project.opt_string("continuous_fiber_name") == "Custom fiber"); // the identity always follows
+    }
+    SECTION("set profile values win, converted to g/km") {
+        composite.config.set_key_value("fiber_diameter", new ConfigOptionFloats{0.31});
+        composite.config.set_key_value("fiber_linear_density", new ConfigOptionFloats{0.088});
+        copy_continuous_fiber_metadata(composite, project);
+        CHECK(project.opt_float("continuous_fiber_diameter") == Catch::Approx(0.31));
+        CHECK(project.opt_float("continuous_fiber_linear_density") == Catch::Approx(88.));
+    }
+}
+
+TEST_CASE("The print configuration takes strand data from the effective composite", "[TinMan][Preset][FibreSeek][CfcCommit]")
+{
+    DynamicPrintConfig config;
+    config.set_key_value("filament_type", new ConfigOptionStrings{"PCTG", "CFC"});
+    config.set_key_value("fiber_diameter", new ConfigOptionFloats{0., 0.31});
+    config.set_key_value("fiber_linear_density", new ConfigOptionFloats{0., 88.});
+    config.set_key_value("fiber_feed_factor", new ConfigOptionFloats{0., 0.8});
+    config.set_key_value("continuous_fiber_diameter", new ConfigOptionFloat(0.27));
+    config.set_key_value("continuous_fiber_linear_density", new ConfigOptionFloat(0.));
+    REQUIRE(continuous_fiber_composite_slot(config) == std::optional<size_t>(1));
+    CHECK(continuous_fiber_composite_value(config, "fiber_feed_factor") == Catch::Approx(0.8));
+    apply_continuous_fiber_strand_data(config);
+    CHECK(config.opt_float("continuous_fiber_diameter") == Catch::Approx(0.31));
+    CHECK(config.opt_float("continuous_fiber_linear_density") == Catch::Approx(88.));
+    SECTION("an unset composite keeps an older project's explicit values") {
+        config.set_key_value("fiber_diameter", new ConfigOptionFloats{0., 0.});
+        config.set_key_value("continuous_fiber_diameter", new ConfigOptionFloat(0.27));
+        apply_continuous_fiber_strand_data(config);
+        CHECK(config.opt_float("continuous_fiber_diameter") == Catch::Approx(0.27));
+    }
+    SECTION("no composite, no change") {
+        config.set_key_value("filament_type", new ConfigOptionStrings{"PCTG", "PLA"});
+        config.set_key_value("continuous_fiber_diameter", new ConfigOptionFloat(0.27));
+        apply_continuous_fiber_strand_data(config);
+        CHECK(config.opt_float("continuous_fiber_diameter") == Catch::Approx(0.27));
+        CHECK(continuous_fiber_composite_value(config, "fiber_feed_factor") == 0.);
+    }
+}
+
+TEST_CASE("Slicing reads unsaved edits of any composite, listed or custom", "[TinMan][Preset][FibreSeek][CfcCommit]")
+{
+    ResolverFixture fixture;
+    auto &bundle = fixture.bundle;
+    // A custom product the fiber list does not name.
+    const ContinuousFiberFilamentIdentity custom{"PCTG", "", "My own carbon tow", "carbon_fiber"};
+    auto &composite = fixture.add_composite("CFC PCTG + my tow", &custom);
+    composite.config.set_key_value("fiber_diameter", new ConfigOptionFloats{0.3});
+    std::string reason;
+    REQUIRE(commit_continuous_fiber_choice(bundle, custom, reason));
+    CHECK(bundle.full_fff_config().opt_float("continuous_fiber_diameter") == Catch::Approx(0.3));
+    // Edit the composite without saving: slicing uses the edit.
+    bundle.filaments.select_preset_by_name("CFC PCTG + my tow", true);
+    bundle.filaments.get_edited_preset().config.set_key_value("fiber_diameter", new ConfigOptionFloats{0.29});
+    CHECK(bundle.full_fff_config().opt_float("continuous_fiber_diameter") == Catch::Approx(0.29));
+}
+
+TEST_CASE("Missing strand settings are named", "[TinMan][Preset][FibreSeek][CfcUnits]")
+{
+    Preset composite(Preset::TYPE_FILAMENT, "CFC Composite", false);
+    CHECK((missing_continuous_fiber_settings(composite) ==
+           std::vector<std::string>{"Fiber diameter", "Fiber linear density", "Fiber feed factor"}));
+    composite.config.set_key_value("fiber_diameter", new ConfigOptionFloats{0.3});
+    composite.config.set_key_value("fiber_linear_density", new ConfigOptionFloats{90.});
+    composite.config.set_key_value("fiber_feed_factor", new ConfigOptionFloats{0.8});
+    CHECK(missing_continuous_fiber_settings(composite).empty());
+}
+
+TEST_CASE("A fiber choice rolls back every field it touches", "[TinMan][Preset][FibreSeek][CfcCommit]")
+{
+    ResolverFixture fixture;
+    auto &bundle = fixture.bundle;
+    // A single-material project: the choice adds material 2 first.
+    bundle.filament_presets = {"Polymer"};
+    bundle.update_multi_material_filament_presets();
+    const auto slots   = bundle.filament_presets;
+    const auto project = bundle.project_config;
+    const auto palette = bundle.ams_multi_color_filment;
+    const ContinuousFiberSelectionSnapshot before(bundle);
+    bundle.set_num_filaments(2);
+    bundle.project_config.set_key_value("continuous_fiber_name", new ConfigOptionString("Changed"));
+    REQUIRE(bundle.filament_presets != slots);
+    before.restore(bundle);
+    CHECK(bundle.filament_presets == slots);
+    CHECK(bundle.project_config == project);
+    CHECK(bundle.ams_multi_color_filment == palette);
+}
+
+TEST_CASE("A composite that is CFC only in its unsaved edits can be chosen", "[TinMan][Preset][FibreSeek][CfcCommit]")
+{
+    ResolverFixture fixture;
+    auto &bundle = fixture.bundle;
+    // Saved as an ordinary polymer; the open editor makes it the composite.
+    add_material(bundle, "Draft composite", "PCTG");
+    bundle.filaments.select_preset_by_name("Draft composite", true);
+    auto &edited = bundle.filaments.get_edited_preset().config;
+    edited.set_key_value("filament_type", new ConfigOptionStrings{"CFC"});
+    edited.set_key_value("fiber_plastic_type", new ConfigOptionStrings{fixture.identity.matrix_type});
+    edited.set_key_value("fiber_source_material_id", new ConfigOptionStrings{fixture.identity.source_material_id});
+    edited.set_key_value("fiber_material_kind", new ConfigOptionStrings{"continuous_fiber"});
+    edited.set_key_value("fiber_name", new ConfigOptionStrings{fixture.identity.fiber_name});
+    edited.set_key_value("fiber_type", new ConfigOptionStrings{fixture.identity.fiber_type});
+    edited.set_key_value("tinman_filament_scope_physical_id", new ConfigOptionStrings{unit});
+    edited.set_key_value("tinman_filament_scope_nozzle_diameter", new ConfigOptionFloats{0.7});
+    edited.set_key_value("tinman_filament_scope_tool", new ConfigOptionInts{1});
+    std::string reason;
+    CHECK(commit_continuous_fiber_choice(bundle, fixture.identity, reason));
+    CHECK(reason.empty());
+    CHECK(bundle.filament_presets[1] == "Draft composite");
+}

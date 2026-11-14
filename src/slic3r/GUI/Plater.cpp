@@ -722,6 +722,8 @@ struct ExtruderGroup : StaticGroup
 
 struct Sidebar::priv
 {
+    // The composite and missing fibre settings last named in a notification.
+    std::string continuous_fiber_missing_notice;
     Plater *plater;
 
     wxPanel *scrolled = nullptr;
@@ -1292,9 +1294,11 @@ static Preset* sidebar_find_filament_preset_by_name_or_alias(PresetBundle *prese
                (!candidate_alias.empty() && candidate_alias == clean_name);
     };
 
+    // Return the effective preset (the edited copy when it is open in the
+    // editor): slicing uses that copy, so the sidebar must read it too.
     for (const Preset& preset : preset_bundle->filaments.get_presets()) {
         if (matches_loaded_preset(preset, preset_name))
-            return const_cast<Preset*>(&preset);
+            return preset_bundle->filaments.find_preset(preset.name, false);
     }
 
     if (Preset *preset = preset_bundle->filaments.find_preset(preset_name, false))
@@ -1310,7 +1314,7 @@ static Preset* sidebar_find_filament_preset_by_name_or_alias(PresetBundle *prese
     if (!resolved_name.empty() && resolved_name != clean_name) {
         for (const Preset& preset : preset_bundle->filaments.get_presets()) {
             if (matches_loaded_preset(preset, resolved_name))
-                return const_cast<Preset*>(&preset);
+                return preset_bundle->filaments.find_preset(preset.name, false);
         }
         if (Preset *preset = preset_bundle->filaments.find_preset(resolved_name, false))
             return preset;
@@ -3160,21 +3164,23 @@ bool Sidebar::sync_continuous_fiber_selector_from_filament_preset(const std::str
         return false;
 
     const Preset* preset = sidebar_find_filament_preset_by_name_or_alias(preset_bundle, preset_name);
+    if (!preset || !filament_is_cfc_slot_profile(*preset))
+        return false;
+    // Any composite, also one the fiber list does not name, brings its own
+    // identity and strand data; no other product's data stays behind.
+    copy_continuous_fiber_metadata(*preset, preset_bundle->project_config);
     const int selected = sidebar_continuous_fiber_material_index_for_filament_preset(preset);
     const auto& materials = sidebar_continuous_fiber_materials();
-    if (selected < 0 || selected >= static_cast<int>(materials.size()))
-        return false;
-
-    const SidebarContinuousFiberMaterial& material = materials[selected];
-    app_config->set("continuous_fiber_material_index", std::to_string(selected));
-    copy_continuous_fiber_metadata(*preset, preset_bundle->project_config);
+    const bool listed = selected >= 0 && selected < static_cast<int>(materials.size());
+    if (listed)
+        app_config->set("continuous_fiber_material_index", std::to_string(selected));
 
     if (p->m_combo_continuous_fiber)
-        p->m_combo_continuous_fiber->SetSelection(selected);
+        p->m_combo_continuous_fiber->SetSelection(listed ? selected : wxNOT_FOUND);
     if (p->m_staticText_continuous_fiber_detail)
         p->m_staticText_continuous_fiber_detail->SetLabel(sidebar_continuous_fiber_detail(preset_bundle));
-    if (p->m_continuous_fiber_swatch)
-        p->m_continuous_fiber_swatch->SetBackgroundColour(wxColour(material.color));
+    if (p->m_continuous_fiber_swatch && listed)
+        p->m_continuous_fiber_swatch->SetBackgroundColour(wxColour(materials[selected].color));
     if (p->m_panel_continuous_fiber)
         p->m_panel_continuous_fiber->Layout();
     if (p->m_panel_filament_content)
@@ -3268,6 +3274,28 @@ void Sidebar::update_continuous_fiber_visibility()
     }
 }
 
+// Tinman has no built-in fibre data: say once per composite which settings a
+// fibre slice still needs, and where to enter them.
+void Sidebar::notify_missing_continuous_fiber_settings(const Preset &composite)
+{
+    const std::vector<std::string> missing = missing_continuous_fiber_settings(composite);
+    std::string key = composite.name;
+    for (const std::string &name : missing)
+        key += "|" + name;
+    if (missing.empty() || key == p->continuous_fiber_missing_notice)
+        return;
+    p->continuous_fiber_missing_notice = key;
+    wxString names;
+    for (const std::string &name : missing)
+        names += (names.empty() ? wxString() : wxString(", ")) + wxGetTranslation(from_u8(name));
+    if (p->plater && p->plater->get_notification_manager())
+        p->plater->get_notification_manager()->push_notification(
+            NotificationType::CustomNotification, NotificationManager::NotificationLevel::WarningNotificationLevel,
+            into_u8(GUI::format_wxstr(_L("The composite filament \"%1%\" needs %2% before it can be sliced with fiber. "
+                                         "Enter them in its filament settings, under the fiber settings."),
+                                      from_u8(composite.name), names)));
+}
+
 void Sidebar::refresh_continuous_fiber_choice()
 {
     PresetBundle *preset_bundle = wxGetApp().preset_bundle;
@@ -3279,6 +3307,7 @@ void Sidebar::refresh_continuous_fiber_choice()
         // A loaded project keeps its own composite; the panel follows it instead of
         // the fiber remembered from another project.
         sync_continuous_fiber_selector_from_filament_preset(composite->name, false);
+        notify_missing_continuous_fiber_settings(*composite);
         return;
     }
     // Material 2 has no composite yet (a new project): try the remembered fiber.
@@ -3483,11 +3512,8 @@ void Sidebar::update_presets(Preset::Type preset_type)
 
         }
 
-        if (filament_cnt > 1) {
-            const auto& materials = sidebar_continuous_fiber_materials();
-            if (!materials.empty())
-                apply_continuous_fiber_material_to_slot(materials[sidebar_continuous_fiber_material_index()], false);
-        }
+        if (filament_cnt > 1)
+            refresh_continuous_fiber_choice();
 
         for (size_t i = 0; i < filament_cnt; i++)
             p->combos_filament[i]->update();

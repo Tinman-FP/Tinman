@@ -10,6 +10,7 @@
 #include "ExtrusionEntity.hpp"
 #include "EdgeGrid.hpp"
 #include "FiberseekCompositePlanner.hpp"
+#include "FibreSeekMaterials.hpp"
 #include "Geometry/ConvexHull.hpp"
 #include "GCode/PrintExtents.hpp"
 #include "GCode/Thumbnails.hpp"
@@ -6731,11 +6732,17 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
     const double correction_feedrate = tinman_positive_or_default(m_config.fiber_correction_move_speed.value, 2.0) * 60.0;
     const double restart_feedrate = 1500.0;
     const double prime_feedrate = 600.0;
-    // The strand diameter comes from the composite filament profile; Tinman has no default for it.
+    // Strand data comes from the composite filament profile (copied into
+    // continuous_fiber_* by PresetBundle::full_fff_config); Tinman has no defaults for it.
     const double fiber_diameter_mm = m_config.continuous_fiber_diameter.value;
     if (!(fiber_diameter_mm > 0.))
-        throw Slic3r::SlicingError(_(L("The continuous fiber diameter is not set. Enter the fiber diameter in the composite filament profile, then choose the fiber again.")));
-    const double fiber_p_value = std::round(PI * std::pow(fiber_diameter_mm / 2.0, 2.0) * 0.835 * 100000.0) / 100000.0;
+        throw Slic3r::SlicingError(_(L("The continuous fiber's diameter is not set. Enter Fiber diameter in the composite filament profile.")));
+    const double fiber_feed_factor = m_curr_print ? continuous_fiber_composite_value(m_curr_print->full_print_config(), "fiber_feed_factor") : 0.;
+    if (!(fiber_feed_factor > 0.))
+        throw Slic3r::SlicingError(_(L("The continuous fiber's feed factor is not set. Enter Fiber feed factor in the composite filament profile.")));
+    // Fibre feed (P, and V at 100%) per mm of route: the strand's cross-section
+    // area pi*(d/2)^2 times the calibrated feed factor, rounded to 5 decimals.
+    const double fiber_p_value = std::round(PI * std::pow(fiber_diameter_mm / 2.0, 2.0) * fiber_feed_factor * 100000.0) / 100000.0;
     const double fiber_v_per_mm = fiber_p_value * (tinman_positive_or_default(m_config.fiber_feedrate_percent.value, 100.0) / 100.0);
     const double after_cut_v_multiplier = tinman_positive_or_default(m_config.fiber_after_cut_plastic_extrusion_multiplier.value, 1.0);
     const double slow_length_mm = std::max(0.0, m_config.fiber_slow_length.value);
