@@ -1,5 +1,7 @@
 #include <catch2/catch_all.hpp>
 
+#include <boost/filesystem.hpp>
+
 #include "libslic3r/FibreSeekMaterials.hpp"
 #include "libslic3r/FilamentSelection.hpp"
 #include "libslic3r/PresetBundle.hpp"
@@ -53,8 +55,9 @@ struct ResolverFixture
         bundle.update_multi_material_filament_presets();
     }
     // A composite tuned on this printer's composite nozzle (index 1).
-    Preset &add_composite(const std::string &name)
+    Preset &add_composite(const std::string &name, const ContinuousFiberFilamentIdentity *fiber = nullptr)
     {
+        const ContinuousFiberFilamentIdentity &identity = fiber ? *fiber : this->identity;
         auto config = bundle.filaments.default_preset().config;
         config.set_key_value("filament_type", new ConfigOptionStrings{"CFC"});
         config.set_key_value("fiber_plastic_type", new ConfigOptionStrings{identity.matrix_type});
@@ -70,27 +73,40 @@ struct ResolverFixture
 };
 } // namespace
 
-TEST_CASE("Continuous-fiber capability keeps the selector's printer signals", "[TinMan][Preset][FibreSeek]")
+TEST_CASE("Only the Seeker 3 gets the continuous-fiber interface", "[TinMan][Preset][FibreSeek]")
 {
     PresetBundle bundle;
     auto &printer = bundle.printers.get_edited_preset();
     auto &config  = printer.config;
-    const unsigned signal = GENERATE(0u, 1u, 2u, 3u, 4u, 5u, 6u);
-    CAPTURE(signal);
+    add_material(bundle, "CFC X-CCF", "CFC");
+    const Preset *cfc = bundle.filaments.find_preset("CFC X-CCF", false, true);
+    REQUIRE(cfc != nullptr);
     REQUIRE_FALSE(selected_printer_supports_continuous_fiber(bundle));
-    switch (signal) {
-    case 0: config.set_key_value("fiber_enabled", new ConfigOptionBool(true)); break;
-    case 1: config.set_key_value("fiber_cut_gcode", new ConfigOptionString("M9000")); break;
-    case 2:
-        config.set_key_value("fiber_cut_distance", new ConfigOptionFloat(5));
-        config.set_key_value("composite_nozzle_diameter", new ConfigOptionFloat(0.7));
-        break;
-    case 3: printer.name = "FibreSeek Seeker 3"; break;
-    case 4: config.set_key_value("printer_model", new ConfigOptionString("FiberSeek Seeker 3")); break;
-    case 5: config.set_key_value("printer_settings_id", new ConfigOptionString(" Seeker 3 ")); break;
-    case 6: config.set_key_value("fiber_enabled", new ConfigOptionString(" on ")); break;
+    SECTION("the Seeker 3, by its printer model") {
+        const std::string model = GENERATE("FibreSeek Seeker 3", "FiberSeek Seeker 3", " fibreseek seeker 3 ");
+        config.set_key_value("printer_model", new ConfigOptionString(model));
+        CHECK(selected_printer_supports_continuous_fiber(bundle));
+        CHECK_FALSE(filament_fits_continuous_fiber_lane(bundle, 0, *cfc));
     }
-    CHECK(selected_printer_supports_continuous_fiber(bundle));
+    SECTION("not another printer with fiber options or a Seeker-like name") {
+        const unsigned signal = GENERATE(0u, 1u, 2u, 3u, 4u, 5u);
+        CAPTURE(signal);
+        config.set_key_value("printer_model", new ConfigOptionString("Other fiber printer"));
+        switch (signal) {
+        case 0: config.set_key_value("fiber_enabled", new ConfigOptionBool(true)); break;
+        case 1: config.set_key_value("fiber_cut_gcode", new ConfigOptionString("M9000")); break;
+        case 2:
+            config.set_key_value("fiber_cut_distance", new ConfigOptionFloat(5));
+            config.set_key_value("composite_nozzle_diameter", new ConfigOptionFloat(0.7));
+            break;
+        case 3: printer.name = "FibreSeek Seeker 3"; break;
+        case 4: config.set_key_value("printer_settings_id", new ConfigOptionString("FibreSeek Seeker 3")); break;
+        case 5: config.set_key_value("printer_model", new ConfigOptionString("FibreSeek Seeker 3 lookalike")); break;
+        }
+        CHECK_FALSE(selected_printer_supports_continuous_fiber(bundle));
+        // No lane rule: a composite may go anywhere, as on any ordinary printer.
+        CHECK(filament_fits_continuous_fiber_lane(bundle, 0, *cfc));
+    }
 }
 
 TEST_CASE("Continuous-fiber lanes reject swapped materials without changing anything", "[TinMan][Preset][FibreSeek]")
@@ -98,7 +114,7 @@ TEST_CASE("Continuous-fiber lanes reject swapped materials without changing anyt
     PresetBundle bundle;
     add_material(bundle, "Polymer");
     add_material(bundle, "CFC X-CCF", "CFC");
-    bundle.printers.get_edited_preset().config.set_key_value("fiber_enabled", new ConfigOptionBool(true));
+    make_seeker3(bundle.printers.get_edited_preset().config);
     bundle.filament_presets = {"Polymer", "CFC X-CCF"};
     const auto slot = GENERATE(size_t(0), size_t(1));
     const std::string wrong = slot == 0 ? "CFC X-CCF" : "Polymer";
@@ -120,7 +136,7 @@ TEST_CASE("Continuous-fiber lanes accept their own materials and leave later slo
     PresetBundle bundle;
     add_material(bundle, "Polymer");
     add_material(bundle, "CFC X-CCF", "CFC");
-    bundle.printers.get_edited_preset().config.set_key_value("fiber_enabled", new ConfigOptionBool(true));
+    make_seeker3(bundle.printers.get_edited_preset().config);
     bundle.filament_presets = {"Polymer", "CFC X-CCF", "Polymer"};
     const auto slot = GENERATE(size_t(0), size_t(1), size_t(2));
     const std::string name = slot == 0 ? "Polymer" : "CFC X-CCF";
@@ -137,7 +153,7 @@ TEST_CASE("Material roles come from filament_type, not status-leading names", "[
     const std::string polymer_name = "CFC is a product name, not this material role";
     add_material(bundle, cfc_name, "CFC");
     add_material(bundle, polymer_name, "PCTG");
-    bundle.printers.get_edited_preset().config.set_key_value("fiber_enabled", new ConfigOptionBool(true));
+    make_seeker3(bundle.printers.get_edited_preset().config);
     bundle.filament_presets = {polymer_name, cfc_name};
     const auto &materials = static_cast<const PresetBundle &>(bundle).filaments;
     const Preset *cfc     = materials.find_preset(cfc_name, false, true);
@@ -543,4 +559,89 @@ TEST_CASE("Ordinary multi-material and IDEX printers get no lane rule or role ma
     CHECK(project_map(bundle) == map);
     CHECK(project_mode(bundle) == mode);
     CHECK_FALSE(fibreseek_material_tool_map(bundle));
+}
+
+TEST_CASE("A fiber choice commits material 2 and the project's fiber data together", "[TinMan][Preset][FibreSeek][CfcCommit]")
+{
+    ResolverFixture fixture;
+    auto &bundle = fixture.bundle;
+    auto &carbon = fixture.add_composite("CFC PCTG + X-CCF");
+    const bool has_strand_data = GENERATE(true, false);
+    if (has_strand_data) {
+        // Synthetic strand data, as a user would enter it from the fibre's datasheet.
+        carbon.config.set_key_value("fiber_diameter", new ConfigOptionFloats{0.31});
+        carbon.config.set_key_value("fiber_linear_density", new ConfigOptionFloats{88.});
+    }
+    std::string reason;
+    REQUIRE(commit_continuous_fiber_choice(bundle, fixture.identity, reason));
+    CHECK(bundle.filament_presets[1] == "CFC PCTG + X-CCF");
+    CHECK((project_map(bundle) == std::vector<int>{1, 2}));
+    const auto &project = bundle.project_config;
+    CHECK(project.opt_string("continuous_fiber_name") == fixture.identity.fiber_name);
+    CHECK(project.opt_string("continuous_fiber_type") == fixture.identity.fiber_type);
+    CHECK(project.opt_string("continuous_fiber_source_material_id") == fixture.identity.source_material_id);
+    // Tinman supplies no strand data of its own: without the profile's values they stay unset.
+    CHECK(project.opt_float("continuous_fiber_diameter") == Catch::Approx(has_strand_data ? 0.31 : 0.));
+    CHECK(project.opt_float("continuous_fiber_linear_density") == Catch::Approx(has_strand_data ? 88. : 0.));
+}
+
+TEST_CASE("A failed fiber choice leaves a project's composite and fiber data as they were", "[TinMan][Preset][FibreSeek][CfcCommit]")
+{
+    ResolverFixture fixture;
+    auto &bundle = fixture.bundle;
+    // The loaded project prints a glass composite in material 2.
+    const ContinuousFiberFilamentIdentity glass{"PCTG", "cgf-035", "CGF Glass fiber 0.35 mm", "glass_fiber"};
+    auto &composite = fixture.add_composite("CFC PCTG + CGF", &glass);
+    composite.config.set_key_value("fiber_diameter", new ConfigOptionFloats{0.33});
+    composite.config.set_key_value("fiber_linear_density", new ConfigOptionFloats{150.});
+    std::string reason;
+    REQUIRE(commit_continuous_fiber_choice(bundle, glass, reason));
+    const auto slots   = bundle.filament_presets;
+    const auto project = bundle.project_config;
+
+    // The fiber remembered from another project is carbon, and no carbon composite exists.
+    CHECK_FALSE(commit_continuous_fiber_choice(bundle, fixture.identity, reason));
+    CHECK_FALSE(reason.empty());
+    CHECK(bundle.filament_presets == slots);
+    CHECK(bundle.project_config == project);
+
+    // Saved and reloaded, the project still describes the glass composite it prints.
+    const boost::filesystem::path file = boost::filesystem::temp_directory_path() /
+                                         boost::filesystem::unique_path("tinman-fibre-project-%%%%%%%%.json");
+    bundle.project_config.save_to_json(file.string(), "project", "project", "2.4.2");
+    DynamicPrintConfig reloaded;
+    std::map<std::string, std::string> key_values;
+    reloaded.load_from_json(file.string(), ForwardCompatibilitySubstitutionRule::Disable, key_values, reason);
+    boost::system::error_code ec;
+    boost::filesystem::remove(file, ec);
+    CHECK(reloaded.opt_string("continuous_fiber_name") == glass.fiber_name);
+    CHECK(reloaded.opt_float("continuous_fiber_diameter") == Catch::Approx(0.33));
+    CHECK(reloaded.opt_float("continuous_fiber_linear_density") == Catch::Approx(150.));
+}
+
+TEST_CASE("The fiber choice checks a composite's unsaved edits, as slicing does", "[TinMan][Preset][FibreSeek][CfcResolver]")
+{
+    ResolverFixture fixture;
+    auto &bundle = fixture.bundle;
+    fixture.add_composite("CFC PCTG + X-CCF");
+    std::string reason;
+    REQUIRE(resolve_continuous_fiber_filament(bundle, fixture.identity, reason));
+    // Open the composite in the editor and change it without saving.
+    bundle.filaments.select_preset_by_name("CFC PCTG + X-CCF", true);
+    auto &edited = bundle.filaments.get_edited_preset().config;
+    SECTION("another fiber") {
+        edited.set_key_value("fiber_name", new ConfigOptionStrings{"Another fiber"});
+        CHECK_FALSE(resolve_continuous_fiber_filament(bundle, fixture.identity, reason));
+    }
+    SECTION("another matrix") {
+        edited.set_key_value("fiber_plastic_type", new ConfigOptionStrings{"PETG"});
+        CHECK_FALSE(resolve_continuous_fiber_filament(bundle, fixture.identity, reason));
+    }
+    SECTION("scoped to another physical printer") {
+        edited.set_key_value("tinman_filament_scope_physical_id", new ConfigOptionStrings{"0f0e0d0c-0b0a-0908-0706-050403020100"});
+        CHECK_FALSE(resolve_continuous_fiber_filament(bundle, fixture.identity, reason));
+    }
+    // Discarding the edits makes the saved composite the effective one again.
+    bundle.filaments.discard_current_changes();
+    CHECK(resolve_continuous_fiber_filament(bundle, fixture.identity, reason));
 }

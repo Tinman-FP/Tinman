@@ -17,7 +17,8 @@ class PresetBundle;
 // polymer + fiber composite (filament_type "CFC"). These helpers keep that contract
 // in one place for the sidebar, the filament combos and the preset bundle.
 
-// True when the edited printer preset can print continuous fiber.
+// True when the edited printer preset is a FibreSeek Seeker 3: the continuous-fiber
+// panel, lanes and role map apply to it only.
 bool selected_printer_supports_continuous_fiber(const PresetBundle &bundle);
 // The material's filament_type decides its role; the legacy "CFC " name prefix
 // counts only for profiles without a type.
@@ -73,6 +74,16 @@ struct ContinuousFiberFilamentIdentity
 std::optional<std::string> resolve_continuous_fiber_filament(const PresetBundle &bundle,
                                                              const ContinuousFiberFilamentIdentity &identity,
                                                              std::string &reason);
+
+// Copies the composite profile's fibre identity and material data (fiber_diameter,
+// fiber_linear_density; 0 when the profile has none) into the project's
+// continuous_fiber_* options. Tinman ships no fibre material data of its own.
+void copy_continuous_fiber_metadata(const Preset &composite, DynamicPrintConfig &project);
+
+// Resolves the composite for material 2 and, only when that succeeds, puts it on
+// material 2 and copies its fibre data into the project, together. On failure
+// nothing changes and reason says why.
+bool commit_continuous_fiber_choice(PresetBundle &bundle, const ContinuousFiberFilamentIdentity &identity, std::string &reason);
 
 } // namespace Slic3r
 

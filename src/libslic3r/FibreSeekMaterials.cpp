@@ -1,4 +1,5 @@
 #include "FibreSeekMaterials.hpp"
+#include "FilamentSelection.hpp"
 #include "PresetBundle.hpp"
 
 #include <algorithm>
@@ -12,46 +13,6 @@ namespace {
 
 using boost::algorithm::iequals;
 using boost::algorithm::trim_copy;
-
-std::string lower_option(const DynamicConfig &config, const char *key)
-{
-    const ConfigOption *option = config.option(key);
-    return option ? boost::algorithm::to_lower_copy(trim_copy(option->serialize())) : std::string();
-}
-
-std::optional<double> number(const std::string &value)
-{
-    try {
-        size_t parsed = 0;
-        const double result = std::stod(value, &parsed);
-        return parsed > 0 ? std::optional<double>(result) : std::nullopt;
-    } catch (...) {
-        return std::nullopt;
-    }
-}
-
-bool truthy(const std::string &value)
-{
-    if (value.empty() || value == "0" || value == "false" || value == "no" || value == "off" || value == "null")
-        return false;
-    if (value == "1" || value == "true" || value == "yes" || value == "on")
-        return true;
-    const auto result = number(value);
-    return result && *result != 0.;
-}
-
-bool positive(const std::string &value)
-{
-    const auto result = number(value);
-    return result && *result > 0.;
-}
-
-bool names_seeker3(const std::string &lower_text)
-{
-    const bool brand = lower_text.find("fibreseek") != std::string::npos ||
-                       lower_text.find("fiberseek") != std::string::npos;
-    return (brand && lower_text.find("seeker 3") != std::string::npos) || lower_text == "seeker 3";
-}
 
 // The 1-based index of the only nozzle with this diameter; 0 when none or several.
 int unique_nozzle(const std::vector<double> &nozzles, double diameter)
@@ -101,16 +62,9 @@ std::optional<std::string> single_string(const DynamicConfig &config, const char
 
 bool selected_printer_supports_continuous_fiber(const PresetBundle &bundle)
 {
-    const Preset &printer = bundle.printers.get_edited_preset();
-    const DynamicPrintConfig &config = printer.config;
-    const std::string cut_gcode = lower_option(config, "fiber_cut_gcode");
-    return truthy(lower_option(config, "fiber_enabled")) ||
-           (!cut_gcode.empty() && cut_gcode != "{}" && cut_gcode != "[]" && cut_gcode != "null") ||
-           (positive(lower_option(config, "fiber_cut_distance")) &&
-            positive(lower_option(config, "composite_nozzle_diameter"))) ||
-           names_seeker3(boost::algorithm::to_lower_copy(Preset::remove_suffix_modified(printer.name))) ||
-           names_seeker3(lower_option(config, "printer_model")) ||
-           names_seeker3(lower_option(config, "printer_settings_id"));
+    // The lanes, the fibre choice and the role map describe the Seeker 3 only;
+    // fibre options on another printer do not give it these rules.
+    return selected_printer_is_fibreseek_seeker3(bundle);
 }
 
 bool filament_is_cfc_slot_profile(const Preset &filament)
@@ -257,9 +211,13 @@ std::optional<std::string> resolve_continuous_fiber_filament(const PresetBundle 
             composite_nozzle = size_t(nozzle - 1);
 
     std::vector<std::string> matches;
-    for (const Preset &preset : bundle.filaments.get_presets()) {
-        if (!preset.is_visible)
+    for (const Preset &stored : bundle.filaments.get_presets()) {
+        // Slicing reads the edited copy of the preset open in the editor
+        // (find_preset, full_fff_config), so validate that copy too.
+        const Preset *effective = stored.is_visible ? bundle.filaments.find_preset(stored.name, false) : nullptr;
+        if (effective == nullptr)
             continue;
+        const Preset &preset = *effective;
         const auto type       = single_string(preset.config, "filament_type");
         const auto matrix     = single_string(preset.config, "fiber_plastic_type");
         const auto name       = single_string(preset.config, "fiber_name");
@@ -294,6 +252,51 @@ std::optional<std::string> resolve_continuous_fiber_filament(const PresetBundle 
     reason = matches.empty() ? "No saved composite profile for the selected printer matches this polymer and fiber." :
                                "Several saved composite profiles match this polymer and fiber; select one for material 2.";
     return std::nullopt;
+}
+
+void copy_continuous_fiber_metadata(const Preset &composite, DynamicPrintConfig &project)
+{
+    const auto text = [&composite](const char *key) { return single_string(composite.config, key).value_or(std::string()); };
+    const auto first = [&composite](const char *key) {
+        const auto *values = composite.config.option<ConfigOptionFloats>(key);
+        return values && !values->values.empty() && std::isfinite(values->values.front()) && values->values.front() > 0. ?
+                   values->values.front() : 0.;
+    };
+    project.set_key_value("continuous_fiber_name", new ConfigOptionString(text("fiber_name")));
+    project.set_key_value("continuous_fiber_type", new ConfigOptionString(text("fiber_type")));
+    project.set_key_value("continuous_fiber_material_kind", new ConfigOptionString(text("fiber_material_kind")));
+    project.set_key_value("continuous_fiber_source_material_id", new ConfigOptionString(text("fiber_source_material_id")));
+    // Material data comes from the user's composite profile only; 0 means not set.
+    project.set_key_value("continuous_fiber_diameter", new ConfigOptionFloat(first("fiber_diameter")));
+    project.set_key_value("continuous_fiber_linear_density", new ConfigOptionFloat(first("fiber_linear_density")));
+}
+
+bool commit_continuous_fiber_choice(PresetBundle &bundle, const ContinuousFiberFilamentIdentity &identity, std::string &reason)
+{
+    const auto name = resolve_continuous_fiber_filament(bundle, identity, reason);
+    if (!name)
+        return false;
+    // Material 2 and the project's fibre data change together or not at all.
+    const auto slots   = bundle.filament_presets;
+    const auto project = bundle.project_config;
+    const auto restore = [&]() {
+        bundle.filament_presets = slots;
+        bundle.project_config   = project;
+    };
+    if (bundle.filament_presets.size() < 2)
+        bundle.set_num_filaments(2);
+    if (!apply_filament_slot_selection(bundle, {1, *name, bundle.printers.get_edited_preset().name, std::nullopt}, reason)) {
+        restore();
+        return false;
+    }
+    const Preset *composite = bundle.filaments.find_preset(*name, false);
+    if (composite == nullptr) {
+        restore();
+        reason = "The composite profile is no longer available.";
+        return false;
+    }
+    copy_continuous_fiber_metadata(*composite, bundle.project_config);
+    return true;
 }
 
 } // namespace Slic3r

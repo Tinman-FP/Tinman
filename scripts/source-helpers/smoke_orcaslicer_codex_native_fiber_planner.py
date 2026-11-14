@@ -489,6 +489,9 @@ def synthetic_bad_fiberseek_process_gcode() -> str:
             "; fiber_generate_perimeters = 1",
             "; fiber_generate_infill = 1",
             "; fiber_reinforcement_mode = heavy",
+            # Synthetic strand data: the planner has no built-in fibre diameter.
+            "; fiber_diameter = 0.3",
+            "; fiber_linear_density = 90",
             "G90",
             "M82",
             ";LAYER_CHANGE",
@@ -541,6 +544,9 @@ def synthetic_layup_payload_gcode() -> str:
             "; fiber_generate_perimeters = 0",
             "; fiber_generate_infill = 1",
             "; fiber_reinforcement_mode = heavy",
+            # Synthetic strand data: the planner has no built-in fibre diameter.
+            "; fiber_diameter = 0.3",
+            "; fiber_linear_density = 90",
             "; fiber_infill_source_policy = generated_ribs",
             "; fiber_min_route_length = 55",
             "; fiber_mechanical_min_route_length = 55",
@@ -597,6 +603,9 @@ def synthetic_layup_ui_gcode() -> str:
             "; fiber_generate_perimeters = 0",
             "; fiber_generate_infill = 0",
             "; fiber_reinforcement_mode = light",
+            # Synthetic strand data: the planner has no built-in fibre diameter.
+            "; fiber_diameter = 0.3",
+            "; fiber_linear_density = 90",
             "; fiber_infill_source_policy = generated_ribs",
             "; fiber_min_route_length = 55",
             "; fiber_mechanical_min_route_length = 55",

@@ -5888,19 +5888,19 @@ void PrintConfigDef::init_fff_params()
 
     def = this->add("continuous_fiber_diameter", coFloat);
     def->label = L("Continuous fiber diameter");
-    def->tooltip = L("Thickness of the selected continuous-fiber strand.");
+    def->tooltip = L("Thickness of the selected continuous-fiber strand, copied from the composite filament profile's fiber diameter. 0 means not set.");
     def->sidetext = L("mm");
     def->min = 0;
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(0.25));
+    def->set_default_value(new ConfigOptionFloat(0.));
 
     def = this->add("continuous_fiber_linear_density", coFloat);
     def->label = L("Continuous fiber linear density");
-    def->tooltip = L("Weight of the selected continuous fiber per kilometer.");
+    def->tooltip = L("Weight of the selected continuous fiber per kilometer, copied from the composite filament profile's fiber linear density. 0 means not set.");
     def->sidetext = L("g/km");
     def->min = 0;
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(102.0));
+    def->set_default_value(new ConfigOptionFloat(0.));
 
     def = this->add("fiber_postprocessor_type", coInt);
     def->label = L("Fiber postprocessor type");

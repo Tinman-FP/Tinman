@@ -325,7 +325,7 @@ static TinmanNativeFiberGCodeSummary tinman_native_fiber_gcode_summary(const Pri
 
 static double tinman_native_fiber_mass_g(double fiber_length_mm, const DynamicPrintConfig &config)
 {
-    double linear_density_g_per_km = 102.0;
+    double linear_density_g_per_km = 0.0; // not set: report no fibre mass rather than guess one
     if (const ConfigOptionFloat *option = config.option<ConfigOptionFloat>("continuous_fiber_linear_density"))
         linear_density_g_per_km = tinman_positive_or_default(option->value, linear_density_g_per_km);
     return fiber_length_mm * linear_density_g_per_km / 1000000.0;
@@ -6731,7 +6731,10 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
     const double correction_feedrate = tinman_positive_or_default(m_config.fiber_correction_move_speed.value, 2.0) * 60.0;
     const double restart_feedrate = 1500.0;
     const double prime_feedrate = 600.0;
-    const double fiber_diameter_mm = tinman_positive_or_default(m_config.continuous_fiber_diameter.value, 0.25);
+    // The strand diameter comes from the composite filament profile; Tinman has no default for it.
+    const double fiber_diameter_mm = m_config.continuous_fiber_diameter.value;
+    if (!(fiber_diameter_mm > 0.))
+        throw Slic3r::SlicingError(_(L("The continuous fiber diameter is not set. Enter the fiber diameter in the composite filament profile, then choose the fiber again.")));
     const double fiber_p_value = std::round(PI * std::pow(fiber_diameter_mm / 2.0, 2.0) * 0.835 * 100000.0) / 100000.0;
     const double fiber_v_per_mm = fiber_p_value * (tinman_positive_or_default(m_config.fiber_feedrate_percent.value, 100.0) / 100.0);
     const double after_cut_v_multiplier = tinman_positive_or_default(m_config.fiber_after_cut_plastic_extrusion_multiplier.value, 1.0);

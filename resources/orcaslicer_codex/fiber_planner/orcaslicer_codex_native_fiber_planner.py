@@ -124,8 +124,9 @@ class PlannerConfig:
     restart_length: float = 55.0
     start_length: float = 15.0
     slow_length: float = 10.0
-    fiber_diameter: float = 0.25
-    fiber_linear_density: float = 102.0
+    # Material data comes from the G-code's config block (the composite profile); 0 = not set.
+    fiber_diameter: float = 0.0
+    fiber_linear_density: float = 0.0
     fiber_p_value: float = 0.041
     fiber_v_per_mm: float = 0.041
     fiber_width: float = 0.80
@@ -1195,6 +1196,11 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
         cfg.fiber_linear_density, prefer_last_nonzero=True,
     )
     cfg.fiber_width = parse_first_positive_float(comments.get("fiber_line_width"), cfg.fiber_width)
+    if cfg.fiber_diameter <= 0.0:
+        raise SystemExit(
+            "The continuous fiber diameter is not set. Enter the fiber diameter in the composite "
+            "filament profile, then choose the fiber again."
+        )
     cfg.fiber_p_value = round(math.pi * (cfg.fiber_diameter / 2.0) ** 2 * 0.835, 5)
     cfg.fiber_v_per_mm = cfg.fiber_p_value
     profile_min_radius = parse_first_positive_float(comments.get("fiber_min_radius"), cfg.min_radius)
