@@ -122,8 +122,9 @@ jobs:
           # MSVC releases while GitHub rolls out a runner image. Objects built with a newer STL
           # call vectorised helpers (e.g. __std_replace_2 in 14.52) that an older STL's import
           # library lacks, so the app link fails. With the STL's documented switch off, the deps
-          # link with either release. cl and clang-cl append _CL_ to every command line.
-          _CL_: /D_USE_STD_VECTOR_ALGORITHMS=0
+          # link with either release. cl and clang-cl prepend CL to every command line (_CL_
+          # would be appended after CMake's "--", where clang-cl reads it as a file name).
+          CL: /D_USE_STD_VECTOR_ALGORITHMS=0
         run: |
             if (-not "${{ vars.SELF_HOSTED }}") {
               choco install strawberryperl
