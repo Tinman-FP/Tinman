@@ -37,7 +37,7 @@ struct JobInfo
 // plain G-code.
 bool read_job(const boost::filesystem::path &path, JobInfo &job, std::string &reason);
 
-// True for the printer_model names Tinman's Seeker 3 profiles use.
+// True for printer_model names of Seeker 3 profiles ("FibreSeek Seeker 3", with any suffix).
 bool is_seeker3_model(const std::string &printer_model);
 
 // Lowercase hex SHA-256 of a buffer.

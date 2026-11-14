@@ -69,6 +69,8 @@ TEST_CASE("A Seeker 3 job is read from Tinman's config block", "[FibreSeek]")
     CHECK(job.sha256 == sha256_hex(seeker3_gcode()));
     CHECK(is_seeker3_model(job.printer_model));
     CHECK(is_seeker3_model(" fiberseek seeker 3 "));
+    CHECK(is_seeker3_model("FibreSeek Seeker 3 T0 Matrix 0.7 - EXPERIMENTAL NOT TUNED - NO CFC"));
+    CHECK_FALSE(is_seeker3_model("FibreSeek Seeker 2"));
     CHECK_FALSE(is_seeker3_model("Bambu Lab X1 Carbon"));
 }
 

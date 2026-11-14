@@ -137,8 +137,11 @@ bool same_file(std::string reported, const std::string &remote_path)
 
 bool is_seeker3_model(const std::string &printer_model)
 {
-    const std::string model = boost::to_lower_copy(boost::trim_copy(printer_model));
-    return model == "fibreseek seeker 3" || model == "fiberseek seeker 3";
+    // Same rule as the sidebar's Seeker 3 detection: user and beta profiles
+    // add suffixes such as "FibreSeek Seeker 3 T0 Matrix 0.7".
+    const std::string model = boost::to_lower_copy(printer_model);
+    return (model.find("fibreseek") != std::string::npos || model.find("fiberseek") != std::string::npos) &&
+           model.find("seeker 3") != std::string::npos;
 }
 
 std::string sha256_hex(const std::string &bytes)
