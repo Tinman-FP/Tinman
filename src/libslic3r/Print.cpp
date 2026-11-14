@@ -2495,9 +2495,10 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
             if (!std::binary_search(extruders.begin(), extruders.end(), filament_id) ||
                 !m_config.adaptive_pressure_advance.get_at(column) || !m_config.enable_pressure_advance.get_at(column))
                 continue;
-            // A model with no measurements yet (the all-zero default) gets the "no measurements" warning below.
+            // Only a model nobody filled in (blank, or the all-zero default) is left to the "no measurements"
+            // warning below; malformed text is a model the user entered and is checked here.
             const std::string &pa_model = m_config.adaptive_pressure_advance_model.get_at(column);
-            if (!AdaptivePAProcessor::adaptive_pa_model_has_measurements(pa_model))
+            if (AdaptivePAProcessor::adaptive_pa_model_is_unset(pa_model))
                 continue;
             if (const std::string error = AdaptivePAProcessor::validate_adaptive_pa_model(pa_model); !error.empty())
                 return {L("Invalid Adaptive Pressure Advance measurements: ") + error, nullptr, "adaptive_pressure_advance_model"};

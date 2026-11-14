@@ -180,7 +180,9 @@ TEST_CASE("Adaptive PA accepts complete numeric measurements and rejects malform
 TEST_CASE("Invalid enabled Adaptive PA blocks print validation without a warning sink", "[Calib][Regression]")
 {
     // A malformed model, and well-formed numbers outside their ranges.
-    const std::string model_str = GENERATE(as<std::string>{}, "0.02,10,1000oops", "-0.02,10,1000", "0.02,0,1000", "0.02,10,1000,");
+    // Malformed text (including text that holds no non-zero number) and numbers outside their ranges.
+    const std::string model_str = GENERATE(as<std::string>{}, "0.02,10,1000oops", "-0.02,10,1000", "0.02,0,1000", "0.02,10,1000,",
+                                           "garbage", "0,0,", "0,0,0\n0,0");
     CAPTURE(model_str);
     Model model;
     auto* object = model.add_object("cube", "", make_cube(20, 20, 20));
@@ -196,6 +198,43 @@ TEST_CASE("Invalid enabled Adaptive PA blocks print validation without a warning
     CHECK_THAT(print.validate().string, Catch::Matchers::ContainsSubstring("Invalid Adaptive Pressure Advance"));
     std::vector<StringObjectException> warnings;
     CHECK_THAT(print.validate(&warnings).string, Catch::Matchers::ContainsSubstring("Invalid Adaptive Pressure Advance"));
+}
+
+TEST_CASE("An unfilled Adaptive PA model only warns about missing measurements", "[Calib][Regression]")
+{
+    // Blank, or the all-zero placeholder the option ships with.
+    const std::string default_model = DynamicPrintConfig::full_print_config().opt_string("adaptive_pressure_advance_model", 0u);
+    const std::string model_str     = GENERATE_COPY(default_model, std::string(), std::string("\n"), std::string("0, 0, 0"));
+    CAPTURE(model_str);
+    CHECK(AdaptivePAProcessor::adaptive_pa_model_is_unset(model_str));
+    Model model;
+    auto* object = model.add_object("cube", "", make_cube(20, 20, 20));
+    object->add_instance();
+    object->ensure_on_bed();
+    auto config = DynamicPrintConfig::full_print_config();
+    config.set_key_value("enable_pressure_advance", new ConfigOptionBools{true});
+    config.set_key_value("adaptive_pressure_advance", new ConfigOptionBools{true});
+    config.set_key_value("adaptive_pressure_advance_model", new ConfigOptionStrings{model_str});
+    // The default config fails validation on relative extrusion without a G92 E0 at each layer.
+    config.set_key_value("use_relative_e_distances", new ConfigOptionBool(false));
+    Print print;
+    print.auto_assign_extruders(object);
+    print.apply(model, config);
+    CHECK_THAT(print.validate().string, !Catch::Matchers::ContainsSubstring("Adaptive Pressure Advance"));
+    std::vector<StringObjectException> warnings;
+    CHECK_THAT(print.validate(&warnings).string, !Catch::Matchers::ContainsSubstring("Adaptive Pressure Advance"));
+    bool warned = false;
+    for (const StringObjectException& warning : warnings)
+        warned = warned || warning.opt_key == "adaptive_pressure_advance_model";
+    CHECK(warned);
+}
+
+TEST_CASE("Only a blank or all-zero Adaptive PA model counts as unfilled", "[Calib][Regression]")
+{
+    for (const auto* filled : {"garbage", "0,0,", "0,0", "0,0,0,0", "0,0,0x", "0.02,10,1000", "0,0,0\n0.02,10,1000"}) {
+        CAPTURE(filled);
+        CHECK_FALSE(AdaptivePAProcessor::adaptive_pa_model_is_unset(filled));
+    }
 }
 
 namespace {

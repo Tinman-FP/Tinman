@@ -430,6 +430,38 @@ std::string AdaptivePAProcessor::validate_adaptive_pa_model(const std::string& m
     return {}; // All validations passed
 }
 
+bool AdaptivePAProcessor::adaptive_pa_model_is_unset(const std::string& model_str)
+{
+    std::istringstream model_stream(model_str);
+    std::string line;
+    while (std::getline(model_stream, line)) {
+        line = trim_adaptive_pa_model_fields(line);
+        if (line.empty())
+            continue;
+        size_t start = 0, fields = 0;
+        while (true) {
+            const size_t comma = line.find(',', start);
+            const std::string field = line.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+            ++fields;
+            size_t consumed = 0;
+            double value = 1.;
+            try {
+                value = std::stod(field, &consumed);
+            } catch (const std::exception&) {
+                return false;
+            }
+            if (consumed != field.size() || value != 0.)
+                return false;
+            if (comma == std::string::npos)
+                break;
+            start = comma + 1;
+        }
+        if (fields != 3)
+            return false;
+    }
+    return true;
+}
+
 bool AdaptivePAProcessor::adaptive_pa_model_has_measurements(const std::string& model_str)
 {
     std::istringstream model_stream(model_str);

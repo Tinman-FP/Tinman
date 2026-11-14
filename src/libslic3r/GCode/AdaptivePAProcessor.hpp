@@ -78,6 +78,13 @@ public:
      */
     static bool adaptive_pa_model_has_measurements(const std::string& model_str);
 
+    /**
+     * @brief Tinman: true only for a model nobody has filled in: blank, or lines of exactly three
+     * values that are all zero (the default placeholder). Anything else, malformed text included,
+     * is a model the user entered and has to pass validate_adaptive_pa_model().
+     */
+    static bool adaptive_pa_model_is_unset(const std::string& model_str);
+
 private:
     GCode &m_gcodegen; ///< Reference to the GCode object.
     std::unordered_map<unsigned int, std::unique_ptr<AdaptivePAInterpolator>> m_AdaptivePAInterpolators; ///< Map between Interpolator objects and filament config indices (null when adaptive PA is off)
