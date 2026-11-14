@@ -475,9 +475,9 @@ void WebViewPanel::load_cloud_url(const wxString& url)
             "body{font-family:-apple-system,'Segoe UI',sans-serif;margin:48px;color:#363636;background:#fff}"
             "@media (prefers-color-scheme:dark){body{color:#dcdcdc;background:#2d2d31}}"
             "h2{font-weight:600}</style></head><body><h2>%s</h2><p>%s</p></body></html>",
-            _L("Tinman Cloud is off in stealth mode"),
+            _L("Orca Cloud is off in stealth mode"),
             _L("Stealth mode keeps Tinman offline: it does not sign in, sync profiles or download plugins. "
-               "To use Tinman Cloud, turn off Stealth mode in Preferences."));
+               "To use Orca Cloud, turn off Stealth mode in Preferences."));
         m_cloud_browser->SetPage(html, wxString());
         return;
     }

@@ -153,13 +153,12 @@ static json guide_strings()
         {"proprietary_plugins_risk", _u8L("Please be aware that these plugins are not developed or maintained by OrcaSlicer. They should be used at your own discretion and risk.")},
         {"install_bambu_plugin", _u8L("Install Bambu Network plug-in")},
     };
-    // Tinman: the setup guide names the app and its cloud account. Rebrand the translated text
-    // rather than the msgids, so every language keeps its translation.
-    for (const char *key : {"welcome", "setup_intro", "stealth_mode_desc", "stealth_mode_note", "proprietary_plugins_risk"}) {
+    // Tinman: the setup guide names the app. Rebrand the translated text rather than the msgids, so
+    // every language keeps its translation. Services keep their real names: Orca Cloud is OrcaSlicer's.
+    for (const char *key : {"welcome", "setup_intro", "proprietary_plugins_risk"}) {
         std::string text = strings[key].get<std::string>();
         boost::replace_all(text, "Orca Slicer", "Tinman");
         boost::replace_all(text, "OrcaSlicer", "Tinman");
-        boost::replace_all(text, "Orca Cloud", "Tinman Cloud");
         strings[key] = text;
     }
     return strings;

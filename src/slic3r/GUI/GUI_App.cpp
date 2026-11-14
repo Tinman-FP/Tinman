@@ -6110,11 +6110,11 @@ void GUI_App::on_http_error(wxCommandEvent &evt)
 
             switch (conflict_code) {
             case -1:
-                text = header + " " + _u8L("This preset has a newer version in Tinman Cloud.\n"
+                text = header + " " + _u8L("This preset has a newer version in OrcaCloud.\n"
                             "Pull downloads the cloud copy. Force push overwrites it with your local preset.");
                 break;
             case -2:
-                text = header + " " + _u8L("A preset with this name already exists in Tinman Cloud.\n"
+                text = header + " " + _u8L("A preset with this name already exists in OrcaCloud.\n"
                             "Pull downloads the cloud copy. Force push overwrites it with your local preset.");
                 break;
             case -3:
@@ -7531,7 +7531,7 @@ bool GUI_App::maybe_migrate_user_presets_on_login()
     wxString source_description;
     if (source_is_bbl) {
         source_description = wxString::Format(
-            _L("your Tinman Cloud profile (user ID: \"%s\")"),
+            _L("your Orca Cloud profile (user ID: \"%s\")"),
             from_u8(source_dir.filename().string()));
     } else if (source_is_default) {
         source_description = _L("your default profile");
@@ -7543,7 +7543,7 @@ bool GUI_App::maybe_migrate_user_presets_on_login()
 
     wxString msg = wxString::Format(
         _L("Existing user presets were found in %s.\n"
-           "Do you want to migrate them to your Tinman Cloud profile?\n"
+           "Do you want to migrate them to your OrcaCloud profile?\n"
            "This will copy your presets so they are available under your new account."),
         source_description);
 
