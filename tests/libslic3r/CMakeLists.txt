@@ -29,6 +29,8 @@ add_executable(${_TEST_NAME}_tests
     test_layer_range_recovery.cpp
     test_elephant_foot_compensation.cpp
     test_fiberseek_composite_planner.cpp
+    test_fibreseek_route_planner.cpp
+    test_fibreseek_route_coupons.cpp
     test_geometry.cpp
     test_placeholder_parser.cpp
     test_polygon.cpp
