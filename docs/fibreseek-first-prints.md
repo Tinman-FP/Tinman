@@ -184,6 +184,23 @@ Tinman log line for this send must say `continuous fibre: no`.
   down without a blob or a string. The next route starts cleanly where the
   preview shows it, and the fibre feeds again without slipping.
 
+## Known risks to watch
+
+A review of the fibre output found these. Watch for them, and stop the print
+if one causes trouble:
+
+- **Prime line.** In the default fibre mode, the planner lays a 90 mm prime
+  line at the start of the first fibre layer. It primes much more matrix than
+  a route start does. Watch for a blob or overflow at the prime.
+- **Cut position.** The default mode cuts 54.8 mm before a route's end; the
+  composite-only mode cuts 58 mm before it. Check where the fibre ends
+  against the preview.
+- **Fixed values.** Standby temperatures (150 °C plastic, 180 °C fibre) and
+  fan speeds in the default mode are fixed values with no documented source.
+  Note what the printer does at each tool change.
+
+The full list is in `docs/fibreseek-constants-provenance.md`.
+
 ## What to report back
 
 - The three fibre values you entered (diameter, linear density, feed factor).
