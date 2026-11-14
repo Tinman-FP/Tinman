@@ -13,8 +13,7 @@
 #include "libslic3r/Utils.hpp"
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/format.hpp"
-#include "slic3r/GUI/GUI_App.hpp"
-#include "libslic3r/AppConfig.hpp"
+#include "slic3r/plugin/CloudPluginService.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/case_conv.hpp>
@@ -507,14 +506,6 @@ bool load(const PluginDescriptor&                          descriptor,
     return true;
 }
 
-// Tinman: true when the running app is in stealth mode. Code here also runs in the test binaries,
-// which have no GUI_App, so the app is looked up rather than assumed.
-static bool stealth_mode_enabled()
-{
-    auto *app = dynamic_cast<GUI::GUI_App *>(wxTheApp);
-    return app != nullptr && app->app_config != nullptr && app->app_config->get_stealth_mode();
-}
-
 bool install_packages(const std::vector<std::string>& pkgs, std::string& error)
 {
     if (pkgs.empty())
@@ -545,7 +536,7 @@ bool install_packages(const std::vector<std::string>& pkgs, std::string& error)
     std::vector<std::string> args = {"pip", "install", "--python", python_executable, "--no-python-downloads", "--target", target_dir};
     // Tinman: stealth mode makes no network requests, so uv may install only what its local cache
     // already holds instead of downloading from PyPI.
-    const bool offline = stealth_mode_enabled();
+    const bool offline = CloudPluginService::stealth_mode_blocks();
     if (offline)
         args.push_back("--offline");
     args.insert(args.end(), pkgs.begin(), pkgs.end());
@@ -615,10 +606,10 @@ bool install_packages(const std::vector<std::string>& pkgs, std::string& error)
         if (exit_code != 0) {
             if (!err_output.empty())
                 error = "uv pip install failed (exit code " + std::to_string(exit_code) + "): " + err_output;
-                if (offline)
-                    error += " (Stealth mode is on, so packages that are not cached already cannot be downloaded.)";
             else
                 error = "uv pip install failed with exit code " + std::to_string(exit_code);
+            if (offline)
+                error += " (Stealth mode is on, so packages that are not cached already cannot be downloaded.)";
             BOOST_LOG_TRIVIAL(error) << error;
             return false;
         }

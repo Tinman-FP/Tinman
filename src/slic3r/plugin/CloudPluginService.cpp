@@ -3,8 +3,6 @@
 #include "OrcaCloudServiceAgent.hpp"
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/format.hpp"
-#include "slic3r/GUI/GUI_App.hpp"
-#include "libslic3r/AppConfig.hpp"
 #include "slic3r/Utils/Http.hpp"
 
 #include <boost/filesystem.hpp>
@@ -28,15 +26,30 @@ void CloudPluginService::set_cloud_agent(std::shared_ptr<OrcaCloudServiceAgent> 
 
 std::shared_ptr<OrcaCloudServiceAgent> CloudPluginService::get_cloud_agent() const { return m_orca_agent; }
 
+static std::function<bool()>& stealth_mode_check()
+{
+    static std::function<bool()> check;
+    return check;
+}
+
+void CloudPluginService::set_stealth_mode_check(std::function<bool()> check) { stealth_mode_check() = std::move(check); }
+
+bool CloudPluginService::stealth_mode_blocks(std::string* error)
+{
+    const auto& check = stealth_mode_check();
+    if (!check || !check())
+        return false;
+    BOOST_LOG_TRIVIAL(info) << "Stealth mode: not contacting the cloud plugin hub";
+    if (error != nullptr)
+        *error = _u8L("Stealth mode is on, so Tinman does not contact the plugin hub. Turn it off in Preferences to install or update cloud plugins.");
+    return true;
+}
+
 bool CloudPluginService::can_fetch_cloud_plugins() const
 {
-    // Tinman: stealth mode makes no cloud requests. A session can still hold a cloud login when
-    // stealth mode was turned on without logging out (setup wizard, hand-edited config).
-    if (auto *app = dynamic_cast<GUI::GUI_App *>(wxTheApp); app != nullptr && app->app_config != nullptr &&
-                                                            app->app_config->get_stealth_mode()) {
-        BOOST_LOG_TRIVIAL(info) << "Stealth mode: not contacting the cloud plugin hub";
+    // Tinman: a session can still hold a cloud login when stealth mode was turned on without logging out.
+    if (stealth_mode_blocks())
         return false;
-    }
 
     if (!m_orca_agent) {
         BOOST_LOG_TRIVIAL(warning) << "Orca service agent is null";
@@ -55,6 +68,8 @@ bool CloudPluginService::fetch_manifests_into_descriptors(std::vector<PluginDesc
                                                       std::vector<std::string>& not_found,
                                                       std::vector<std::string>& unauthorized) const
 {
+    if (stealth_mode_blocks())
+        return false;
     descriptors.clear();
     not_found.clear();
     unauthorized.clear();
@@ -90,6 +105,8 @@ bool CloudPluginService::fetch_manifests_into_descriptors(std::vector<PluginDesc
 
 bool CloudPluginService::request_cloud_subscribe(const std::string& plugin_uuid, std::string& error) const
 {
+    if (stealth_mode_blocks(&error))
+        return false;
     error.clear();
     if (!m_orca_agent) {
         error = "No cloud agent.";
@@ -110,6 +127,8 @@ bool CloudPluginService::request_cloud_subscribe(const std::string& plugin_uuid,
 
 bool CloudPluginService::request_cloud_unsubscribe(const PluginDescriptor& plugin, std::string& error) const
 {
+    if (stealth_mode_blocks(&error))
+        return false;
     if (!m_orca_agent) {
         error = "No cloud agent.";
         return false;
@@ -141,6 +160,8 @@ bool CloudPluginService::download_cloud_plugin(PluginDescriptor& entry,
                                                CloudPluginDownload& download,
                                                std::string& error) const
 {
+    if (stealth_mode_blocks(&error))
+        return false;
     namespace fs = boost::filesystem;
 
     error.clear();
@@ -273,6 +294,8 @@ bool CloudPluginService::fetch_plugin_changelog(const PluginDescriptor& descript
                                                 std::vector<PluginChangelog>& changelog,
                                                 std::string& error) const
 {
+    if (stealth_mode_blocks(&error))
+        return false;
     error.clear();
     changelog.clear();
 
@@ -300,6 +323,8 @@ bool CloudPluginService::fetch_plugin_changelog(const std::vector<PluginDescript
                                                 std::unordered_map<std::string, std::vector<PluginChangelog>>& changelog,
                                                 std::string& error) const
 {
+    if (stealth_mode_blocks(&error))
+        return false;
     error.clear();
     changelog.clear();
 

@@ -9,6 +9,7 @@
 #include "slic3r/plugin/PluginConfig.hpp"
 #include "slic3r/plugin/PluginFsUtils.hpp"
 #include "slic3r/plugin/PluginManager.hpp"
+#include "slic3r/plugin/CloudPluginService.hpp"
 
 #include <cctype>
 #include <cstddef>
@@ -1691,6 +1692,12 @@ void PluginsDialog::reinstall_cloud_plugin(const PluginDescriptor& plugin)
     const bool was_loaded  = PluginManager::instance().is_plugin_loaded(plugin_key);
 
     std::string error;
+    // Tinman: a reinstall that can't download must not delete the installed copy first.
+    if (CloudPluginService::stealth_mode_blocks(&error)) {
+        show_status(from_u8(error), "error");
+        send_plugins();
+        return;
+    }
     if (plugin.has_local_package()) {
         if (!manager.delete_plugin(plugin_key, error)) {
             show_status(error.empty() ? _L("Failed to delete plugin.") : from_u8(error), "error");

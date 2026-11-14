@@ -188,6 +188,7 @@
 #include "libslic3r/Thread.hpp"
 #include "libslic3r/miniz_extension.hpp"
 #include "slic3r/plugin/PluginManager.hpp"
+#include "slic3r/plugin/CloudPluginService.hpp"
 #include "slic3r/plugin/host/PluginHostUi.hpp"
 #include "slic3r/plugin/PythonInterpreter.hpp"
 
@@ -3743,6 +3744,8 @@ bool GUI_App::on_init_inner()
         plugin_mgr.set_cloud_user(preset_folder);
     }
 
+    // Tinman: every cloud plugin operation and plugin package install checks stealth mode here first.
+    CloudPluginService::set_stealth_mode_check([this]() { return app_config != nullptr && app_config->get_stealth_mode(); });
     plugin_mgr.discover_plugins(false, true);
 
     init_plugin_gui_wiring();

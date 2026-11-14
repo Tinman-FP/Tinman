@@ -929,6 +929,9 @@ int GuideFrame::SaveProfile()
 
     m_MainPtr->app_config->set("region", m_Region);
     m_MainPtr->app_config->set_bool("stealth_mode", StealthMode);
+    // Tinman: the same transition as Preferences, which also signs out of the cloud.
+    if (StealthMode)
+        m_MainPtr->on_stealth_mode_enter();
 
     //finish
     m_MainPtr->app_config->set(std::string(m_SectionName.mb_str()), "finish", true);
