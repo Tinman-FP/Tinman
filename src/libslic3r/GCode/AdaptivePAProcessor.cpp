@@ -330,21 +330,23 @@ std::string AdaptivePAProcessor::process_layer(std::string &&gcode) {
     return output.str();
 }
 
-// The model line with the whitespace around each comma-separated value removed.
+// The model line with the whitespace around each comma-separated value removed. Empty fields are
+// kept, so "0.02,10,1000," still has four fields.
 static std::string trim_adaptive_pa_model_fields(const std::string& line)
 {
     std::string trimmed;
-    std::istringstream line_stream(line);
-    std::string field;
-    bool first = true;
-    while (std::getline(line_stream, field, ',')) {
+    size_t start = 0;
+    while (true) {
+        const size_t comma = line.find(',', start);
+        const std::string field = line.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
         const auto begin = field.find_first_not_of(" \t\r");
         const auto end   = field.find_last_not_of(" \t\r");
-        if (!first)
-            trimmed += ',';
         if (begin != std::string::npos)
             trimmed += field.substr(begin, end - begin + 1);
-        first = false;
+        if (comma == std::string::npos)
+            break;
+        trimmed += ',';
+        start = comma + 1;
     }
     return trimmed;
 }
@@ -366,12 +368,8 @@ std::string AdaptivePAProcessor::validate_adaptive_pa_model(const std::string& m
         if (line.empty())
             continue; // Skip empty lines
 
-        // Only numbers, commas and dots are allowed (no letters or other characters)
-        for (char c : line) {
-            if (!std::isdigit(static_cast<unsigned char>(c)) && c != ',' && c != '.') {
-                return Slic3r::format(_u8L("Line %1%: only numbers, commas and dots are allowed"), line_number);
-            }
-        }
+        // Tinman: any complete, finite number is accepted (exponents such as 2e-2 included);
+        // read_number() below rejects anything else.
 
         // Count commas to validate format (should be exactly 2 for 3 values)
         int comma_count = 0;
@@ -411,17 +409,18 @@ std::string AdaptivePAProcessor::validate_adaptive_pa_model(const std::string& m
             if (!read_number(accel))
                 return Slic3r::format(_u8L("Line %1%: missing acceleration value"), line_number);
             
-            // Validate constraints
+            // Validate constraints. Tinman: each value against its own range. PA (s), flow (mm3/s) and
+            // acceleration (mm/s2) are different units, so comparing them with each other means nothing.
             if (!check_values)
                 continue;
-            if (pa >= 2.0) {
-                return Slic3r::format(_u8L("Line %1%: PA value must be less than 2"), line_number);
+            if (pa < 0.0 || pa >= 2.0) {
+                return Slic3r::format(_u8L("Line %1%: PA value must be at least 0 and less than 2"), line_number);
             }
-            if (flow <= pa) {
-                return Slic3r::format(_u8L("Line %1%: flow value must be greater than PA value"), line_number);
+            if (flow <= 0.0) {
+                return Slic3r::format(_u8L("Line %1%: flow value must be greater than 0"), line_number);
             }
-            if (accel <= flow) {
-                return Slic3r::format(_u8L("Line %1%: acceleration value must be greater than flow value"), line_number);
+            if (accel <= 0.0) {
+                return Slic3r::format(_u8L("Line %1%: acceleration value must be greater than 0"), line_number);
             }
         } catch (const std::exception&) {
             return Slic3r::format(_u8L("Line %1%: invalid numeric value"), line_number);

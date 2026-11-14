@@ -2484,9 +2484,9 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
             get_filament_map_mode() >= fmmManual || m_config.nozzle_diameter.size() == 1, scope_error))
         return {scope_error};
     std::vector<unsigned int> extruders = this->extruders();
-    // Tinman: an adaptive pressure advance model that is not a well-formed list of numbers stops the slice,
-    // with or without a warning sink. Values that parse but break the limits only get the warning further
-    // down. Columns are mapped to filaments as there.
+    // Tinman: an enabled adaptive pressure advance model that is not a list of numbers within their ranges
+    // stops the slice, with or without a warning sink. Columns are mapped to filaments as in the warning
+    // further down.
     if (!extruders.empty()) {
         const std::vector<int> &self_index = m_config.filament_self_index.values;
         const size_t pa_columns = std::max(m_config.adaptive_pressure_advance_model.size(), size_t(extruders.back()) + 1);
@@ -2495,8 +2495,11 @@ StringObjectException Print::validate(std::vector<StringObjectException> *warnin
             if (!std::binary_search(extruders.begin(), extruders.end(), filament_id) ||
                 !m_config.adaptive_pressure_advance.get_at(column) || !m_config.enable_pressure_advance.get_at(column))
                 continue;
-            if (const std::string error = AdaptivePAProcessor::validate_adaptive_pa_model(
-                    m_config.adaptive_pressure_advance_model.get_at(column), /* check_values */ false); !error.empty())
+            // A model with no measurements yet (the all-zero default) gets the "no measurements" warning below.
+            const std::string &pa_model = m_config.adaptive_pressure_advance_model.get_at(column);
+            if (!AdaptivePAProcessor::adaptive_pa_model_has_measurements(pa_model))
+                continue;
+            if (const std::string error = AdaptivePAProcessor::validate_adaptive_pa_model(pa_model); !error.empty())
                 return {L("Invalid Adaptive Pressure Advance measurements: ") + error, nullptr, "adaptive_pressure_advance_model"};
         }
     }

@@ -57,6 +57,18 @@ float calibration_value_for_layer(float start, float end, float step, int layer_
     return start + ratio * (end - start);
 }
 
+float calibration_value_for_ratio(float start, float end, float step, float ratio)
+{
+    ratio = std::clamp(ratio, 0.f, 1.f);
+    if (step > 0.f) {
+        // Discrete equal-width bands; at ratio 1, ratio * bands == bands would index one band past the end.
+        const int bands = calibration_step_count(start, end, step);
+        const int band  = std::min(bands - 1, static_cast<int>(ratio * bands));
+        return std::clamp(start + (end >= start ? 1.f : -1.f) * band * step, std::min(start, end), std::max(start, end));
+    }
+    return start + ratio * (end - start);
+}
+
 VfaCalibrationPlan plan_vfa_calibration(double nozzle, double line_width, double default_height,
     double min_height, double max_height, double max_volumetric_speed,
     double start, double end, double step, const std::vector<double>& candidate_heights)

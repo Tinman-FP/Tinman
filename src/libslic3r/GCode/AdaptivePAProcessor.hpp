@@ -59,11 +59,10 @@ public:
      * @brief Validates an adaptive pressure advance model string.
      *
      * Checks that:
-     * - Each non-empty line has exactly 3 comma-separated values (PA, flow, accel)
-     * - All values are finite, fully parsed numbers
-     * - PA value is less than 2
-     * - Flow value is greater than PA value
-     * - Accel value is greater than flow value
+     * - Each non-empty line has exactly 3 comma-separated values (PA, flow, accel); an empty field counts
+     * - All values are finite, fully parsed numbers (exponents allowed)
+     * - Tinman: each value within its own range: 0 <= PA < 2, flow > 0, accel > 0. They are different
+     *   units, so they are not compared with each other.
      *
      * @param model_str The model string to validate (typically from config)
      * @param check_values Tinman: false checks only that the model is well-formed, not the value limits

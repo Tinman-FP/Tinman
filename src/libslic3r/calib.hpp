@@ -66,6 +66,9 @@ static constexpr double vfa_base_block_height = 5.0;
 static constexpr double vfa_base_nozzle_diameter = 0.4;
 
 int calibration_step_count(double start, double end, double step);
+// The value at a position (0..1) through a calibration whose layers aren't spaced by index, such as a
+// belt printer's tower: the same bands as calibration_step_count(), clamped to the range.
+float calibration_value_for_ratio(float start, float end, float step, float ratio);
 float calibration_value_for_layer(float start, float end, float step, int layer_index, unsigned layer_count);
 
 struct VfaCalibrationPlan {

@@ -11403,14 +11403,8 @@ float GCode::interpolate_value_across_layers(float start_value, float end_value,
         // VFA tower (Plater / CalibUtils), so every band is exactly one block of layers.
         return calibration_value_for_layer(start_value, end_value, step, m_layer_index, m_layer_count);
     }
-    if (step > 0.f) {
-        // Discrete equal-width bands. band is clamped to the last band so the result can't overshoot the range:
-        // at the top layer ratio * n_bands == n_bands, which would otherwise index one band past the end.
-        const int n_bands = std::lround(std::abs(end_value - start_value) / step) + 1;
-        const int band    = std::min(n_bands - 1, static_cast<int>(ratio * n_bands));
-        return start_value + (end_value >= start_value ? 1.f : -1.f) * band * step;
-    }
-    return start_value + ratio * (end_value - start_value);
+    // Tinman: the bands come from calibration_step_count(), like the tower geometry, and never pass end_value.
+    return calibration_value_for_ratio(start_value, end_value, step, ratio);
 }
 
 std::string encodeBase64(uint64_t value)

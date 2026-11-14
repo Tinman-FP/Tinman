@@ -135,9 +135,10 @@ TEST_CASE("Slicing accepts an adaptive pressure advance model typed with spaces 
     CHECK(adaptive_pa_model_warnings("0.027, 8.1416, 2000.0\n0.027, 20.354, 2000.0\n0.017, 8.1416, 10000.0\n0.017, 20.354, 10000.0").empty());
 }
 
-TEST_CASE("Slicing warns about an adaptive pressure advance model whose flow is not above its pressure advance", "[AdaptivePressureAdvance]")
+// Tinman: PA (s), flow (mm3/s) and acceleration (mm/s2) are different units, so each is checked against its
+// own range and not against the others; a model whose values are out of range stops the slice instead
+// (test_calib.cpp, "Invalid enabled Adaptive PA blocks print validation").
+TEST_CASE("Slicing accepts an adaptive pressure advance model whose flow is below its pressure advance", "[AdaptivePressureAdvance]")
 {
-    const std::vector<std::string> warnings = adaptive_pa_model_warnings("0.5,0.2,2000\n0.4,0.1,10000");
-    REQUIRE(warnings.size() == 1);
-    CHECK(warnings.front().find("invalid values") != std::string::npos);
+    CHECK(adaptive_pa_model_warnings("0.5,0.2,2000\n0.4,0.1,10000").empty());
 }
