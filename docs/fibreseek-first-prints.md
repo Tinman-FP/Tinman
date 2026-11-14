@@ -65,23 +65,30 @@ the mock (Ctrl+C) and switch back to the real printer.
 Tinman stops the send and tells you why if any of these fail:
 
 - The file is plain G-code (not a 3MF) sliced with a Seeker 3 profile.
-- Klipper is ready and nothing is printing, paused or loaded, and no error
-  from the last job is still showing. After each print, clear the finished
-  job on the printer before the next send, for example with the
-  `SDCARD_RESET_FILE` command on its Klipper console.
+- Klipper is ready, nothing is printing or paused, and no error from the
+  last job is still showing. A finished or cancelled job is fine. A file
+  that is selected but not started blocks the send: clear it on the printer
+  first.
 - T1 has the polymer nozzle and T0 the matrix and fibre nozzle the job was
   sliced for.
 - The copy stored on the printer matches the file byte for byte.
 - It is still the same printer (by its host name) just before the start.
 
-Each send gets its own file name on the printer: your file name plus a short
-code and the time, for example `coupon_01-1a2b3c4d-20261116T140000.gcode`.
+Each send gets its own file name on the printer: your file name plus two
+short codes and the time, for example
+`coupon_01-1a2b3c4d-20261116T140000-9f3c01aa.gcode`.
+
+The send dialog says which materials the job needs on T1 and T0. Tinman
+cannot see which materials are loaded, so check them on the printer before
+you press **Upload and print**.
 
 **Upload** only stores the file. **Upload and print** also starts it, once,
 and then waits up to 10 minutes for the printer to report that it is
 printing that file. If the start fails, or the printer does not confirm in
 time, Tinman reports it and does not retry: check the printer before you
-try again. Cancel in the upload queue works until the start is sent. Tinman's start request does not pass the printer's own auto-levelling
+try again. Cancel in the upload queue works until the start is sent. After
+that, Cancel only stops Tinman watching, and the printer may still be
+printing. Tinman's start request does not pass the printer's own auto-levelling
 or AI-detection options, so the printer uses its defaults. If the printer
 does not prepare the way it does when you start a job from its screen, use
 **Upload**, start the job from the printer's screen, and report what you saw.
