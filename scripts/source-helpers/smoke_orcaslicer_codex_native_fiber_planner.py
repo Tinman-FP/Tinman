@@ -500,10 +500,10 @@ def synthetic_bad_fiberseek_process_gcode() -> str:
             "; fiber_generate_perimeters = 1",
             "; fiber_generate_infill = 1",
             "; fiber_reinforcement_mode = heavy",
-            # Synthetic strand data: the planner has no built-in fibre diameter.
-            "; fiber_diameter = 0.3",
-            "; fiber_feed_factor = 0.8",
-            "; fiber_linear_density = 90",
+            # Synthetic strand data for material 2, the composite.
+            "; fiber_diameter = 0,0.3",
+            "; fiber_feed_factor = 0,0.8",
+            "; fiber_linear_density = 0,90",
             "G90",
             "M82",
             ";LAYER_CHANGE",
@@ -775,6 +775,28 @@ def main() -> int:
                                    encoding="utf-8")
         if abs(planner.planner_config(planner.parse_gcode(grams_per_meter), default_planner_args()).fiber_linear_density - 102) > 1e-9:
             raise SystemExit("A g/m linear density was not converted to g/km")
+        # Per-material values are read at the composite's slot (the first CFC), as in C++.
+        def three_materials(factors: str) -> Path:
+            fixture = Path(tmpdir) / "three_materials.gcode"
+            fixture.write_text(
+                SYNTHETIC_GCODE
+                + "; print_settings_id = 0.20mm Plastic + Continuous Fiber Medium @FibreSeek Seeker 3 0.4+0.7 nozzle\n"
+                + "; filament_type = PCTG;CFC;CFC\n; fiber_diameter = 0,0.25,0.3\n"
+                "; fiber_linear_density = 0,102,90\n; fiber_feed_factor = " + factors + "\n",
+                encoding="utf-8",
+            )
+            return fixture
+        conflicting = planner.planner_config(planner.parse_gcode(three_materials("0,0.8,0.6")), default_planner_args())
+        if abs(conflicting.fiber_feed_factor - 0.8) > 1e-9 or conflicting.fiber_diameter != 0.25:
+            raise SystemExit("The strand data was not taken from material 2, the composite")
+        try:
+            planner.planner_config(planner.parse_gcode(three_materials("0,0,0.6")), default_planner_args())
+        except SystemExit as error:
+            if "Fiber feed factor" not in str(error):
+                raise
+        else:
+            raise SystemExit("Another material's feed factor was used for an unset composite")
+
         # No feed factor: the planner stops instead of guessing one.
         no_factor = Path(tmpdir) / "no_feed_factor.gcode"
         no_factor.write_text(SYNTHETIC_GCODE.replace("; fiber_feed_factor = 0.8\n", ""), encoding="utf-8")

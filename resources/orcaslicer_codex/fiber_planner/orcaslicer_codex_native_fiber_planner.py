@@ -573,8 +573,35 @@ def first_set_float(comments: dict, *keys: str) -> float:
 
 
 def linear_density_g_per_km(value: float) -> float:
-    """g/km throughout; a value below 1 is read as g/m, the setting's earlier label."""
+    """g/km throughout; a value below 1 is read as g/m, the setting's earlier label.
+
+    This assumes no continuous-fibre tow is lighter than 1 g/km (a printable
+    strand is tens to hundreds of g/km), so a value below 1 can only be g/m."""
     return value * 1000.0 if 0.0 < value < 1.0 else value
+
+
+def composite_slot(comments: dict) -> int | None:
+    """The first material whose filament_type is CFC, the same slot the C++ side
+    uses (continuous_fiber_composite_slot); None when no material is a composite."""
+    raw = comments.get("filament_type")
+    if raw is None:
+        return None
+    for index, value in enumerate(raw.split(";")):
+        if value.strip().strip('"') == "CFC":
+            return index
+    return None
+
+
+def slot_float(comments: dict, key: str, slot: int | None) -> float:
+    """A per-material value at the composite's slot only; 0 when unset or missing.
+
+    G-code without any filament_type (Tinman always writes it) has no slot to
+    pick; only an unambiguous single-material value is accepted there."""
+    values = parse_float_values(comments.get(key))
+    if slot is None:
+        single = "filament_type" not in comments and len(values) == 1
+        return values[0] if single and values[0] > EPSILON else 0.0
+    return values[slot] if slot < len(values) and values[slot] > EPSILON else 0.0
 
 
 def parse_float_values(value: str | None) -> list[float]:
@@ -1204,10 +1231,15 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
     cfg.slow_length = parse_first_positive_float(comments.get("fiber_slow_length"), cfg.slow_length)
     # Strand data comes from the composite profile (Tinman copies it into
     # continuous_fiber_*); "0" or a missing key means not set.
-    cfg.fiber_diameter = first_set_float(comments, "continuous_fiber_diameter", "fiber_diameter")
+    # Per-material values come only from the composite's own slot, never from
+    # another material in the vector.
+    slot = composite_slot(comments)
+    cfg.fiber_diameter = (first_set_float(comments, "continuous_fiber_diameter")
+                          or slot_float(comments, "fiber_diameter", slot))
     cfg.fiber_linear_density = linear_density_g_per_km(
-        first_set_float(comments, "continuous_fiber_linear_density", "fiber_linear_density"))
-    cfg.fiber_feed_factor = first_set_float(comments, "fiber_feed_factor")
+        first_set_float(comments, "continuous_fiber_linear_density")
+        or slot_float(comments, "fiber_linear_density", slot))
+    cfg.fiber_feed_factor = slot_float(comments, "fiber_feed_factor", slot)
     cfg.after_cut_plastic_extrusion_multiplier = parse_first_positive_float(
         comments.get("fiber_after_cut_plastic_extrusion_multiplier"), cfg.after_cut_plastic_extrusion_multiplier)
     cfg.fiber_width = parse_first_positive_float(comments.get("fiber_line_width"), cfg.fiber_width)

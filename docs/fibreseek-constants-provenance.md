@@ -62,7 +62,13 @@ kept.
 - The planner's 0.72 after-cut default is replaced by the existing
   `fiber_after_cut_plastic_extrusion_multiplier` setting, whose default 1 is
   the identity.
-- Fibre linear density is in g/km throughout.
+- Fibre linear density is in g/km throughout. A value below 1 is read as
+  g/m, the setting's earlier label, and converted. This assumes no
+  continuous-fibre tow is lighter than 1 g/km; printable strands are tens to
+  hundreds of g/km.
+- Both writers read per-material values (diameter, linear density, feed
+  factor) only at the composite's slot, the first material whose
+  filament_type is CFC. Another material's value is never used.
 
 **Named after Rocket, not converted in #21:**
 
