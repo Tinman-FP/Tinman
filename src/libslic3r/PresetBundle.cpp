@@ -642,6 +642,7 @@ PresetBundle& PresetBundle::operator=(const PresetBundle &rhs)
 
     filament_presets    = rhs.filament_presets;
     project_config      = rhs.project_config;
+    fibreseek_mapping   = rhs.fibreseek_mapping;
     vendors             = rhs.vendors;
     obsolete_presets    = rhs.obsolete_presets;
     m_errors    = rhs.m_errors;
@@ -4959,6 +4960,8 @@ void PresetBundle::load_config_file_config(const std::string &name_or_path, bool
         }
 
         // 4) Load the project config values (the per extruder wipe matrix etc).
+        // A loaded project brings its own filament map: forget the one saved for leaving FibreSeek.
+        this->fibreseek_mapping = {};
         this->project_config.apply_only(config, s_project_options);
         const Preset &active_printer = this->printers.get_edited_preset();
         tinmanx_apply_nozzle_volume_contract(
@@ -5687,6 +5690,7 @@ void PresetBundle::update_multi_material_filament_presets(size_t to_delete_filam
     multipliers.swap(new_multipliers);
     if (rebuild_matrix)
         matrix.swap(new_matrix);
+    normalize_fibreseek_material_mapping(*this);
 }
 
 // Rewrite a preset-name-list field (compatible_printers / compatible_prints) so references to a
@@ -5952,6 +5956,7 @@ void PresetBundle::set_filament_preset(size_t idx, const std::string &name)
         return;
     }
     filament_presets[idx] = Preset::remove_suffix_modified(name);
+    normalize_fibreseek_material_mapping(*this);
 }
 
 void PresetBundle::set_default_suppressed(bool default_suppressed)

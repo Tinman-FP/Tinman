@@ -368,6 +368,8 @@ set(lisbslic3r_sources
     ConfigResolutionTrace.hpp
     CloudProfileSnapshot.cpp
     CloudProfileSnapshot.hpp
+    FibreSeekMaterials.cpp
+    FibreSeekMaterials.hpp
     FilamentSelection.cpp
     FilamentSelection.hpp
     ProfileScopeMigration.cpp

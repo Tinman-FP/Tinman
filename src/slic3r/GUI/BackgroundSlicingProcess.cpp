@@ -19,6 +19,7 @@
 #include "libslic3r/Print.hpp"
 #include "libslic3r/SLAPrint.hpp"
 #include "libslic3r/Utils.hpp"
+#include "libslic3r/FibreSeekMaterials.hpp"
 #include "libslic3r/GCode/PostProcessor.hpp"
 #include "libslic3r/Format/SL1.hpp"
 #include "libslic3r/Thread.hpp"
@@ -730,6 +731,10 @@ Print::ApplyStatus BackgroundSlicingProcess::apply(const Model &model, const Dyn
 	// TODO: add partplate config
 	DynamicPrintConfig new_config = config;
 	new_config.apply(*m_current_plate->config());
+	// A plate set up for another printer may still ask for automatic mapping;
+	// the FibreSeek role map applies after the plate settings.
+	if (const PresetBundle *bundle = wxGetApp().preset_bundle)
+		apply_fibreseek_material_tool_map(*bundle, new_config);
 	Print::ApplyStatus invalidated = m_print->apply(model, new_config);
 
 	// Orca: prevent resetting under gcode viewer mode

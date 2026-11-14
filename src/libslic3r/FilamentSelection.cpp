@@ -1,4 +1,5 @@
 #include "FilamentSelection.hpp"
+#include "FibreSeekMaterials.hpp"
 #include "PresetBundle.hpp"
 
 #include <algorithm>
@@ -23,6 +24,10 @@ bool apply_filament_slot_selection(PresetBundle &bundle, const FilamentSlotSelec
         reason = "The selected filament preset is no longer available.";
         return false;
     }
+    if (!filament_fits_continuous_fiber_lane(bundle, selection.index, *preset)) {
+        reason = "On this printer material 1 must be a polymer and material 2 a continuous-fiber composite.";
+        return false;
+    }
 
     auto slots = bundle.filament_presets;
     slots[selection.index] = preset->name;
@@ -41,6 +46,8 @@ bool apply_filament_slot_selection(PresetBundle &bundle, const FilamentSlotSelec
         project.option<ConfigOptionStrings>("filament_colour_type")->values[selection.index] = selection.color->type;
         project.option<ConfigOptionStrings>("filament_multi_colour")->values[selection.index] = selection.color->multi;
     }
+    // Stage the FibreSeek role map for the new slots so it commits with them.
+    normalize_fibreseek_material_mapping(bundle, &project, &slots);
     bundle.filament_presets.swap(slots);
     bundle.project_config = std::move(project);
     return true;

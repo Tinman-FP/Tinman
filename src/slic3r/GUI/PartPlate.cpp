@@ -28,6 +28,7 @@
 #include "GUI_App.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r/FibreSeekMaterials.hpp"
 #include "BackgroundSlicingProcess.hpp"
 #include "Widgets/Label.hpp"
 #include "2DBed.hpp"
@@ -302,8 +303,20 @@ PrintSequence PartPlate::get_real_print_seq(bool* plate_same_as_global) const
     return curr_plate_seq;
 }
 
+// The FibreSeek role map overrides the plate and project maps in the GUI. The CLI
+// has no Plater (or GUI_App) and passes its own maps.
+static std::optional<std::vector<int>> fibreseek_role_map(const Plater *plater)
+{
+	const PresetBundle *bundle = plater ? wxGetApp().preset_bundle : nullptr;
+	return bundle ? fibreseek_material_tool_map(*bundle) : std::nullopt;
+}
+
 std::vector<int> PartPlate::get_real_filament_maps(const DynamicConfig& g_config, bool* use_global_param) const
 {
+	if (auto roles = fibreseek_role_map(m_plater)) {
+		if (use_global_param) { *use_global_param = true; }
+		return *roles;
+	}
 	auto maps = get_filament_maps();
 	if (!maps.empty()) {
 		if (use_global_param) { *use_global_param = false; }
@@ -316,6 +329,10 @@ std::vector<int> PartPlate::get_real_filament_maps(const DynamicConfig& g_config
 
 FilamentMapMode PartPlate::get_real_filament_map_mode(const DynamicConfig& g_config, bool* use_global_param) const
 {
+	if (fibreseek_role_map(m_plater)) {
+		if (use_global_param) { *use_global_param = true; }
+		return fmmManual;
+	}
 	auto mode = get_filament_map_mode();
 	if (FilamentMapMode::fmmDefault != mode) {
 		if (use_global_param) { *use_global_param = false; };
@@ -6152,6 +6169,11 @@ int PartPlateList::store_to_3mf_structure(PlateDataPtrs& plate_data_list, bool w
 		BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": plate %1% after load, width %2%, height %3%, size %4%!")
 			%(i+1) %plate_data_item->plate_thumbnail.width %plate_data_item->plate_thumbnail.height %plate_data_item->plate_thumbnail.pixels.size();
 		plate_data_item->config.apply(*m_plate_list[i]->config());
+		// Save the FibreSeek role map with the plate; the live plate keeps its own
+		// settings for when another printer is selected.
+		if (m_plater && wxGetApp().preset_bundle &&
+			apply_fibreseek_material_tool_map(*wxGetApp().preset_bundle, plate_data_item->config))
+			plate_data_item->filament_maps = plate_data_item->config.option<ConfigOptionInts>("filament_map")->values;
 
 		if (m_plate_list[i]->no_light_thumbnail_data.is_valid())
 			plate_data_item->no_light_thumbnail_file = "valid_no_light";
