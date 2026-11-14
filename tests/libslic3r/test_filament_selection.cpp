@@ -124,6 +124,10 @@ void configure_purge_layout(PresetBundle &bundle, size_t tools, size_t materials
     bundle.project_config.set_key_value("filament_multi_colour", new ConfigOptionStrings(std::vector<std::string>(materials, "#111111")));
     bundle.project_config.set_key_value("filament_colour_type", new ConfigOptionStrings(std::vector<std::string>(materials, "1")));
     bundle.project_config.set_key_value("filament_map", new ConfigOptionInts(std::vector<int>(materials, 1)));
+    // OrcaSlicer 2.5's per-filament nozzle and nozzle-volume maps.
+    bundle.project_config.set_key_value("filament_nozzle_map", new ConfigOptionInts(std::vector<int>(materials, 0)));
+    bundle.project_config.set_key_value("filament_volume_map",
+                                        new ConfigOptionInts(std::vector<int>(materials, int(NozzleVolumeType::nvtStandard))));
     bundle.ams_multi_color_filment.resize(materials);
 }
 }
@@ -335,8 +339,16 @@ TEST_CASE("Material resizing preserves existing palette entries and tool assignm
         CHECK(project.opt_string("filament_colour_type", i) == "1");
         CHECK(project.option<ConfigOptionInts>("filament_map")->values[i] == 1);
     }
-    if (count == 4)
-        CHECK(bundle.project_config == before);
+    if (count == 4) {
+        // OrcaSlicer 2.5 sizes its colour-mixing metadata (filament_is_mixed, filament_mixed_*) to
+        // the slot count on every resize; the palette and tool map must not change.
+        t_config_option_keys changed;
+        for (const std::string &key : bundle.project_config.diff(before))
+            if (key != "filament_is_mixed" && key.rfind("filament_mixed_", 0) != 0)
+                changed.push_back(key);
+        CAPTURE(changed);
+        CHECK(changed.empty());
+    }
 }
 
 TEST_CASE("Material deletion keeps each palette vector aligned independently", "[TinMan][Preset][MaterialSlots]")
@@ -353,9 +365,11 @@ TEST_CASE("Material deletion keeps each palette vector aligned independently", "
     bundle.update_num_filaments(removed);
     const size_t count = std::max<size_t>(tools, 3);
     REQUIRE(bundle.filament_presets.size() == count);
+    // As in OrcaSlicer 2.5, a top-up to the tool count grows filament_presets alone; the palette
+    // keeps the three remaining materials.
     for (const char *key : {"filament_colour", "filament_multi_colour", "filament_colour_type", "filament_map"}) {
         const auto *current = dynamic_cast<const ConfigOptionVectorBase *>(bundle.project_config.option(key));
-        REQUIRE(current->size() == count);
+        REQUIRE(current->size() == 3);
         const auto old_values = dynamic_cast<const ConfigOptionVectorBase *>(before.option(key))->vserialize();
         for (size_t i = 0; i < 3; ++i) {
             const size_t source = i >= removed ? i + 1 : i;
@@ -363,7 +377,7 @@ TEST_CASE("Material deletion keeps each palette vector aligned independently", "
                 CHECK(current->vserialize()[i] == old_values[source]);
         }
     }
-    REQUIRE(bundle.ams_multi_color_filment.size() == count);
+    REQUIRE(bundle.ams_multi_color_filment.size() == 3);
 }
 
 // "Partial color requests initialize only the available new slots" tested the per-slot colour

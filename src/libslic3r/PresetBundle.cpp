@@ -9054,6 +9054,10 @@ void PresetBundle::update_multi_material_filament_presets(size_t to_delete_filam
     }
 
     size_t num_filaments = this->filament_presets.size();
+    // The slots the per-filament arrays (colours, tool map) cover. A top-up to the tool count below
+    // grows filament_presets alone, as in OrcaSlicer 2.5: set_num_filaments() then gives a slot it
+    // opens its colour by array position.
+    const size_t material_slots = num_filaments;
     const size_t min_filaments = min_filament_count();
     if (min_filaments > num_filaments) {
         // Append the rest of filament presets.
@@ -9113,18 +9117,18 @@ void PresetBundle::update_multi_material_filament_presets(size_t to_delete_filam
     auto *color_types = project_config.option<ConfigOptionStrings>("filament_colour_type");
     auto *tool_map = project_config.option<ConfigOptionInts>("filament_map");
     auto new_colors = *colors;
-    new_colors.resize(num_filaments, FullPrintConfig::defaults().option("filament_colour"));
+    new_colors.resize(material_slots, FullPrintConfig::defaults().option("filament_colour"));
     auto new_multi_colors = multi_colors->values;
     const size_t old_color_count = new_multi_colors.size();
-    new_multi_colors.resize(num_filaments);
-    for (size_t i = old_color_count; i < num_filaments; ++i)
+    new_multi_colors.resize(material_slots);
+    for (size_t i = old_color_count; i < material_slots; ++i)
         new_multi_colors[i] = new_colors.values[i];
     auto new_color_types = color_types->values;
-    new_color_types.resize(num_filaments, "1");
+    new_color_types.resize(material_slots, "1");
     auto new_map = tool_map->values;
-    new_map.resize(num_filaments, 1);
+    new_map.resize(material_slots, 1);
     auto new_ams_colors = ams_multi_color_filment;
-    new_ams_colors.resize(num_filaments);
+    new_ams_colors.resize(material_slots);
 
     colors->values.swap(new_colors.values);
     multi_colors->values.swap(new_multi_colors);

@@ -1417,14 +1417,13 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
     // and direct API callers may reach Print::apply without passing through it.
     // Keep this final boundary safe because ToolOrdering intentionally assumes
     // every logical filament has a valid one-based physical-tool route.
+    // Tinman: count every filament slot either list knows about, so the route map is never cut
+    // shorter than the filaments the print has (direct callers may set only filament_diameter).
     size_t filament_count = 1;
-    if (const auto *ids = new_full_config.option<ConfigOptionStrings>("filament_settings_id");
-        ids != nullptr && !ids->values.empty()) {
-        filament_count = ids->values.size();
-    } else if (const auto *diameters = new_full_config.option<ConfigOptionFloats>("filament_diameter");
-               diameters != nullptr && !diameters->values.empty()) {
-        filament_count = diameters->values.size();
-    }
+    if (const auto *ids = new_full_config.option<ConfigOptionStrings>("filament_settings_id"); ids != nullptr)
+        filament_count = std::max(filament_count, ids->values.size());
+    if (const auto *diameters = new_full_config.option<ConfigOptionFloats>("filament_diameter"); diameters != nullptr)
+        filament_count = std::max(filament_count, diameters->values.size());
     tinmanx_normalize_multitool_config(new_full_config, filament_count);
 
     // Orca: used_filaments and objects() still describe the previous model. The check after the
