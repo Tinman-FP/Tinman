@@ -180,7 +180,8 @@ TEST_CASE("Project inheritance resolves independently of archive entry order", "
     PresetBundle bundle;
     auto &collection = bundle.prints;
     Preset parent = embedded(collection, Preset::TYPE_PRINT, "Project root");
-    parent.config.set_key_value("outer_wall_speed", new ConfigOptionFloat(44.0));
+    // OrcaSlicer 2.5 keeps wall speeds per extruder variant.
+    parent.config.set_key_value("outer_wall_speed", new ConfigOptionFloatsNullable({44.0}));
     Preset child = embedded(collection, Preset::TYPE_PRINT, "Project child", parent.name);
     child.config.clear();
     child.config.set_key_value("inherits", new ConfigOptionString(parent.name));
@@ -188,15 +189,15 @@ TEST_CASE("Project inheritance resolves independently of archive entry order", "
     Preset grandchild = embedded(collection, Preset::TYPE_PRINT, "Project grandchild", child.name);
     grandchild.config.clear();
     grandchild.config.set_key_value("inherits", new ConfigOptionString(child.name));
-    grandchild.config.set_key_value("inner_wall_speed", new ConfigOptionFloat(55.0));
+    grandchild.config.set_key_value("inner_wall_speed", new ConfigOptionFloatsNullable({55.0}));
     const auto child_before = child.config;
     const auto grandchild_before = grandchild.config;
     load(collection, Preset::TYPE_PRINT, {&grandchild, &child, &parent});
     const auto *result = collection.find_preset(grandchild.name, false);
     REQUIRE(result != nullptr);
     CHECK(result->config.opt_float("layer_height") == Approx(0.23));
-    CHECK(result->config.opt_float("outer_wall_speed") == Approx(44.0));
-    CHECK(result->config.opt_float("inner_wall_speed") == Approx(55.0));
+    CHECK(result->config.option<ConfigOptionFloatsNullable>("outer_wall_speed")->get_at(0) == Approx(44.0));
+    CHECK(result->config.option<ConfigOptionFloatsNullable>("inner_wall_speed")->get_at(0) == Approx(55.0));
     CHECK(child.config == child_before);
     CHECK(grandchild.config == grandchild_before);
 }

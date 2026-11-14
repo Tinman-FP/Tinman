@@ -222,7 +222,11 @@ TEST_CASE("Adding a second material restores the requested prime tower", "[Print
         {"independent_support_layer_height", true},
         {"layer_height", 0.25},
         {"initial_layer_print_height", 0.25},
-        {"timelapse_type", "0"}
+        {"timelapse_type", "0"},
+        // OrcaSlicer 2.5 refuses a prime tower that leaves the bed; the default position is past
+        // the 200 mm test bed.
+        {"wipe_tower_x", "120"},
+        {"wipe_tower_y", "120"}
     });
     PrintWithOriginalConfig print;
     Model model;

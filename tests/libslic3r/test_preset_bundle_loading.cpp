@@ -6447,6 +6447,10 @@ TEST_CASE("Adding a filament preserves slots with incomplete mixed metadata", "[
     bundle.set_num_filaments(3u, std::string("#000000"));
     auto *colors = bundle.project_config.option<ConfigOptionStrings>("filament_colour");
     colors->values = { "#000000", "#FFFFFF", "#5E5C64" };
+    // Tinman replaces a filament slot naming no loaded preset (update_multi_material_filament_presets),
+    // so the slots name real presets.
+    for (const char *name : { "Test PETG", "Test PLA", "Test TPU" })
+        add_inmemory_preset(bundle.filaments, name);
     bundle.filament_presets = { "Test PETG", "Test PLA", "Test TPU" };
     const auto original_presets = bundle.filament_presets;
     const auto original_colors = colors->values;
@@ -9089,7 +9093,7 @@ TEST_CASE("Without the instance lock a user preset loads but its file is not wri
 
 #ifndef _WIN32
 // File permissions stop reading only on POSIX.
-TEST_CASE("A user preset that cannot be read under the instance lock is counted and removed", "[Preset][Bundle][InstanceLock]")
+TEST_CASE("A user preset that cannot be read under the instance lock is counted and kept on disk", "[Preset][Bundle][InstanceLock]")
 {
     if (::geteuid() == 0)
         SKIP("file permissions do not stop root");
@@ -9109,13 +9113,14 @@ TEST_CASE("A user preset that cannot be read under the instance lock is counted 
 
     CHECK(coll.error_count() == 1);
     CHECK(coll.find_preset("Unreadable") == nullptr);
-    CHECK_FALSE(fs::exists(file));
+    // Tinman keeps a preset file it cannot load, so the user can recover it (f1145dcd73).
+    CHECK(fs::exists(file));
 }
 #endif
 
 #ifndef _WIN32
 // Creating a symlink needs no privilege only on POSIX.
-TEST_CASE("A user preset that is a symlink to itself is counted and removed while the rest still load", "[Preset][Bundle][InstanceLock]")
+TEST_CASE("A user preset that is a symlink to itself is counted and kept while the rest still load", "[Preset][Bundle][InstanceLock]")
 {
     ScopedTemporaryDir   temp_dir;
     ScopedDataDir        data_dir_scope(temp_dir.path());
@@ -9138,7 +9143,8 @@ TEST_CASE("A user preset that is a symlink to itself is counted and removed whil
     CHECK(coll.find_preset("Good B") != nullptr);
     CHECK(coll.find_preset("Loop") == nullptr);
     boost::system::error_code ec;
-    CHECK(fs::symlink_status(loop, ec).type() == fs::file_not_found);
+    // Tinman keeps a preset file it cannot load, so the user can recover it (f1145dcd73).
+    CHECK(fs::symlink_status(loop, ec).type() == fs::symlink_file);
 }
 #endif
 

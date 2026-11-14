@@ -35,6 +35,15 @@ namespace {
 const std::set<std::string> kDeprecatedRegionFields = {
     "ironing_direction",
     "wall_infill_order",
+    // Tinman: Strength Lens and Arc Overhang support state belong to the project and its objects
+    // (set from the canvas and by Print::apply), not to process presets.
+    "tinman_support_strategy",
+    "arc_support_payload",
+    "arc_support_experimental",
+    "strength_lens_enabled",
+    "strength_lens_material_model",
+    "strength_lens_load_axis",
+    "strength_lens_payload",
 };
 
 void check_keys_are_in_a_preset(const t_config_option_keys& keys, const std::string& class_name)

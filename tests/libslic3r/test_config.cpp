@@ -1919,7 +1919,9 @@ TEST_CASE("A static config applies itself onto a config of its type as a lookup 
 {
     SECTION("region config")
     {
-        PrintRegionConfig region;
+        // Tinman: PrintRegionConfig derives from PrintRegionCoreConfig (upstream's region options)
+        // and Tinman's Wave Overhang options, so the member-wise apply_to() belongs to the core class.
+        PrintRegionCoreConfig region;
         region.sparse_infill_pattern.value = ipGyroid;
         region.outer_wall_speed.values     = {37.};
         region.sparse_infill_density.value = 35.;
@@ -1988,7 +1990,9 @@ TEST_CASE("Custom G-code placeholder lists are keyed by option keys", "[Config]"
 
     // Multiline text options that aren't custom G-code; add any new one that isn't G-code here.
     const std::set<std::string> not_gcode = { "notes", "filament_notes", "printer_notes", "post_process",
-                                              "adaptive_pressure_advance_model", "small_area_infill_flow_compensation_model" };
+                                              "adaptive_pressure_advance_model", "small_area_infill_flow_compensation_model",
+                                              // Tinman: the FibreSeek machine contract is JSON.
+                                              "fiber_machine_contract_payload" };
     size_t gcode_options = 0;
     for (const auto &[key, def] : print_config_def.options) {
         if (!def.multiline || not_gcode.count(key) > 0)

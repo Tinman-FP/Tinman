@@ -15112,6 +15112,10 @@ static std::map<t_custom_gcode_key, t_config_option_keys> s_CustomGcodeSpecificP
     {"process_change_extrusion_role_gcode", {"layer_num", "layer_z", "extrusion_role", "last_extrusion_role"}},
     {"printing_by_object_gcode",    {}},
     {"machine_pause_gcode",         {}},
+    // Tinman: FibreSeek cutter and fiber toolchange G-code, emitted verbatim (tinman_append_raw_multiline_gcode).
+    {"fiber_cut_gcode",             {}},
+    {"fiber_toolchange_gcode_before", {}},
+    {"fiber_toolchange_gcode_after",  {}},
     {"template_custom_gcode",       {}},
     // Filament G-code
     {"filament_start_gcode",        {"layer_num", "layer_z", "max_layer_z", "filament_extruder_id",

@@ -197,6 +197,13 @@ private:
                 ws.write(net::buffer(std::string(R"({"ModeCode":"heart_beat"})")), ec);
             else if (payload == "ok")
                 ws.write(net::buffer(slots), ec);
+            else if (payload.find("reqGcodeFile") != std::string::npos) {
+                // Tinman: a K2-platform printer confirms the uploaded file's CFS metadata between
+                // colorMatch and multiColorPrint (CrealityPrint::validate_cfs_file_info_response).
+                ws.write(net::buffer(std::string(R"({"retGcodeFileInfo2":[{"name":"test.gcode","validation_completed":true,)"
+                                                 R"("material":"PLA","materialColors":"#FF0000","materialIds":"1",)"
+                                                 R"("printer_model":"F008","match":"T1A=T1A"}]})")), ec);
+            }
         }
     }
 
@@ -515,7 +522,11 @@ TEST_CASE("Starting a print sends each command with the G-code path in a text fr
 
     CHECK(upload_and_print(*host, error, extended_info));
     CHECK(error.empty());
-    const std::vector<Message> messages = printer.messages();
+    // Tinman: leave out the heartbeat acks and the K2 metadata query; only the print commands count.
+    std::vector<Message> messages;
+    for (const Message &message : printer.messages())
+        if (message.payload != "ok" && message.payload.find("reqGcodeFile") == std::string::npos)
+            messages.push_back(message);
     REQUIRE(messages.size() == commands.size());
     for (std::size_t i = 0; i < messages.size(); ++i) {
         CAPTURE(i);
