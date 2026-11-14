@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <boost/algorithm/string/join.hpp>
+#include <boost/algorithm/string/replace.hpp>
 #include <boost/filesystem/directory.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/bind/bind.hpp>
@@ -91,7 +92,7 @@ namespace Slic3r { namespace GUI {
 // The pages share one web view, so they share one table.
 static json guide_strings()
 {
-    return {
+    json strings = {
         {"loading", _u8L("Loading…")},
         // TRN Sidebar entry of the printer selection page for the group of custom (user-defined) printers.
         {"custom_vendor", _u8L_CONTEXT("Custom", "Printer vendor")},
@@ -152,6 +153,16 @@ static json guide_strings()
         {"proprietary_plugins_risk", _u8L("Please be aware that these plugins are not developed or maintained by OrcaSlicer. They should be used at your own discretion and risk.")},
         {"install_bambu_plugin", _u8L("Install Bambu Network plug-in")},
     };
+    // Tinman: the setup guide names the app and its cloud account. Rebrand the translated text
+    // rather than the msgids, so every language keeps its translation.
+    for (const char *key : {"welcome", "setup_intro", "stealth_mode_desc", "stealth_mode_note", "proprietary_plugins_risk"}) {
+        std::string text = strings[key].get<std::string>();
+        boost::replace_all(text, "Orca Slicer", "Tinman");
+        boost::replace_all(text, "OrcaSlicer", "Tinman");
+        boost::replace_all(text, "Orca Cloud", "Tinman Cloud");
+        strings[key] = text;
+    }
+    return strings;
 }
 
 static wxString update_custom_filaments()
