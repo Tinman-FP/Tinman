@@ -4434,18 +4434,12 @@ static std::string tinman_effective_printer_agent_id(PresetBundle& bundle, const
     const std::string expected_agent = tinmanx_expected_printer_agent(printer.name, model);
     if (!expected_agent.empty())
         agent_id = expected_agent;
-    if (agent_id == ORCA_PRINTER_AGENT_ID) {
-        const std::string name  = config.has("printer_settings_id") ? config.opt_string("printer_settings_id") : std::string();
-        const std::string key   = model + " " + name;
-        if (boost::algorithm::icontains(key, "qidi"))
-            agent_id = "qidi";
-        else if (boost::algorithm::icontains(key, "snapmaker"))
-            agent_id = "snapmaker";
-        else if (boost::algorithm::icontains(key, "creality") || boost::algorithm::icontains(key, "k2"))
-            agent_id = "crealityprint";
-        else if (boost::algorithm::icontains(key, "v-core") || boost::algorithm::icontains(key, "ratrig") ||
-                 boost::algorithm::icontains(key, "prusa") || boost::algorithm::icontains(key, "sovol"))
-            agent_id = "moonraker";
+    // A catalog machine routed to the Orca agent (Prusa/PrusaLink) must not be re-routed by the name
+    // fallback (#17).
+    if (expected_agent.empty() && agent_id == ORCA_PRINTER_AGENT_ID) {
+        const std::string name = config.has("printer_settings_id") ? config.opt_string("printer_settings_id") : std::string();
+        if (std::string inferred = tinmanx_infer_printer_agent(model + " " + name); !inferred.empty())
+            agent_id = inferred;
     }
     return agent_id;
 }

@@ -339,17 +339,8 @@ static std::string agent_id_for_machine(MachineObject* obj)
 
     const std::string type = obj ? obj->printer_type : std::string();
     const std::string name = obj ? obj->get_dev_name() : std::string();
-    const std::string key  = type + " " + name;
-
-    if (boost::algorithm::icontains(key, "qidi"))
-        return "qidi";
-    if (boost::algorithm::icontains(key, "snapmaker"))
-        return "snapmaker";
-    if (boost::algorithm::icontains(key, "creality") || boost::algorithm::icontains(key, "k2"))
-        return "crealityprint";
-    if (boost::algorithm::icontains(key, "v-core") || boost::algorithm::icontains(key, "ratrig") ||
-        boost::algorithm::icontains(key, "prusa") || boost::algorithm::icontains(key, "sovol"))
-        return "moonraker";
+    if (std::string agent_id = tinmanx_infer_printer_agent(type + " " + name); !agent_id.empty())
+        return agent_id;
 
     return ORCA_PRINTER_AGENT_ID;
 }

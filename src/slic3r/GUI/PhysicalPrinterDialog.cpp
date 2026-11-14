@@ -905,15 +905,7 @@ void PhysicalPrinterDialog::OnOK(wxEvent& event)
         show_error(this, _L("The printer profile changed while this dialog was open. Close and reopen the connection dialog before saving."));
         return;
     }
-    tinmanx_enforce_machine_connection_contract(m_preset_name, *m_config);
-
-    const std::string printer_agent = m_config->opt_string("printer_agent");
-    if (printer_agent == "snapmaker" || printer_agent == "moonraker") {
-        m_config->set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(htMoonraker));
-        const std::string print_host = m_config->opt_string("print_host");
-        if (!print_host.empty() && m_config->opt_string("print_host_webui").empty())
-            m_config->set_key_value("print_host_webui", new ConfigOptionString(print_host));
-    }
+    tinmanx_prepare_connection_for_save(m_preset_name, *m_config);
 
     const Tab::SaveContext save_context{&m_draft_preset, {}};
     if (!wxGetApp().get_tab(Preset::TYPE_PRINTER)->save_preset("", false, false, true, m_preset_name, &save_context))

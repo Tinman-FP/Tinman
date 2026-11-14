@@ -788,19 +788,7 @@ std::string sidebar_agent_id_for_machine(MachineObject* obj)
     const std::string name = obj ? obj->get_dev_name() : std::string();
     const std::string id   = obj ? obj->get_dev_id() : std::string();
     const std::string ip   = obj ? obj->get_dev_ip() : std::string();
-    const std::string key  = type + " " + name + " " + id + " " + ip;
-
-    if (boost::algorithm::icontains(key, "qidi"))
-        return "qidi";
-    if (boost::algorithm::icontains(key, "snapmaker"))
-        return "snapmaker";
-    if (boost::algorithm::icontains(key, "creality") || boost::algorithm::icontains(key, "k2"))
-        return "crealityprint";
-    if (boost::algorithm::icontains(key, "v-core") || boost::algorithm::icontains(key, "ratrig") ||
-        boost::algorithm::icontains(key, "prusa") || boost::algorithm::icontains(key, "sovol"))
-        return "moonraker";
-
-    return {};
+    return tinmanx_infer_printer_agent(type + " " + name + " " + id + " " + ip);
 }
 
 bool sidebar_ensure_printer_agent_for_machine(MachineObject* obj)
