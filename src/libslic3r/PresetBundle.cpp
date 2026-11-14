@@ -284,7 +284,10 @@ void PresetBundle::save_physical_unit(const Preset &source, PhysicalPrinter conn
     // machine preset already on disk is reported through unbound_machine_file.
     PrinterPresetCollection staged_machines;
     staged_machines = printers;
-    PhysicalPrinterCollection staged_connections(physical_printers);
+    // Assigned, not copy-constructed: the class declares only copy assignment, and clang's
+    // -Wdeprecated-copy (an error on Windows ARM64) rejects the implicit copy constructor.
+    PhysicalPrinterCollection staged_connections;
+    staged_connections = physical_printers;
     if (!staged_machines.save_current_preset(machine_name, false, false, &candidate))
         throw std::runtime_error("The machine profile could not be saved.");
     unbound_machine_file = staged_machines.get_selected_preset().file;
