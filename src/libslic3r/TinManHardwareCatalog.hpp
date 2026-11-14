@@ -15,6 +15,7 @@ enum class TinManConnectionMode {
     QidiMoonraker,
     Snapmaker,
     Moonraker,
+    PrusaLink,
 };
 
 struct TinManMachineDefinition {
