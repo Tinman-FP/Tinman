@@ -2,6 +2,7 @@ get_filename_component(_TEST_NAME ${CMAKE_CURRENT_LIST_DIR} NAME)
 add_executable(${_TEST_NAME}_tests
     ${_TEST_NAME}_tests_main.cpp
     test_printhost.cpp
+    test_fibreseek_send.cpp
     )
 
 if (MSVC)
@@ -18,6 +19,15 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if (SLIC3R_GTK STREQUAL "3")
         target_compile_definitions(${_TEST_NAME}_tests PRIVATE __WXGTK3__)
     endif ()
+endif ()
+
+# The FibreSeek send tests run a mock printer written in Python on 127.0.0.1.
+# Without Python 3 only their mock part is left out.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if (Python3_Interpreter_FOUND)
+    target_compile_definitions(${_TEST_NAME}_tests PRIVATE
+        FIBRESEEK_MOCK_PYTHON="${Python3_EXECUTABLE}"
+        FIBRESEEK_MOCK_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/fibreseek_mock_moonraker.py")
 endif ()
 
 set_property(TARGET ${_TEST_NAME}_tests PROPERTY FOLDER "tests")

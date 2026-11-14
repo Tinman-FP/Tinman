@@ -31,6 +31,7 @@
 #include "ElegooLink.hpp"
 #include "3DPrinterOS.hpp"
 #include "Moonraker.hpp"
+#include "FibreSeek.hpp"
 
 namespace fs = boost::filesystem;
 using boost::optional;
@@ -72,6 +73,7 @@ PrintHost* PrintHost::get_print_host(DynamicPrintConfig *config)
             case htElegooLink: return new ElegooLink(config);
             case ht3DPrinterOS: return new C3DPrinterOS(config);
             case htMoonraker: return new Moonraker(config);
+            case htFibreSeek: return new FibreSeek(config);
             default:          return nullptr;
         }
     } else {
