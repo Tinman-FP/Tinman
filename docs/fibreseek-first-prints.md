@@ -25,9 +25,16 @@ own. Check that it has:
 - Fiber enabled turned on, with your fibre cut G-code and cut distance.
 - Material 1: an ordinary PCTG profile. Material 2: a composite profile whose
   filament type is `CFC`, for example CFC PCTG + X-CCF.
-- In that composite profile, Fiber diameter and Fiber linear density must be
-  filled in from your fibre's datasheet. Tinman has no built-in values for
-  them: a fibre slice without a diameter stops with a message saying so.
+- In that composite profile's fibre settings, fill in three values. Tinman
+  ships no fibre material data, so a fibre slice stops and names any of these
+  that are missing:
+  - **Fiber diameter** (mm), from the fibre's datasheet.
+  - **Fiber linear density** (g/km), from the datasheet. This is only used for
+    the fibre weight estimate.
+  - **Fiber feed factor**: how much fibre is fed per mm of route, as a
+    fraction of the strand's cross-section area. Use the value from your own
+    calibration of this fibre on this printer. Tinman has no default, because
+    its earlier built-in value had no documented source.
 
 **Fibre planner.** In the default fibre mode, Tinman plans the fibre routes
 with a Python helper run by `/usr/bin/python3`. That helper needs `shapely`.
@@ -178,6 +185,8 @@ Tinman log line for this send must say `continuous fibre: no`.
   preview shows it, and the fibre feeds again without slipping.
 
 ## What to report back
+
+- The three fibre values you entered (diameter, linear density, feed factor).
 
 For each print:
 
