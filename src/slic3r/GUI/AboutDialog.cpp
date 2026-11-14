@@ -199,6 +199,7 @@ wxString CopyrightsDialog::get_html_text()
     });
     append_credits(_L("Upstream Slicer Projects"), {
         { "OrcaSlicer / SoftFever and contributors", "Primary application and slicing baseline: OrcaSlicer " SoftFever_VERSION ".", "https://github.com/OrcaSlicer/OrcaSlicer" },
+        { "OrcaSlicer 2.5 contributors", "The 229 people who authored or co-authored OrcaSlicer 2.5.0 and 2.5.1, which Tinman is based on.", "https://github.com/Tinman-FP/Tinman/blob/main/docs/attribution/orcaslicer-2.5-contributors.md" },
         { "Bambu Studio / Bambu Lab and contributors", "Upstream application lineage and printer integration work.", "https://github.com/bambulab/BambuStudio" },
         { "PrusaSlicer / Prusa Research and contributors", "Upstream slicing lineage; selected profile-reliability improvements inspired by PrusaSlicer 3.0.0-alpha11. Not a full PrusaSlicer 3 rebase.", "https://github.com/prusa3d/PrusaSlicer" },
         { "Slic3r / Alessandro Ranellucci and the RepRap community", "Original slicer foundation and community contributions.", "https://github.com/slic3r/Slic3r" },
