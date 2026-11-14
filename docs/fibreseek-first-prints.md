@@ -43,7 +43,9 @@ needs shapely".
 
 **Connection.** In the printer's connection settings, set Host Type to
 **FibreSeek Seeker 3** and enter the printer's address (and its API key, if
-you set one). Press Test.
+you set one). Press Test. Tinman keeps a Seeker 3 on this host type even if
+it was saved as Moonraker before. If the address is `https://`, the printer's
+certificate must be valid, or set its CA file in the connection settings.
 
 **Dry run, no printer.** From a Tinman source checkout, start the mock printer:
 
@@ -60,15 +62,23 @@ the mock (Ctrl+C) and switch back to the real printer.
 Tinman stops the send and tells you why if any of these fail:
 
 - The file is plain G-code (not a 3MF) sliced with a Seeker 3 profile.
-- Klipper is ready, nothing is printing, and no error from the last job is
-  still showing. Clear an old error on the printer first.
-- The nozzles the printer reports match the slice.
-- No file with the same name is already on the printer. Rename the upload.
+- Klipper is ready and nothing is printing, paused or loaded, and no error
+  from the last job is still showing. After each print, clear the finished
+  job on the printer before the next send, for example with the
+  `SDCARD_RESET_FILE` command on its Klipper console.
+- T1 has the polymer nozzle and T0 the matrix and fibre nozzle the job was
+  sliced for.
 - The copy stored on the printer matches the file byte for byte.
+- It is still the same printer (by its host name) just before the start.
 
-**Upload** only stores the file. **Upload and print** also starts it, once.
-If the start fails, Tinman does not retry: check the printer before you try
-again. Tinman's start request does not pass the printer's own auto-levelling
+Each send gets its own file name on the printer: your file name plus a short
+code and the time, for example `coupon_01-1a2b3c4d-20261116T140000.gcode`.
+
+**Upload** only stores the file. **Upload and print** also starts it, once,
+and then waits up to 10 minutes for the printer to report that it is
+printing that file. If the start fails, or the printer does not confirm in
+time, Tinman reports it and does not retry: check the printer before you
+try again. Cancel in the upload queue works until the start is sent. Tinman's start request does not pass the printer's own auto-levelling
 or AI-detection options, so the printer uses its defaults. If the printer
 does not prepare the way it does when you start a job from its screen, use
 **Upload**, start the job from the printer's screen, and report what you saw.
@@ -120,7 +130,10 @@ Tinman log line for this send must say `continuous fibre: no`.
 
 - Coupon 1 again.
 - Material 1 PCTG. Pick the fibre in the continuous-fibre panel, which puts
-  the matching composite profile on material 2.
+  the matching composite profile on material 2. The panel matches profiles by
+  their material data (type `CFC`, matrix type, fibre name and fibre type).
+  If the choice jumps back, its tooltip says why. You can also pick the
+  composite profile directly as material 2.
 - Fiber reinforcement mode: Light. Fiber perimeters on, Fiber infill off.
 - Fiber start layer: 4. Fibre starts on layer 4, and the last 4 layers are
   plastic only.
