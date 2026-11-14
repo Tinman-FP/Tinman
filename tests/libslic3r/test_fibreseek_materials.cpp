@@ -581,8 +581,12 @@ TEST_CASE("A fiber choice commits material 2 and the project's fiber data togeth
     CHECK(project.opt_string("continuous_fiber_type") == fixture.identity.fiber_type);
     CHECK(project.opt_string("continuous_fiber_source_material_id") == fixture.identity.source_material_id);
     // Tinman supplies no strand data of its own: without the profile's values they stay unset.
-    CHECK(project.opt_float("continuous_fiber_diameter") == Catch::Approx(has_strand_data ? 0.31 : 0.));
-    CHECK(project.opt_float("continuous_fiber_linear_density") == Catch::Approx(has_strand_data ? 88. : 0.));
+    const auto value = [&project](const char *key) {
+        const auto *option = project.option<ConfigOptionFloat>(key);
+        return option ? option->value : 0.;
+    };
+    CHECK(value("continuous_fiber_diameter") == Catch::Approx(has_strand_data ? 0.31 : 0.));
+    CHECK(value("continuous_fiber_linear_density") == Catch::Approx(has_strand_data ? 88. : 0.));
 }
 
 TEST_CASE("A failed fiber choice leaves a project's composite and fiber data as they were", "[TinMan][Preset][FibreSeek][CfcCommit]")
@@ -739,14 +743,13 @@ TEST_CASE("A fiber choice rolls back every field it touches", "[TinMan][Preset][
 {
     ResolverFixture fixture;
     auto &bundle = fixture.bundle;
-    // A single-material project: the choice adds material 2 first.
-    bundle.filament_presets = {"Polymer"};
-    bundle.update_multi_material_filament_presets();
+    // Adding a slot rewrites the slots, palette and project, as the choice's own
+    // expansion does; the snapshot must undo all of it.
     const auto slots   = bundle.filament_presets;
     const auto project = bundle.project_config;
     const auto palette = bundle.ams_multi_color_filment;
     const ContinuousFiberSelectionSnapshot before(bundle);
-    bundle.set_num_filaments(2);
+    bundle.set_num_filaments(3);
     bundle.project_config.set_key_value("continuous_fiber_name", new ConfigOptionString("Changed"));
     REQUIRE(bundle.filament_presets != slots);
     before.restore(bundle);
