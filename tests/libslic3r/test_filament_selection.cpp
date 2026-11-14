@@ -103,6 +103,9 @@ void configure_purge_layout(PresetBundle &bundle, size_t tools, size_t materials
     bundle.filament_presets.assign(materials, "Material");
     bundle.printers.get_edited_preset().config.set_key_value(
         "nozzle_diameter", new ConfigOptionFloats(std::vector<double>(tools, 0.4)));
+    // OrcaSlicer 2.5 keeps at least one slot per tool, or one slot in total for a single-extruder
+    // multi-material printer (min_filament_count()); these layouts model separate tools.
+    bundle.printers.get_edited_preset().config.set_key_value("single_extruder_multi_material", new ConfigOptionBool(false));
     std::vector<double> matrix, volumes, multipliers;
     for (size_t tool = 0; tool < tools; ++tool) {
         multipliers.push_back(0.5 + tool * 0.1);
@@ -306,16 +309,13 @@ TEST_CASE("Material resizing preserves existing palette entries and tool assignm
     PresetBundle bundle;
     const unsigned tools = GENERATE(1u, 2u, 4u);
     const unsigned requested = GENERATE(0u, 3u, 4u, 6u);
-    const bool vector_colors = GENERATE(false, true);
-    CAPTURE(tools, requested, vector_colors);
+    CAPTURE(tools, requested);
     configure_material_palette(bundle, tools);
     const auto before = bundle.project_config;
     const auto ams_before = bundle.ams_multi_color_filment;
     const size_t count = std::max(tools, requested);
-    if (vector_colors)
-        bundle.set_num_filaments(requested, std::vector<std::string>(requested > 4 ? requested - 4 : 0, "#AABBCC"));
-    else
-        bundle.set_num_filaments(requested, std::string("#AABBCC"));
+    // OrcaSlicer 2.5 removed the overload taking one colour per new slot (#15385).
+    bundle.set_num_filaments(requested, std::string("#AABBCC"));
     REQUIRE(bundle.filament_presets.size() == count);
     for (const char *key : {"filament_colour", "filament_multi_colour", "filament_colour_type", "filament_map"}) {
         const auto *current = dynamic_cast<const ConfigOptionVectorBase *>(bundle.project_config.option(key));
@@ -366,22 +366,8 @@ TEST_CASE("Material deletion keeps each palette vector aligned independently", "
     REQUIRE(bundle.ams_multi_color_filment.size() == count);
 }
 
-TEST_CASE("Partial color requests initialize only the available new slots", "[TinMan][Preset][MaterialSlots]")
-{
-    PresetBundle bundle;
-    configure_material_palette(bundle, 4);
-    const auto before = bundle.project_config;
-    SECTION("Short list") { bundle.set_num_filaments(6, std::vector<std::string>{"#AABBCC"}); }
-    SECTION("Empty entries") { bundle.set_num_filaments(6, std::vector<std::string>{"#AABBCC", ""}); }
-    const auto &project = static_cast<const DynamicPrintConfig &>(bundle.project_config);
-    CHECK(bundle.filament_presets.size() == 6);
-    CHECK(project.opt_string("filament_colour", 4) == "#AABBCC");
-    CHECK(project.opt_string("filament_multi_colour", 4) == "#AABBCC");
-    CHECK(project.opt_string("filament_colour", 5) == before.opt_string("filament_colour", 0));
-    CHECK(project.opt_string("filament_multi_colour", 5) == project.opt_string("filament_colour", 5));
-    for (size_t i = 0; i < 4; ++i)
-        CHECK(project.opt_string("filament_multi_colour", i) == before.opt_string("filament_multi_colour", i));
-}
+// "Partial color requests initialize only the available new slots" tested the per-slot colour
+// overload of set_num_filaments(), which OrcaSlicer 2.5 removed (#15385).
 
 TEST_CASE("Unavailable material deletions are no-ops", "[TinMan][Preset][MaterialSlots]")
 {

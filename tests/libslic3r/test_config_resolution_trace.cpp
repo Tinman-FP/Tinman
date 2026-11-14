@@ -53,7 +53,7 @@ TEST_CASE("Reading absent preset metadata does not create settings", "[Config][T
     CHECK(before == read_only.config);
     bundle.filament_presets = {preset.name, preset.name};
     ConfigResolutionTrace trace;
-    bundle.full_config(false, std::nullopt, &trace);
+    bundle.full_config(false, std::nullopt, std::nullopt, &trace);
     CHECK(before == read_only.config);
 }
 
@@ -68,7 +68,7 @@ TEST_CASE("Config tracing preserves the resolved config and live inputs", "[Conf
     ConfigResolutionTrace trace;
     for (bool projected : {false, true}) {
         const auto expected = bundle.full_config(projected);
-        const auto actual = bundle.full_config(projected, std::nullopt, &trace);
+        const auto actual = bundle.full_config(projected, std::nullopt, std::nullopt, &trace);
         CHECK(expected == actual);
         check_report_matches(actual, trace);
     }
@@ -90,7 +90,7 @@ TEST_CASE("Config provenance distinguishes actual edits from a dirty flag", "[Co
     edited.is_dirty = false;
     bundle.project_config.set_key_value("nozzle_temperature", new ConfigOptionInts({300}));
     ConfigResolutionTrace trace;
-    const auto config = bundle.full_config(true, std::nullopt, &trace);
+    const auto config = bundle.full_config(true, std::nullopt, std::nullopt, &trace);
     CHECK(config.option<ConfigOptionInts>("nozzle_temperature")->values == std::vector<int>{275});
     CHECK(last(trace, "nozzle_temperature").origins.front().kind == ConfigOriginKind::UserPreset);
     CHECK(last(trace, "filament_flow_ratio").origins.front().kind == ConfigOriginKind::UnsavedEdit);
@@ -100,7 +100,7 @@ TEST_CASE("Config provenance distinguishes actual edits from a dirty flag", "[Co
         return step.value == "300" && step.origins.front().kind == ConfigOriginKind::Project;
     }));
     edited.is_dirty = true;
-    bundle.full_config(true, std::nullopt, &trace);
+    bundle.full_config(true, std::nullopt, std::nullopt, &trace);
     CHECK(last(trace, "nozzle_temperature").origins.front().kind == ConfigOriginKind::UserPreset);
 }
 
@@ -112,7 +112,7 @@ TEST_CASE("Equal parent values do not invent inherited key provenance", "[Config
     config.set_key_value("inherits", new ConfigOptionString("Parent"));
     bundle.prints.load_preset({}, "Child", config, true);
     ConfigResolutionTrace trace;
-    bundle.full_config(false, std::nullopt, &trace);
+    bundle.full_config(false, std::nullopt, std::nullopt, &trace);
     const auto &origin = last(trace, "outer_wall_speed").origins.front();
     CHECK(origin.preset == "Child");
     CHECK(origin.parent == "Parent");
@@ -129,7 +129,7 @@ TEST_CASE("Material vector provenance preserves mixed tool routing", "[Config][T
     for (bool projected : {false, true}) {
         ConfigResolutionTrace trace;
         const auto expected = bundle.full_config(projected);
-        const auto actual = bundle.full_config(projected, std::nullopt, &trace);
+        const auto actual = bundle.full_config(projected, std::nullopt, std::nullopt, &trace);
         CHECK(expected == actual);
         check_report_matches(actual, trace);
         const auto &origins = last(trace, "nozzle_temperature").origins;
@@ -149,13 +149,13 @@ TEST_CASE("Missing material fallbacks and normalization are explicit", "[Config]
     bundle.project_config.set_key_value("filament_map", new ConfigOptionInts({99}));
     ConfigResolutionTrace trace;
     const auto expected = bundle.full_config(false);
-    const auto actual = bundle.full_config(false, std::nullopt, &trace);
+    const auto actual = bundle.full_config(false, std::nullopt, std::nullopt, &trace);
     CHECK(expected == actual);
     REQUIRE_FALSE(trace.warnings().empty());
     CHECK(trace.warnings().front().find("Removed profile") != std::string::npos);
     CHECK(last(trace, "filament_map").origins.front().kind == ConfigOriginKind::Normalization);
     bundle.filament_presets.clear();
-    bundle.full_config(false, std::nullopt, &trace);
+    bundle.full_config(false, std::nullopt, std::nullopt, &trace);
     CHECK(trace.warnings().front().find("No material selected") != std::string::npos);
 }
 
@@ -166,7 +166,7 @@ TEST_CASE("Trace excludes private connections and removes erased metadata", "[Co
     printer.set_key_value("print_host", new ConfigOptionString("printer.invalid"));
     printer.set_key_value("printhost_password", new ConfigOptionString("test-only-value"));
     ConfigResolutionTrace trace;
-    const auto actual = bundle.full_config(false, std::nullopt, &trace);
+    const auto actual = bundle.full_config(false, std::nullopt, std::nullopt, &trace);
     CHECK(actual.opt_string("printhost_password") == "test-only-value");
     CHECK(trace.settings().count("print_host") == 0);
     CHECK(trace.settings().count("printhost_password") == 0);
@@ -188,7 +188,7 @@ TEST_CASE("Every curated hardware variant keeps traced and normal configs identi
             bundle.printers.load_preset({}, name, printer, true);
             ConfigResolutionTrace trace;
             const auto expected = bundle.full_config(false);
-            const auto actual = bundle.full_config(false, std::nullopt, &trace);
+            const auto actual = bundle.full_config(false, std::nullopt, std::nullopt, &trace);
             CHECK(expected == actual);
             CHECK(last(trace, "nozzle_volume_type").origins.front().kind == ConfigOriginKind::HardwareContract);
             check_report_matches(actual, trace);
@@ -202,7 +202,7 @@ TEST_CASE("SLA settings retain their real merge precedence", "[Config][TinMan][P
     bundle.printers.get_edited_preset().config.set_key_value("printer_technology", new ConfigOptionEnum<PrinterTechnology>(ptSLA));
     ConfigResolutionTrace trace;
     const auto expected = bundle.full_config();
-    const auto actual = bundle.full_config(true, std::nullopt, &trace);
+    const auto actual = bundle.full_config(true, std::nullopt, std::nullopt, &trace);
     CHECK(expected == actual);
     check_report_matches(actual, trace);
 }

@@ -7,7 +7,7 @@
 
 #include "libslic3r/Print.hpp"
 #include "libslic3r/GCode/ConflictChecker.hpp"
-#include "test_data.hpp"
+#include "test_helpers.hpp"
 
 using namespace Slic3r;
 

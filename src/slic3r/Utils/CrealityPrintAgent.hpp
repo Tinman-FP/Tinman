@@ -67,11 +67,12 @@ public:
                                              const std::string&      base_type);
 
 protected:
-    bool init_device_info(std::string dev_id,
-                          std::string dev_ip,
-                          std::string username,
-                          std::string password,
-                          bool        use_ssl) override;
+    bool init_device_info(const std::string& dev_id,
+                          const std::string& dev_ip,
+                          const std::string& username,
+                          const std::string& password,
+                          bool               use_ssl,
+                          const std::string& port) override;
 };
 
 } // namespace Slic3r

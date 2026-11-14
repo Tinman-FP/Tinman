@@ -3133,7 +3133,7 @@ static void show_profile_overview()
     // Snapshot the same resolved bundle used by slicing. Never modify presets,
     // connection state, or the project while inspecting their effective values.
     ConfigResolutionTrace trace;
-    const auto config = bundle->full_config(true, std::nullopt, &trace);
+    const auto config = bundle->full_config(true, std::nullopt, std::nullopt, &trace);
     const auto &printer = bundle->printers.get_edited_preset();
     const auto &process = bundle->prints.get_edited_preset();
     wxDialog dialog(wxGetApp().mainframe, wxID_ANY, _L("Profile Overview"),

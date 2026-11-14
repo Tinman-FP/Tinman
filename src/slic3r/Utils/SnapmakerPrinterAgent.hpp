@@ -37,10 +37,11 @@ public:
                                                          const nlohmann::json& save_variables);
 
 protected:
-    bool fetch_device_info(const std::string& base_url,
-                           const std::string& api_key,
-                           MoonrakerDeviceInfo& info,
-                           std::string& error) const override;
+    bool fetch_device_info(const std::string&           base_url,
+                           const std::string&           api_key,
+                           MoonrakerDeviceInfo&         info,
+                           std::string&                 error,
+                           const std::function<bool()>& cancelled) const override;
     void augment_print_payload_locked(nlohmann::json& payload, const nlohmann::json& status) const override;
 
 private:

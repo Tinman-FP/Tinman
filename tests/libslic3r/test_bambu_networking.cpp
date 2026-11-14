@@ -87,7 +87,7 @@ TEST_CASE("NetworkLibraryVersionInfo::from_static", "[BambuNetworking]") {
 
 TEST_CASE("get_latest_network_version", "[BambuNetworking]") {
     SECTION("uses the current supported Bambu networking plug-in") {
-        REQUIRE(std::string(get_latest_network_version()) == "02.06.00.50");
+        REQUIRE(std::string(get_latest_network_version()) == "02.08.04");
     }
 }
 

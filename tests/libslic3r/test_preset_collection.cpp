@@ -24,7 +24,7 @@ struct FilamentSpec
 struct FilamentCollection : public PresetCollection
 {
     explicit FilamentCollection(const std::vector<FilamentSpec>& specs)
-        : PresetCollection(Preset::TYPE_FILAMENT, Preset::filament_options(), static_cast<const PrintRegionConfig&>(FullPrintConfig::defaults()))
+        : PresetCollection(Preset::TYPE_FILAMENT, Preset::filament_options(), static_print_config_ref(static_cast<const PrintRegionConfig&>(FullPrintConfig::defaults())))
     {
         for (const FilamentSpec& spec : specs) {
             DynamicPrintConfig config(default_preset().config);
