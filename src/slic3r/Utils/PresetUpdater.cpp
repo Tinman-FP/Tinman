@@ -1725,6 +1725,13 @@ void PresetUpdater::priv::check_new_vendors(const std::set<std::string>& system_
 void PresetUpdater::check_new_vendors(const std::set<std::string>& system_vendors,
                                        std::function<void(std::vector<std::string>, bool)> callback)
 {
+    // Tinman: the setup wizard asks profile_update_url which vendor bundles are new. Stealth mode
+    // makes no network requests, so report none, on the UI thread like the network path does.
+    if (GUI::wxGetApp().app_config->get_stealth_mode()) {
+        BOOST_LOG_TRIVIAL(info) << "[Orca Updater] stealth mode: not checking for new vendor profiles";
+        GUI::wxGetApp().CallAfter([callback = std::move(callback)]() { callback({}, false); });
+        return;
+    }
     p->check_new_vendors(system_vendors, std::move(callback));
 }
 

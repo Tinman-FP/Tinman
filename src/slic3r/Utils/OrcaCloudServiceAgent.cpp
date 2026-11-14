@@ -688,6 +688,15 @@ int OrcaCloudServiceAgent::start()
 {
     regenerate_pkce();
 
+    // Tinman: stealth mode makes no cloud requests, and refreshing a stored token is one. A token can
+    // remain when stealth mode was turned on without logging out (setup wizard, hand-edited config).
+    // Leave it on disk for when stealth mode is turned off, and start signed out.
+    if (auto *app = dynamic_cast<GUI::GUI_App *>(wxTheApp); app != nullptr && app->app_config != nullptr &&
+                                                            app->app_config->get_stealth_mode()) {
+        BOOST_LOG_TRIVIAL(info) << "OrcaCloudServiceAgent: stealth mode, not refreshing the stored session";
+        return BAMBU_NETWORK_SUCCESS;
+    }
+
     // Attempt silent sign-in from stored refresh token
     std::string stored_secret;
     if (load_user_secret(stored_secret) && !stored_secret.empty()) {

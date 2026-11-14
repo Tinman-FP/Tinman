@@ -3,6 +3,8 @@
 #include "OrcaCloudServiceAgent.hpp"
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/format.hpp"
+#include "slic3r/GUI/GUI_App.hpp"
+#include "libslic3r/AppConfig.hpp"
 #include "slic3r/Utils/Http.hpp"
 
 #include <boost/filesystem.hpp>
@@ -28,6 +30,14 @@ std::shared_ptr<OrcaCloudServiceAgent> CloudPluginService::get_cloud_agent() con
 
 bool CloudPluginService::can_fetch_cloud_plugins() const
 {
+    // Tinman: stealth mode makes no cloud requests. A session can still hold a cloud login when
+    // stealth mode was turned on without logging out (setup wizard, hand-edited config).
+    if (auto *app = dynamic_cast<GUI::GUI_App *>(wxTheApp); app != nullptr && app->app_config != nullptr &&
+                                                            app->app_config->get_stealth_mode()) {
+        BOOST_LOG_TRIVIAL(info) << "Stealth mode: not contacting the cloud plugin hub";
+        return false;
+    }
+
     if (!m_orca_agent) {
         BOOST_LOG_TRIVIAL(warning) << "Orca service agent is null";
         return false;

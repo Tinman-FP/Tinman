@@ -8020,6 +8020,8 @@ int GUI_App::sync_bundle(std::string bundle_id, std::string version)
 
 void GUI_App::check_bundle_updates()
 {
+    // Tinman: stealth mode makes no cloud requests.
+    if (app_config->get_stealth_mode()) return;
     if (!m_agent || !m_agent->is_user_login()) return;
     auto orca_agent = std::dynamic_pointer_cast<OrcaCloudServiceAgent>(m_agent->get_cloud_agent());
     if (!orca_agent) return;
