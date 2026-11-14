@@ -280,7 +280,12 @@ const std::set<std::string>& publish_structural_keys()
         "inherits", "inherits_group",
         "printer_technology", "printer_model", "printer_variant",
         "physical_printer_settings_id", "filament_ids",
-        "different_settings_to_system"
+        "different_settings_to_system",
+        // Tinman: per-printer profile scope and printer identity. Publishing them would tie the
+        // recipient's presets to the author's physical printer.
+        "tinman_physical_printer_id",
+        "tinman_process_scope_physical_id", "tinman_process_scope_nozzle_diameters",
+        "tinman_filament_scope_physical_id", "tinman_filament_scope_tool", "tinman_filament_scope_nozzle_diameter"
     };
     return structural_keys;
 }
