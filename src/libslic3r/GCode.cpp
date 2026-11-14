@@ -4691,9 +4691,6 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
             append_full_config(print, full_config);
             if (!full_config.empty())
                 file.write(full_config);
-            file.write_format(
-                ";%s\n",
-                GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Estimated_Printing_Time_Placeholder).c_str());
 
             // SoftFever: write compatiple image
             file.write_format("; first_layer_bed_temperature = %d\n", compat_first_layer_bed_temp);
@@ -5329,9 +5326,6 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         append_full_config(print, full_config);
         if (!full_config.empty())
           file.write(full_config);
-        file.write_format(
-            ";%s\n",
-            GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Estimated_Printing_Time_Placeholder).c_str());
 
         // SoftFever: write compatiple info
         file.write_format("; first_layer_bed_temperature = %d\n", compat_first_layer_bed_temp);
