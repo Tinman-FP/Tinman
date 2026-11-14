@@ -151,6 +151,12 @@ set(lisbslic3r_sources
     Feature/Interlocking/InterlockingGenerator.hpp
     Feature/Interlocking/VoxelUtils.cpp
     Feature/Interlocking/VoxelUtils.hpp
+    Fibreseek/RouteGeometry.cpp
+    Fibreseek/RouteGeometry.hpp
+    Fibreseek/RoutePlanner.cpp
+    Fibreseek/RoutePlanner.hpp
+    Fibreseek/WriterAdapter.cpp
+    Fibreseek/WriterAdapter.hpp
     FileParserError.hpp
     Fill/Fill3DHoneycomb.cpp
     Fill/Fill3DHoneycomb.hpp
