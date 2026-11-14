@@ -25,6 +25,9 @@ own. Check that it has:
 - Fiber enabled turned on, with your fibre cut G-code and cut distance.
 - Material 1: an ordinary PCTG profile. Material 2: a composite profile whose
   filament type is `CFC`, for example CFC PCTG + X-CCF.
+- In that composite profile, Fiber diameter and Fiber linear density must be
+  filled in from your fibre's datasheet. Tinman has no built-in values for
+  them: a fibre slice without a diameter stops with a message saying so.
 
 **Fibre planner.** In the default fibre mode, Tinman plans the fibre routes
 with a Python helper run by `/usr/bin/python3`. That helper needs `shapely`.
