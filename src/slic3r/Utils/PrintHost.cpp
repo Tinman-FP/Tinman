@@ -210,7 +210,10 @@ struct PrintHostJobQueue::priv
     std::thread bg_thread;
     bool bg_exit = false;
 
-    PrintHostQueueDialog *queue_dialog;
+    PrintHostQueueDialog *queue_dialog = nullptr;
+    PrintHostJobQueue::Events events; // used when there is no dialog
+    // The running job's host sent DispatchedInfoTag: Cancel can no longer hide its outcome.
+    bool job_dispatched = false;
 
     priv(PrintHostJobQueue *q) : q(q) {}
 
@@ -235,6 +238,12 @@ PrintHostJobQueue::PrintHostJobQueue(PrintHostQueueDialog *queue_dialog)
     p->queue_dialog = queue_dialog;
 }
 
+PrintHostJobQueue::PrintHostJobQueue(Events events)
+    : p(new priv(this))
+{
+    p->events = std::move(events);
+}
+
 PrintHostJobQueue::~PrintHostJobQueue()
 {
     if (p) { p->stop_bg_thread(); }
@@ -242,24 +251,40 @@ PrintHostJobQueue::~PrintHostJobQueue()
 
 void PrintHostJobQueue::priv::emit_progress(int progress)
 {
+    if (!queue_dialog) {
+        if (events.progress) events.progress(job_id, progress);
+        return;
+    }
     auto evt = new PrintHostQueueDialog::Event(GUI::EVT_PRINTHOST_PROGRESS, queue_dialog->GetId(), job_id, progress);
     wxQueueEvent(queue_dialog, evt);
 }
 
 void PrintHostJobQueue::priv::emit_error(wxString error)
 {
+    if (!queue_dialog) {
+        if (events.error) events.error(job_id, std::move(error));
+        return;
+    }
     auto evt = new PrintHostQueueDialog::Event(GUI::EVT_PRINTHOST_ERROR, queue_dialog->GetId(), job_id, std::move(error));
     wxQueueEvent(queue_dialog, evt);
 }
 
 void PrintHostJobQueue::priv::emit_info(wxString tag, wxString status)
 {
+    if (!queue_dialog) {
+        if (events.info) events.info(job_id, std::move(tag), std::move(status));
+        return;
+    }
     auto evt = new PrintHostQueueDialog::Event(GUI::EVT_PRINTHOST_INFO, queue_dialog->GetId(), job_id, std::move(tag), std::move(status));
     wxQueueEvent(queue_dialog, evt);
 }
 
 void PrintHostJobQueue::priv::emit_cancel(size_t id)
 {
+    if (!queue_dialog) {
+        if (events.cancel) events.cancel(id);
+        return;
+    }
     auto evt = new PrintHostQueueDialog::Event(GUI::EVT_PRINTHOST_CANCEL, queue_dialog->GetId(), id);
     wxQueueEvent(queue_dialog, evt);
 }
@@ -326,8 +351,10 @@ void PrintHostJobQueue::priv::bg_thread_main()
 void PrintHostJobQueue::priv::progress_fn(Http::Progress progress, bool &cancel)
 {
     if (cancel) {
-        // When cancel is true from the start, Http indicates request has been cancelled
-        emit_cancel(job_id);
+        // When cancel is true from the start, Http indicates request has been cancelled.
+        // After dispatch the host reports the outcome itself; it is never "Canceled".
+        if (!job_dispatched)
+            emit_cancel(job_id);
         return;
     }
 
@@ -377,8 +404,11 @@ void PrintHostJobQueue::priv::error_fn(wxString error)
 
         for (size_t cancel_id : *cancels) {
             if (cancel_id == job_id) {
-                do_emit_err = false;
-                emit_cancel(job_id);
+                // A dispatched job's outcome (unknown, warning) must reach the user.
+                if (!job_dispatched) {
+                    do_emit_err = false;
+                    emit_cancel(job_id);
+                }
             }
             else if (cancel_id > job_id) {
                 const size_t idx = cancel_id - job_id - 1;
@@ -397,6 +427,8 @@ void PrintHostJobQueue::priv::error_fn(wxString error)
 
 void PrintHostJobQueue::priv::info_fn(wxString tag, wxString status)
 {
+    if (tag == PrintHostJobQueue::DispatchedInfoTag)
+        job_dispatched = true;
     emit_info(tag, status);
 }
 
@@ -419,6 +451,7 @@ void PrintHostJobQueue::priv::remove_source()
 
 void PrintHostJobQueue::priv::perform_job(PrintHostJob the_job)
 {
+    job_dispatched = false;
     emit_progress(0);   // Indicate the upload is starting
 
     bool success = the_job.printhost->upload(std::move(the_job.upload_data),
@@ -439,7 +472,8 @@ void PrintHostJobQueue::priv::perform_job(PrintHostJob the_job)
 void PrintHostJobQueue::enqueue(PrintHostJob job)
 {
     p->start_bg_thread();
-    p->queue_dialog->append_job(job);
+    if (p->queue_dialog)
+        p->queue_dialog->append_job(job);
     p->channel_jobs.push(std::move(job));
 }
 

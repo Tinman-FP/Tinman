@@ -9,6 +9,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
 #include <cstdlib>
 #include <regex>
 #include <set>
@@ -444,26 +447,33 @@ struct SendResult
 // The percent the host shows between phases (FibreSeek.cpp): 92 verify, 95 start, 97 watch.
 bool at_percent(const Http::Progress &p, size_t percent) { return p.ultotal == 100 && p.ulnow == percent; }
 
-// cancel_when(progress) returning true cancels the send at that progress call.
-SendResult send(const MockPrinter &printer, const fs::path &file, PrintHostPostUploadAction action,
-                std::function<bool(const Http::Progress &)> cancel_when = nullptr)
+// A FibreSeek host for the mock, with short timeouts.
+std::unique_ptr<FibreSeek> make_host(const MockPrinter &printer, int start_watch = 3)
 {
     DynamicPrintConfig config;
     config.set_deserialize_strict({{"print_host", printer.address()}, {"printhost_apikey", "test-key"},
                                    {"printhost_cafile", ""}, {"printhost_ssl_ignore_revoke", "0"}});
-    FibreSeek           host(&config);
+    auto                host = std::make_unique<FibreSeek>(&config);
     FibreSeek::Timeouts timeouts;
     timeouts.query       = 2;
     timeouts.start       = 2;
-    timeouts.start_watch = 3;
+    timeouts.start_watch = start_watch;
     timeouts.poll_ms     = 200;
-    host.set_timeouts(timeouts);
+    host->set_timeouts(timeouts);
+    return host;
+}
+
+// cancel_when(progress) returning true cancels the send at that progress call.
+SendResult send(const MockPrinter &printer, const fs::path &file, PrintHostPostUploadAction action,
+                std::function<bool(const Http::Progress &)> cancel_when = nullptr)
+{
+    const auto host = make_host(printer);
     PrintHostUpload upload;
     upload.source_path = file;
     upload.upload_path = file.filename();
     upload.post_action = action;
     SendResult result;
-    result.ok = host.upload(
+    result.ok = host->upload(
         upload,
         [&](Http::Progress progress, bool &cancel) {
             if (cancel) { // the queue's "Canceled" acknowledgement
@@ -780,5 +790,135 @@ TEST_CASE("Sending to a mock Seeker 3", "[FibreSeek][Mock]")
         CHECK_FALSE(result.ok);
         CHECK(result.error.Contains("not a FibreSeek Seeker 3"));
         CHECK(printer.calls().empty());
+    }
+}
+
+namespace {
+
+// The events a PrintHostJobQueue without a dialog reports, in order.
+struct QueueLog
+{
+    std::mutex               mutex;
+    std::condition_variable  changed;
+    std::vector<std::string> events;
+    bool                     finished = false;
+
+    void add(std::string event, bool final)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        events.push_back(std::move(event));
+        finished |= final;
+        changed.notify_all();
+    }
+    bool wait_finished(int seconds)
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        return changed.wait_for(lock, std::chrono::seconds(seconds), [this] { return finished; });
+    }
+    bool any(const std::string &prefix, const std::string &text = {})
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return std::any_of(events.begin(), events.end(), [&](const std::string &event) {
+            return event.rfind(prefix, 0) == 0 && event.find(text) != std::string::npos;
+        });
+    }
+};
+
+PrintHostJobQueue::Events record(const std::shared_ptr<QueueLog> &log)
+{
+    PrintHostJobQueue::Events events;
+    events.progress = [log](size_t, int progress) { log->add("progress " + std::to_string(progress), progress >= 100); };
+    events.error    = [log](size_t, wxString error) { log->add("error " + std::string(error.ToUTF8().data()), true); };
+    events.cancel   = [log](size_t) { log->add("cancel", true); };
+    events.info     = [log](size_t, wxString tag, wxString) { log->add("info " + std::string(tag.ToUTF8().data()), false); };
+    return events;
+}
+
+bool wait_for(const std::function<bool()> &condition, int seconds = 15)
+{
+    for (auto end = std::chrono::steady_clock::now() + std::chrono::seconds(seconds); std::chrono::steady_clock::now() < end;) {
+        if (condition())
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return false;
+}
+
+} // namespace
+
+TEST_CASE("The upload queue never turns a dispatched FibreSeek job into Canceled", "[FibreSeek][Mock][Queue]")
+{
+    if (mock_python().empty() || !fs::exists(mock_python()) || !fs::exists(mock_script())) {
+        if (std::getenv("TINMAN_REQUIRE_FIBRESEEK_MOCK"))
+            FAIL("Python 3 or the mock printer script is missing: " << mock_python() << ", " << mock_script());
+        WARN("Python 3 or the mock printer script is missing here; skipping the queue tests.");
+        return;
+    }
+    MockPrinter printer;
+    REQUIRE(printer.running());
+    auto              log = std::make_shared<QueueLog>();
+    PrintHostJobQueue queue(record(log));
+    TempFile          file(seeker3_gcode()); // the queue deletes the job's source when done
+    PrintHostJob      job;
+    job.printhost                = make_host(printer, 30);
+    job.upload_data.source_path  = file.path;
+    job.upload_data.upload_path  = file.path.filename();
+    job.upload_data.post_action  = PrintHostPostUploadAction::StartPrint;
+    const size_t first_job       = 0;
+
+    SECTION("a late Cancel while the printer prepares the started job")
+    {
+        printer.set({{"state_after_start", "preparing"}});
+        queue.enqueue(std::move(job));
+        REQUIRE(wait_for([&] { return printer.starts() > 0; }));
+        queue.cancel(first_job);
+        REQUIRE(log->wait_finished(20));
+        CHECK(log->any("info dispatched"));
+        CHECK(log->any("error", "may be printing"));
+        CHECK_FALSE(log->any("cancel"));
+    }
+    SECTION("repeated Cancels while the start's outcome is being confirmed")
+    {
+        printer.set({{"state_after_start", "preparing"}});
+        queue.enqueue(std::move(job));
+        REQUIRE(wait_for([&] { return printer.starts() > 0; }));
+        for (int i = 0; i < 4; ++i) {
+            queue.cancel(first_job);
+            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        }
+        REQUIRE(log->wait_finished(20));
+        CHECK(log->any("error", "may be printing"));
+        CHECK_FALSE(log->any("cancel"));
+    }
+    SECTION("Cancels during a start whose reply never comes")
+    {
+        printer.set({{"delay", {{"/printer/print/start", 4}}}}); // longer than the start timeout
+        queue.enqueue(std::move(job));
+        REQUIRE(wait_for([&] { return printer.starts() > 0; }));
+        queue.cancel(first_job);
+        queue.cancel(first_job);
+        REQUIRE(log->wait_finished(20));
+        CHECK(log->any("error", "unknown"));
+        CHECK_FALSE(log->any("cancel"));
+    }
+    SECTION("a Cancel before the start is sent still cancels")
+    {
+        printer.set({{"delay", {{"/printer/objects/query", 1}}}});
+        queue.enqueue(std::move(job));
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        queue.cancel(first_job);
+        REQUIRE(log->wait_finished(20));
+        CHECK(log->any("cancel"));
+        CHECK_FALSE(log->any("error"));
+        CHECK_FALSE(log->any("info dispatched"));
+        CHECK(printer.starts() == 0);
+    }
+    SECTION("a confirmed start completes")
+    {
+        queue.enqueue(std::move(job));
+        REQUIRE(log->wait_finished(20));
+        CHECK(log->any("progress 100"));
+        CHECK_FALSE(log->any("cancel"));
+        CHECK(printer.starts() == 1);
     }
 }

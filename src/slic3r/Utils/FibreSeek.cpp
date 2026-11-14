@@ -324,6 +324,8 @@ bool FibreSeek::upload(PrintHostUpload upload_data, ProgressFn progress_fn, Erro
     enum class Dispatch { Accepted, Refused, Unknown } dispatch = Dispatch::Unknown;
     error.clear();
     cancelled.set_dispatched();
+    // Tell the queue first: from here on no Cancel may replace this job's outcome.
+    info_fn(PrintHostJobQueue::DispatchedInfoTag, wxString());
     {
         nlohmann::json request = {{"filename", remote_name}};
         auto           http    = Http::post(make_url("printer/print/start"));
