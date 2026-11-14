@@ -26,6 +26,21 @@ own. Check that it has:
 - Material 1: an ordinary PCTG profile. Material 2: a composite profile whose
   filament type is `CFC`, for example CFC PCTG + X-CCF.
 
+**Fibre planner.** In the default fibre mode, Tinman plans the fibre routes
+with a Python helper run by `/usr/bin/python3`. That helper needs `shapely`.
+Install it once, then check it:
+
+```bash
+/usr/bin/python3 -m pip install --user shapely
+```
+
+```bash
+/usr/bin/python3 -c "import shapely; print(shapely.__version__)"
+```
+
+Without it, slicing a fibre job fails with "The native FibreSeek planner
+needs shapely".
+
 **Connection.** In the printer's connection settings, set Host Type to
 **FibreSeek Seeker 3** and enter the printer's address (and its API key, if
 you set one). Press Test.
@@ -80,6 +95,9 @@ later, after these pass.
 ## Settings for every print
 
 - Layer height 0.20 mm. One coupon per plate, in the middle of the bed.
+- Fiber manufacturing mode: **Plastic + fiber overlay** (the default). Leave
+  "Fiber-owned composite roads" alone for now: its route planner is being
+  replaced.
 - PCTG temperatures, bed and chamber as in your earlier plastic prints.
 - In the preview, check before you send: the fibre summary (number of routes
   and fibre length), the first and last layer with fibre, and that no fibre
