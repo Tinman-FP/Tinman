@@ -20,7 +20,9 @@ on:
     # orca_profile_tool.py reads the variant key sets from PrintConfig.cpp, and its
     # tests the obsolete keys, so a PR changing either must be checked against the profiles.
     - 'src/libslic3r/PrintConfig.cpp'
-    # Tinman: the machine motion envelopes the motion-envelope tests below check.
+    # Tinman: the hardware catalog and motion envelopes the Tinman checks below read.
+    - 'checks/verify_tinman_machine_profile_catalog.py'
+    - 'resources/orcaslicer_codex/hardware/**'
     - 'resources/orcaslicer_codex/motion_envelope/**'
     - ".github/workflows/check_profiles.yml"
 
@@ -53,12 +55,14 @@ jobs:
       - name: Run the profile tool's own unit tests
         run: python3 -m unittest discover -s scripts/tests -t scripts
 
-      # Tinman: validated machine motion envelopes (c61295e000). Tinman's other profile
-      # catalog checks (verify_tinman_machine_profile_catalog.py, tinman_profile_manifest.py,
-      # audit_prusa_core_one_l_hf_catalog.py) read the private TinManX1 profile catalog,
-      # which the public repository does not ship, so they are not run here.
-      - name: Tinman motion envelope tests
-        run: python3 scripts/test_tinman_motion_envelope.py
+      # Tinman: the runtime hardware catalog and machine-contract sources, and the validated
+      # machine motion envelopes (c61295e000). The catalog check skips the four-nozzle vendor
+      # bundles, which ship only with the private TinManX1 distribution; so do
+      # tinman_profile_manifest.py and audit_prusa_core_one_l_hf_catalog.py, which are not run here.
+      - name: Tinman machine catalog and motion envelope checks
+        run: |
+          python3 checks/verify_tinman_machine_profile_catalog.py
+          python3 scripts/test_tinman_motion_envelope.py
 
       # What the validator below cannot see. It loads the tree the way the slicer does, so
       # it never notices a profile no <vendor>.json indexes, a preset name two files claim,
