@@ -717,11 +717,11 @@ TEST_CASE("Slicing reads unsaved edits of any composite, listed or custom", "[Ti
     composite.config.set_key_value("fiber_diameter", new ConfigOptionFloats{0.3});
     std::string reason;
     REQUIRE(commit_continuous_fiber_choice(bundle, custom, reason));
-    CHECK(bundle.full_fff_config().opt_float("continuous_fiber_diameter") == Catch::Approx(0.3));
+    CHECK(bundle.full_config().opt_float("continuous_fiber_diameter") == Catch::Approx(0.3));
     // Edit the composite without saving: slicing uses the edit.
     bundle.filaments.select_preset_by_name("CFC PCTG + my tow", true);
     bundle.filaments.get_edited_preset().config.set_key_value("fiber_diameter", new ConfigOptionFloats{0.29});
-    CHECK(bundle.full_fff_config().opt_float("continuous_fiber_diameter") == Catch::Approx(0.29));
+    CHECK(bundle.full_config().opt_float("continuous_fiber_diameter") == Catch::Approx(0.29));
 }
 
 TEST_CASE("Missing strand settings are named", "[TinMan][Preset][FibreSeek][CfcUnits]")
