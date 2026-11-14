@@ -125,6 +125,10 @@ jobs:
           # link with either release. cl and clang-cl prepend CL to every command line (_CL_
           # would be appended after CMake's "--", where clang-cl reads it as a file name).
           CL: /D_USE_STD_VECTOR_ALGORITHMS=0
+          # OpenVDB wraps its compiles in any ccache on PATH (Strawberry Perl ships one on the
+          # x64 image). With CL set, that ccache returned success without writing the objects.
+          # Nothing keeps a ccache store between deps runs, so it only runs the compiler here.
+          CCACHE_DISABLE: 1
         run: |
             if (-not "${{ vars.SELF_HOSTED }}") {
               choco install strawberryperl
