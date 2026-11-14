@@ -351,6 +351,142 @@ TEST_CASE("TinMan Qidi connections cannot fall back to OctoPrint", "[Preset][Tin
     CHECK(source.opt_enum<PrintHostType>("host_type") == htMoonraker);
 }
 
+TEST_CASE("TinMan Prusa CORE One L keeps PrusaLink across dialog saves and restores", "[Preset][TinMan][PrusaLink]")
+{
+    const std::string section = "tinman_machine_connections";
+    const std::string model   = "Prusa CORE One L";
+    const std::string preset  = "Prusa CORE One L 0.6 nozzle - TinMan Codex - Copy";
+    CHECK(tinmanx_expected_printer_agent(preset, model) == "orca");
+
+    // Dialog state left by older builds: the catalog forced the Moonraker agent.
+    DynamicPrintConfig dialog;
+    dialog.set_key_value("printer_model", new ConfigOptionString(model));
+    dialog.set_key_value("printer_agent", new ConfigOptionString("moonraker"));
+    dialog.set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(htPrusaLink));
+    dialog.set_key_value("print_host", new ConfigOptionString("192.0.2.177"));
+    dialog.set_key_value("print_host_webui", new ConfigOptionString());
+    dialog.set_key_value("printhost_apikey", new ConfigOptionString("prusalink-key"));
+
+    // Physical Printer dialog OK.
+    CHECK(tinmanx_prepare_connection_for_save(preset, dialog));
+    CHECK(dialog.opt_string("printer_agent") == "orca");
+    CHECK(dialog.opt_enum<PrintHostType>("host_type") == htPrusaLink);
+    CHECK(dialog.opt_string("print_host_webui").empty());
+    CHECK_FALSE(tinmanx_prepare_connection_for_save(preset, dialog));
+
+    AppConfig app_config;
+    CHECK(tinmanx_remember_machine_connection(app_config, preset, dialog));
+    CHECK(app_config.get(section, model + "::host_type") == "prusalink");
+    CHECK(app_config.get(section, model + "::printer_agent") == "orca");
+
+    // Restart: the overlay is restored onto another nozzle's stale profile.
+    DynamicPrintConfig restored = dialog;
+    restored.set_key_value("printer_agent", new ConfigOptionString("moonraker"));
+    restored.set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(htMoonraker));
+    restored.set_key_value("print_host", new ConfigOptionString());
+    CHECK(tinmanx_restore_machine_connection(app_config, "Prusa CORE One L 0.4 nozzle - TinMan Codex", restored));
+    CHECK(restored.opt_string("printer_agent") == "orca");
+    CHECK(restored.opt_enum<PrintHostType>("host_type") == htPrusaLink);
+    CHECK(restored.opt_string("print_host") == "192.0.2.177");
+    CHECK(restored.opt_string("printhost_apikey") == "prusalink-key");
+}
+
+TEST_CASE("TinMan repairs PrusaLink connections persisted as Moonraker", "[Preset][TinMan][PrusaLink]")
+{
+    const std::string section = "tinman_machine_connections";
+    const std::string model   = "Prusa CORE One L";
+    const std::string preset  = "Prusa CORE One L 0.6 nozzle - TinMan Codex";
+
+    AppConfig app_config;
+    app_config.set_str(section, model + "::host_type", "moonraker");
+    app_config.set_str(section, model + "::printer_agent", "moonraker");
+    app_config.set_str(section, model + "::print_host", "192.0.2.177");
+
+    DynamicPrintConfig profile;
+    profile.set_key_value("printer_model", new ConfigOptionString(model));
+    profile.set_key_value("printer_agent", new ConfigOptionString());
+    profile.set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(htOctoPrint));
+    profile.set_key_value("print_host", new ConfigOptionString());
+    CHECK(tinmanx_restore_machine_connection(app_config, preset, profile));
+    CHECK(profile.opt_enum<PrintHostType>("host_type") == htPrusaLink);
+    CHECK(profile.opt_string("printer_agent") == "orca");
+    CHECK(profile.opt_string("print_host") == "192.0.2.177");
+
+    profile.set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(htMoonraker));
+    CHECK(tinmanx_remember_machine_connection(app_config, preset, profile));
+    CHECK(app_config.get(section, model + "::host_type") == "prusalink");
+    CHECK(app_config.get(section, model + "::printer_agent") == "orca");
+
+    // PrusaConnect is the other Buddy firmware transport and stays selectable.
+    profile.set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(htPrusaConnect));
+    CHECK_FALSE(tinmanx_prepare_connection_for_save(preset, profile));
+    CHECK(profile.opt_enum<PrintHostType>("host_type") == htPrusaConnect);
+    CHECK(tinmanx_remember_machine_connection(app_config, preset, profile));
+    CHECK(app_config.get(section, model + "::host_type") == "prusaconnect");
+}
+
+TEST_CASE("TinMan dialog saves keep Klipper printers on their existing transports", "[Preset][TinMan]")
+{
+    const auto dialog_config = [](const std::string &model, const std::string &agent, PrintHostType host_type) {
+        DynamicPrintConfig config;
+        config.set_key_value("printer_model", new ConfigOptionString(model));
+        config.set_key_value("printer_agent", new ConfigOptionString(agent));
+        config.set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(host_type));
+        config.set_key_value("print_host", new ConfigOptionString("192.0.2.50"));
+        config.set_key_value("print_host_webui", new ConfigOptionString());
+        return config;
+    };
+
+    for (const char *model : {"Sovol SV08 MAX", "RatRig V-Core 4 IDEX 500"}) {
+        INFO(model);
+        DynamicPrintConfig config = dialog_config(model, "orca", htOctoPrint);
+        CHECK(tinmanx_prepare_connection_for_save(std::string(model) + " 0.4 nozzle - TinMan Codex", config));
+        CHECK(config.opt_string("printer_agent") == "moonraker");
+        CHECK(config.opt_enum<PrintHostType>("host_type") == htMoonraker);
+        CHECK(config.opt_string("print_host_webui") == "192.0.2.50");
+    }
+
+    DynamicPrintConfig snapmaker = dialog_config("Snapmaker U1", "snapmaker", htOctoPrint);
+    CHECK(tinmanx_prepare_connection_for_save("Snapmaker U1 0.4 nozzle - TinMan Codex", snapmaker));
+    CHECK(snapmaker.opt_enum<PrintHostType>("host_type") == htMoonraker);
+    CHECK(snapmaker.opt_string("print_host_webui") == "192.0.2.50");
+
+    DynamicPrintConfig qidi = dialog_config("Qidi X-Plus 4", "qidi", htOctoPrint);
+    CHECK(tinmanx_prepare_connection_for_save("Qidi X-Plus 4 0.4 nozzle - TinMan Codex", qidi));
+    CHECK(qidi.opt_string("printer_agent") == "qidi");
+    CHECK(qidi.opt_enum<PrintHostType>("host_type") == htMoonraker);
+    CHECK(qidi.opt_string("print_host_webui").empty());
+
+    DynamicPrintConfig k2 = dialog_config("Creality K2 Plus", "moonraker", htMoonraker);
+    CHECK(tinmanx_prepare_connection_for_save("Creality K2 Plus 0.4 nozzle - TinMan Codex", k2));
+    CHECK(k2.opt_string("printer_agent") == "crealityprint");
+    CHECK(k2.opt_enum<PrintHostType>("host_type") == htCrealityPrint);
+
+    // Uncatalogued printers keep the agent the user selected.
+    DynamicPrintConfig klipper = dialog_config("My Klipper Printer", "moonraker", htOctoPrint);
+    CHECK(tinmanx_prepare_connection_for_save("My Klipper Printer 0.4 nozzle", klipper));
+    CHECK(klipper.opt_enum<PrintHostType>("host_type") == htMoonraker);
+
+    DynamicPrintConfig mk4s = dialog_config("MK4S", "", htPrusaLink);
+    CHECK_FALSE(tinmanx_prepare_connection_for_save("Prusa MK4S 0.4 nozzle", mk4s));
+    CHECK(mk4s.opt_enum<PrintHostType>("host_type") == htPrusaLink);
+}
+
+TEST_CASE("TinMan agent name fallback does not route Prusa printers to Moonraker", "[Preset][TinMan][PrusaLink]")
+{
+    CHECK(tinmanx_infer_printer_agent("Prusa CORE One L 192.0.2.177").empty());
+    CHECK(tinmanx_infer_printer_agent("Prusa MK4S HF0.4 nozzle").empty());
+    CHECK(tinmanx_infer_printer_agent("My Experimental Printer").empty());
+
+    CHECK(tinmanx_infer_printer_agent("QIDI Plus 4") == "qidi");
+    CHECK(tinmanx_infer_printer_agent("Snapmaker U1") == "snapmaker");
+    CHECK(tinmanx_infer_printer_agent("Creality K2 Plus") == "crealityprint");
+    CHECK(tinmanx_infer_printer_agent("K2 Plus 192.0.2.174") == "crealityprint");
+    CHECK(tinmanx_infer_printer_agent("RatRig V-Core 4 IDEX 500") == "moonraker");
+    CHECK(tinmanx_infer_printer_agent("v-core 4.1") == "moonraker");
+    CHECK(tinmanx_infer_printer_agent("Sovol SV08 MAX") == "moonraker");
+}
+
 TEST_CASE("TinMan connection overlay migrates legacy canonical IP entries", "[Preset][TinMan]")
 {
     AppConfig app_config;
