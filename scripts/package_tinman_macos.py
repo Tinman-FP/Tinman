@@ -25,6 +25,20 @@ def run(*args: str) -> None:
     subprocess.run(args, check=True)
 
 
+MACHO_MAGICS = {
+    b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe",  # 32-bit
+    b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",  # 64-bit
+    b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca",  # universal
+}
+
+
+def is_macho(path: Path) -> bool:
+    if path.is_symlink() or not path.is_file():
+        return False
+    with path.open("rb") as stream:
+        return stream.read(4) in MACHO_MAGICS
+
+
 def first_built_app() -> Path:
     for candidate in DEFAULT_CANDIDATES:
         if candidate.exists():
@@ -55,7 +69,15 @@ def main() -> int:
     if target.exists():
         shutil.rmtree(target)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, target, symlinks=False)
+    # Keep symlinks: OrcaSlicer 2.5's bundled Python runtime is reached through the relative link
+    # Contents/MacOS/python -> ../Resources/python, and build_release_macos.sh rejects a bundle
+    # where that is a real directory (codesign treats dotted directories under MacOS as bundles).
+    shutil.copytree(source, target, symlinks=True)
+    for link in target.rglob("*"):
+        if link.is_symlink():
+            resolved = link.resolve()
+            if target.resolve() not in resolved.parents and resolved != target.resolve():
+                raise SystemExit(f"{link} points outside the application bundle: {resolved}")
 
     macos = target / "Contents/MacOS"
     executable = macos / "Tinman"
@@ -81,7 +103,12 @@ def main() -> int:
 
     run("xattr", "-cr", str(target))
     if not args.skip_codesign:
-        run("codesign", "--force", "--deep", "--sign", "-", str(target))
+        # codesign --deep cannot sign the bundled Python runtime, so sign every nested Mach-O
+        # file ad hoc first and seal the bundle last, as build_orca.yml does with a real identity.
+        machos = [str(path) for path in sorted(target.rglob("*")) if is_macho(path)]
+        for start in range(0, len(machos), 200):
+            run("codesign", "--force", "--sign", "-", *machos[start:start + 200])
+        run("codesign", "--force", "--sign", "-", str(target))
         run("codesign", "--verify", "--deep", "--strict", str(target))
     if args.no_archive:
         print(target)
