@@ -2042,7 +2042,8 @@ TEST_CASE("The prime tower follows an object switching filaments within one appl
         print.apply(model, config);
         const bool two_filaments = filament == 2;
         CHECK(print.config().enable_prime_tower.value == two_filaments);
-        CHECK(print.config().independent_support_layer_height.value != two_filaments);
+        // Tinman: independent_support_layer_height is per object (PrintObjectConfig).
+        CHECK(print.objects().front()->config().independent_support_layer_height.value != two_filaments);
         CHECK(print.apply(model, config) == PrintBase::APPLY_STATUS_UNCHANGED);
     }
 }
@@ -2208,12 +2209,13 @@ TEST_CASE("Reapplying an unchanged config after slicing reports no change", "[Mu
     Slic3r::Test::init_print({ TestMesh::cube_with_hole }, print, model, config);
     print.process();
     const bool ept_before  = print.config().enable_prime_tower.value;
-    const bool islh_before = print.config().independent_support_layer_height.value;
+    // Tinman: independent_support_layer_height is per object (PrintObjectConfig).
+    const bool islh_before = print.objects().front()->config().independent_support_layer_height.value;
 
     const auto status = print.apply(model, config);
 
     CHECK(print.config().enable_prime_tower.value == ept_before);
-    CHECK(print.config().independent_support_layer_height.value == islh_before);
+    CHECK(print.objects().front()->config().independent_support_layer_height.value == islh_before);
     CHECK(status == PrintBase::APPLY_STATUS_UNCHANGED);
 }
 

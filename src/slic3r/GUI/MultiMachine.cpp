@@ -1,5 +1,6 @@
 #include "MultiMachine.hpp"
 #include "I18N.hpp"
+#include "GUI.hpp"
 
 #include "GUI_App.hpp"
 #include "MainFrame.hpp"

@@ -142,10 +142,10 @@ static bool orcaslicer_codex_config_nonempty_string_option(const Slic3r::Dynamic
 static float orcaslicer_codex_continuous_fiber_density(float diameter_mm, float linear_density_g_per_km)
 {
     if (diameter_mm <= 1e-6f || linear_density_g_per_km <= 1e-6f)
-        return DEFAULT_FILAMENT_DENSITY;
+        return Slic3r::DEFAULT_FILAMENT_DENSITY;
 
     const float area_mm2 = static_cast<float>(M_PI) * 0.25f * diameter_mm * diameter_mm;
-    return area_mm2 > 1e-6f ? linear_density_g_per_km / (area_mm2 * 1000.0f) : DEFAULT_FILAMENT_DENSITY;
+    return area_mm2 > 1e-6f ? linear_density_g_per_km / (area_mm2 * 1000.0f) : Slic3r::DEFAULT_FILAMENT_DENSITY;
 }
 
 static bool parse_arc_support_preview_marker(

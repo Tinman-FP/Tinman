@@ -1334,6 +1334,11 @@ private: \
 #define PRINT_CONFIG_CLASS_DERIVED_HASH(r, data, elem) boost::hash_combine(seed, static_cast<const elem*>(this)->hash());
 #define PRINT_CONFIG_CLASS_DERIVED_EQUAL(r, data, elem) \
     if (! (*static_cast<const elem*>(this) == static_cast<const elem&>(rhs))) return false;
+// Tinman: PrintRegionConfig derives from two option classes (see PrintRegionCoreConfig), so it
+// needs its own operator< (PrintApply orders region configs); compare parent by parent, then its own options.
+#define PRINT_CONFIG_CLASS_DERIVED_LESS(r, data, elem) \
+    if (static_cast<const elem&>(*this) < static_cast<const elem&>(rhs)) return true; \
+    if (! (static_cast<const elem&>(*this) == static_cast<const elem&>(rhs))) return false;
 
 // Generic version, with or without new parameters. Don't use this directly.
 #define PRINT_CONFIG_CLASS_DERIVED_DEFINE1(CLASS_NAME, CLASSES_PARENTS_TUPLE, PARAMETER_DEFINITION, PARAMETER_VISIT) \
@@ -1360,6 +1365,15 @@ public: \
         return eq; \
     } \
     bool operator!=(const CLASS_NAME &rhs) const throw() { return ! (*this == rhs); } \
+    /* A template, so it is only compiled for the classes that are ordered: PrintConfig holds options without <. */ \
+    template<typename Rhs, typename = std::enable_if_t<std::is_same<Rhs, CLASS_NAME>::value>> \
+    bool operator<(const Rhs &rhs) const throw() \
+    { \
+        BOOST_PP_SEQ_FOR_EACH(PRINT_CONFIG_CLASS_DERIVED_LESS, _, BOOST_PP_TUPLE_TO_SEQ(CLASSES_PARENTS_TUPLE)) \
+        int c = 0; \
+        this->for_each_option_pair(rhs, [&c](const char*, const auto &a, const auto &b) { if (a < b) c = -1; else if (! (a == b)) c = 1; return c == 0; }); \
+        return c < 0; \
+    } \
 protected: \
     CLASS_NAME(int) : PRINT_CONFIG_CLASS_DERIVED_INITIALIZER(CLASSES_PARENTS_TUPLE, 1) {} \
     void initialize(StaticCacheBase &cache, const char* base_ptr) { \
@@ -2791,6 +2805,7 @@ inline const StaticPrintConfig& static_print_config_ref(const SLAFullPrintConfig
 #undef PRINT_CONFIG_CLASS_DERIVED_DEFINE1
 #undef PRINT_CONFIG_CLASS_DERIVED_HASH
 #undef PRINT_CONFIG_CLASS_DERIVED_EQUAL
+#undef PRINT_CONFIG_CLASS_DERIVED_LESS
 #undef PRINT_CONFIG_CLASS_DERIVED_INITCACHE_ITEM
 #undef PRINT_CONFIG_CLASS_DERIVED_INITCACHE
 #undef PRINT_CONFIG_CLASS_DERIVED_INITIALIZER

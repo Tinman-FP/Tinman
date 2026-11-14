@@ -3099,7 +3099,7 @@ bool Sidebar::priv::sync_extruder_list(bool &only_external_material, bool is_man
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << __LINE__ << " go on sync_extruder_list";
     const Preset &cur_preset  = preset_bundle->printers.get_selected_preset();
     int extruder_nums = preset_bundle->get_printer_extruder_count();
-    const auto& tool_nozzles = obj->GetNozzleSystem()->GetNozzles();
+    const auto& tool_nozzles = obj->GetNozzleSystem()->GetExtNozzles();
     if (tool_nozzles.size() > 2) {
         only_external_material = !obj->GetFilaSystem()->HasAms();
         if (tool_nozzles.size() != static_cast<size_t>(extruder_nums)) {
@@ -3309,7 +3309,7 @@ void Sidebar::priv::update_sync_status(const MachineObject *obj)
         return;
     }
 
-    const auto& tool_nozzles = obj->GetNozzleSystem()->GetNozzles();
+    const auto& tool_nozzles = obj->GetNozzleSystem()->GetExtNozzles();
     if (tool_nozzles.size() > 2) {
         const auto* preset_nozzles = cur_preset.config.option<ConfigOptionFloats>("nozzle_diameter");
         bool tooling_synced = preset_nozzles != nullptr && preset_nozzles->size() == tool_nozzles.size();

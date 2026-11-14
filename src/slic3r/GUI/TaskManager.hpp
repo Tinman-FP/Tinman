@@ -2,7 +2,7 @@
 #define slic3r_TaskManager_hpp_
 
 #include "DeviceManager.hpp"
-#include "bambu_networking.hpp"
+#include "slic3r/Utils/bambu_networking.hpp" // Tinman: full path, the slic3rutils tests include this header
 #include "slic3r/Utils/NetworkAgent.hpp"
 
 #include <boost/date_time/posix_time/posix_time.hpp>

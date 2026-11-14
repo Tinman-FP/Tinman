@@ -2,6 +2,7 @@
 #include "libslic3r/TuningGuide.hpp"
 
 #include "libslic3r/Format/STEP.hpp"
+#include "slic3r/GUI/GUI.hpp"
 #include "slic3r/GUI/GUI_Utils.hpp"
 #include "slic3r/GUI/Widgets/StateColor.hpp"
 #include "slic3r/GUI/Widgets/Label.hpp"

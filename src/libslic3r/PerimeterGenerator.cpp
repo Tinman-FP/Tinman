@@ -1413,7 +1413,7 @@ static Polygons wave_support_style_lower_mask(
     Polygons lower_layer_polygons = to_polygons(*lower_slices);
     return lower_layer_offset == 0.f ?
         lower_layer_polygons :
-        expand(lower_layer_polygons, lower_layer_offset, ClipperLib::jtSquare, 0.);
+        expand(lower_layer_polygons, lower_layer_offset, jtSquare, 0.);
 }
 
 static ExPolygons wave_support_style_candidate_area(

@@ -162,7 +162,7 @@ TEST_CASE("Reslicing between tower styles and no tower removes stale geometry", 
     Model model;
     for (int i = 0; i < 2; ++i) {
         auto *object = model.add_object();
-        object->add_volume(Test::mesh(Test::TestMesh::cube_20x20x20))->config.set("extruder", i + 1);
+        object->add_volume(make_cube(20., 20., 20.))->config.set("extruder", i + 1);
         object->add_instance()->set_offset(Vec3d(30 * i, 0, 0));
         object->ensure_on_bed();
     }
@@ -228,7 +228,7 @@ TEST_CASE("Adding a second material restores the requested prime tower", "[Print
     Model model;
     for (int i = 0; i < 2; ++i) {
         auto *object = model.add_object();
-        object->add_volume(Test::mesh(Test::TestMesh::cube_20x20x20))->config.set("extruder", 1);
+        object->add_volume(make_cube(20., 20., 20.))->config.set("extruder", 1);
         object->add_instance()->set_offset(Vec3d(30 * i, 0, 0));
         object->ensure_on_bed();
     }
@@ -294,7 +294,7 @@ TEST_CASE("Sequential tower normalization follows the current object count", "[P
     Model model;
     auto *object = model.add_object();
     for (int i = 0; i < 2; ++i) {
-        auto *volume = object->add_volume(Test::mesh(Test::TestMesh::cube_20x20x20));
+        auto *volume = object->add_volume(make_cube(20., 20., 20.));
         volume->config.set("extruder", i + 1);
         volume->set_offset(Vec3d(i * 30, 0, 0));
     }
@@ -308,7 +308,7 @@ TEST_CASE("Sequential tower normalization follows the current object count", "[P
     CHECK(print.apply(model, config) == Print::APPLY_STATUS_UNCHANGED);
 
     auto *second = model.add_object();
-    second->add_volume(Test::mesh(Test::TestMesh::cube_20x20x20))->config.set("extruder", 1);
+    second->add_volume(make_cube(20., 20., 20.))->config.set("extruder", 1);
     second->add_instance()->set_offset(Vec3d(80, 0, 0));
     second->ensure_on_bed();
     print.apply(model, config);
