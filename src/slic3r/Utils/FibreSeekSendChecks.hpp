@@ -45,18 +45,32 @@ bool is_seeker3_model(const std::string &printer_model);
 std::string sha256_hex(const std::string &bytes);
 
 // A remote name unique to this send: the local name reduced to [A-Za-z0-9_-],
-// the first 8 hex digits of the file's SHA-256 and a timestamp, e.g.
-// "coupon_01-1a2b3c4d-20261114T120000.gcode". Nothing else on the printer can
-// have this name, so the file that is verified is the file that is started.
-std::string remote_file_name(const std::string &local_name, const std::string &sha256, const std::string &stamp);
+// the first 8 hex digits of the file's SHA-256, a timestamp and a random
+// nonce, e.g. "coupon_01-1a2b3c4d-20261114T120000-9f3c01aa.gcode". Two sends
+// in the same second still differ, so the file that is verified is the file
+// that is started.
+std::string remote_file_name(const std::string &local_name, const std::string &sha256, const std::string &stamp,
+                             const std::string &nonce);
 
-// A file path as Klipper or Moonraker reports it, relative to the G-code root.
-std::string gcode_root_path(std::string path);
+// A fresh random nonce of 8 hex digits.
+std::string random_nonce();
 
-// Reply of GET /printer/objects/query?webhooks&print_stats&virtual_sdcard.
-// Idle means Klipper is ready, print_stats is standby, complete or cancelled,
-// the SD reader is inactive and no file is loaded.
-bool printer_is_idle(const std::string &body, std::string &reason);
+// The absolute path of Moonraker's "gcodes" root from GET /server/files/roots,
+// or "" when it is not reported.
+std::string gcode_root_from_roots(const std::string &body);
+
+// Reply of GET /printer/objects/query?webhooks&print_stats&virtual_sdcard&pause_resume.
+// Klipper must be ready, the SD reader inactive and the pause latch off, all
+// correctly typed. Then:
+//   standby with no file named or selected           -> idle
+//   standby with any file named or selected (M23)    -> busy
+//   complete/cancelled, no file selected             -> idle (the name is the last job's)
+//   complete/cancelled, the same file still selected -> idle (needs gcode_root)
+//   complete/cancelled, another file selected        -> busy
+//   printing, paused, error, anything else           -> busy
+// gcode_root is the absolute G-code root (gcode_root_from_roots), used to
+// compare virtual_sdcard.file_path with print_stats.filename exactly.
+bool printer_is_idle(const std::string &body, const std::string &gcode_root, std::string &reason);
 
 // Reply of GET /printer/objects/query?configfile=config. On the Seeker 3,
 // T0 is [extruder] (the composite matrix + fibre nozzle) and T1 is
@@ -76,9 +90,15 @@ bool upload_reply_ok(const std::string &body, uint64_t local_size, const std::st
 // The printer's host name from GET /printer/info, or "" if it reports none.
 std::string printer_identity(const std::string &body);
 
+// Whether a failed POST /printer/print/start reply is Moonraker itself refusing
+// the request before running it: HTTP 400, 401, 403 or 404 with Moonraker's
+// own error envelope. Anything else (5xx, a proxy page, no reply) may have
+// come after the printer accepted the start.
+bool start_refused_before_execution(unsigned http_status, const std::string &body);
+
 // Reply of GET /printer/objects/query?print_stats after a start request.
-// Started: print_stats is "printing" this exact file. Failed: this file
-// ended in "error" or "cancelled", or is "paused". Anything else: Waiting.
+// Started: print_stats is "printing" exactly this root-relative file. Failed:
+// this file ended in "error" or "cancelled", or is "paused". Anything else: Waiting.
 enum class StartState { Started, Waiting, Failed };
 StartState start_state(const std::string &body, const std::string &remote_name, std::string &detail);
 

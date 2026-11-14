@@ -452,6 +452,11 @@ void PrintHostSendDialog::init()
     auto *label_dir_hint = new wxStaticText(this, wxID_ANY, _L("Use forward slashes ( / ) as a directory separator if needed."));
     label_dir_hint->Wrap(CONTENT_WIDTH * wxGetApp().em_unit());
 
+    if (!m_note.empty()) {
+        auto *label_note = new wxStaticText(this, wxID_ANY, m_note);
+        label_note->Wrap(CONTENT_WIDTH * wxGetApp().em_unit());
+        content_sizer->Add(label_note, 0, wxBOTTOM, VERT_SPACING);
+    }
     content_sizer->Add(txt_filename, 0, wxEXPAND);
     content_sizer->Add(label_dir_hint);
     content_sizer->AddSpacer(VERT_SPACING);

@@ -9,7 +9,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <regex>
+#include <set>
 #include <thread>
 
 #include <boost/filesystem.hpp>
@@ -113,60 +115,103 @@ TEST_CASE("Binary G-code and 3MF archives are refused", "[FibreSeek]")
 TEST_CASE("Remote names are unique per send and safe", "[FibreSeek]")
 {
     const std::string sha = std::string(64, 'a');
-    CHECK(remote_file_name("coupon_01.gcode", sha, "20261114T120000") == "coupon_01-aaaaaaaa-20261114T120000.gcode");
-    CHECK(remote_file_name("../../etc/passwd", sha, "T") == "etc_passwd-aaaaaaaa-T.gcode");
-    CHECK(remote_file_name("a b;rm -rf *.gcode", sha, "T") == "a_b_rm_-rf-aaaaaaaa-T.gcode");
-    CHECK(remote_file_name("Zahnrad \xc3\xbc%2F.GCODE", sha, "T") == "Zahnrad_2F-aaaaaaaa-T.gcode");
-    CHECK(remote_file_name("....", sha, "T") == "job-aaaaaaaa-T.gcode");
-    CHECK(remote_file_name(std::string(200, 'x'), sha, "T").size() == 64 + 17);
-    const std::regex safe("[A-Za-z0-9_-]+-[0-9a-f]{8}-[0-9T]+\\.gcode");
+    CHECK(remote_file_name("coupon_01.gcode", sha, "20261114T120000", "0badf00d") == "coupon_01-aaaaaaaa-20261114T120000-0badf00d.gcode");
+    CHECK(remote_file_name("../../etc/passwd", sha, "T", "n") == "etc_passwd-aaaaaaaa-T-n.gcode");
+    CHECK(remote_file_name("a b;rm -rf *.gcode", sha, "T", "n") == "a_b_rm_-rf-aaaaaaaa-T-n.gcode");
+    CHECK(remote_file_name("Zahnrad \xc3\xbc%2F.GCODE", sha, "T", "n") == "Zahnrad_2F-aaaaaaaa-T-n.gcode");
+    CHECK(remote_file_name("....", sha, "T", "n") == "job-aaaaaaaa-T-n.gcode");
+    CHECK(remote_file_name(std::string(200, 'x'), sha, "T", "n").size() == 64 + 19);
+    const std::regex safe("[A-Za-z0-9_-]+-[0-9a-f]{8}-[0-9T]+-[0-9a-f]{8}\\.gcode");
     for (const char *hostile : {"..\\..\\x.gcode", "\n\r\t.gcode", "a/b/c.gcode", "?.gcode", "-_-.gcode"})
-        CHECK(std::regex_match(remote_file_name(hostile, sha256_hex("x"), "20261114T120000"), safe));
+        CHECK(std::regex_match(remote_file_name(hostile, sha256_hex("x"), "20261114T120000", random_nonce()), safe));
+    // The same file sent twice in one second still gets two names.
+    std::set<std::string> nonces;
+    for (int i = 0; i < 32; ++i)
+        nonces.insert(random_nonce());
+    CHECK(nonces.size() == 32);
 }
 
-TEST_CASE("Reported file paths are compared relative to the G-code root", "[FibreSeek]")
+TEST_CASE("The G-code root comes from Moonraker's storage roots", "[FibreSeek]")
 {
-    CHECK(gcode_root_path("job.gcode") == "job.gcode");
-    CHECK(gcode_root_path("/home/pi/printer_data/gcodes/job.gcode") == "job.gcode");
-    CHECK(gcode_root_path("gcodes/job.gcode") == "job.gcode");
-    CHECK(gcode_root_path("other/job.gcode") == "other/job.gcode");
+    CHECK(gcode_root_from_roots(R"({"result": [{"name": "config", "path": "/c"}, {"name": "gcodes", "path": "/home/pi/printer_data/gcodes/"}]})") ==
+          "/home/pi/printer_data/gcodes");
+    CHECK(gcode_root_from_roots(R"({"result": [{"name": "gcodes", "path": "relative"}]})").empty());
+    CHECK(gcode_root_from_roots(R"({"result": {}})").empty());
+    CHECK(gcode_root_from_roots("not json").empty());
 }
 
-TEST_CASE("Only an idle, ready printer with no file loaded accepts a job", "[FibreSeek]")
+TEST_CASE("Printer admission follows the idle table", "[FibreSeek]")
 {
-    const auto status = [](json stats, json sdcard, const std::string &klipper = "ready") {
-        return query({{"webhooks", {{"state", klipper}}}, {"print_stats", std::move(stats)}, {"virtual_sdcard", std::move(sdcard)}});
+    const std::string root = "/home/pi/printer_data/gcodes";
+    const auto admit = [&](json state, json filename, json file_path, json active = false, json paused = false,
+                           const std::string &klipper = "ready") {
+        std::string reason;
+        return printer_is_idle(query({{"webhooks", {{"state", klipper}}},
+                                      {"print_stats", {{"state", std::move(state)}, {"filename", std::move(filename)}}},
+                                      {"virtual_sdcard", {{"is_active", std::move(active)}, {"file_path", std::move(file_path)}}},
+                                      {"pause_resume", {{"is_paused", std::move(paused)}}}}),
+                               root, reason);
     };
-    const json idle_stats  = {{"state", "standby"}, {"filename", ""}};
-    const json idle_sdcard = {{"is_active", false}, {"file_path", nullptr}};
-    std::string reason;
-    CHECK(printer_is_idle(status(idle_stats, idle_sdcard), reason));
-    CHECK(printer_is_idle(status({{"state", "complete"}, {"filename", ""}}, idle_sdcard), reason));
-    CHECK(printer_is_idle(status({{"state", "cancelled"}, {"filename", ""}}, {{"is_active", false}, {"file_path", ""}}), reason));
-
-    SECTION("not ready or busy") {
-        CHECK_FALSE(printer_is_idle(status(idle_stats, idle_sdcard, "startup"), reason));
-        for (const char *state : {"printing", "paused", "error", "some_vendor_state", ""})
-            CHECK_FALSE(printer_is_idle(status({{"state", state}, {"filename", ""}}, idle_sdcard), reason));
-        CHECK_FALSE(printer_is_idle(status(idle_stats, {{"is_active", true}, {"file_path", nullptr}}), reason));
+    SECTION("standby passes only with nothing named or selected") {
+        CHECK(admit("standby", "", nullptr));
+        CHECK(admit("standby", "", ""));
+        CHECK_FALSE(admit("standby", "m23.gcode", nullptr));
+        CHECK_FALSE(admit("standby", "", root + "/m23.gcode"));
+        CHECK_FALSE(admit("standby", "m23.gcode", root + "/m23.gcode"));
     }
-    SECTION("a file is already loaded") {
-        CHECK_FALSE(printer_is_idle(status({{"state", "complete"}, {"filename", "old.gcode"}}, idle_sdcard), reason));
-        CHECK(reason.find("old.gcode") != std::string::npos);
-        CHECK_FALSE(printer_is_idle(status(idle_stats, {{"is_active", false}, {"file_path", "/x/printer_data/gcodes/m23.gcode"}}), reason));
-        CHECK(reason.find("m23.gcode") != std::string::npos);
+    SECTION("a finished job's name is history; a still-selected file must be that same job") {
+        for (const char *state : {"complete", "cancelled"}) {
+            CHECK(admit(state, "", nullptr));
+            CHECK(admit(state, "last.gcode", nullptr));
+            CHECK(admit(state, "sub/last.gcode", root + "/sub/last.gcode"));
+            CHECK_FALSE(admit(state, "last.gcode", root + "/other.gcode"));
+            CHECK_FALSE(admit(state, "", root + "/other.gcode"));
+            CHECK_FALSE(admit(state, "last.gcode", "/elsewhere/last.gcode"));
+            CHECK_FALSE(admit(state, "last.gcode", root + "/gcodes/last.gcode"));
+        }
+    }
+    SECTION("running, paused, erroring or unknown printers are refused") {
+        for (const char *state : {"printing", "paused", "error", "some_vendor_state", ""})
+            CHECK_FALSE(admit(state, "", nullptr));
+        CHECK_FALSE(admit("standby", "", nullptr, true));        // SD reader active
+        CHECK_FALSE(admit("standby", "", nullptr, false, true)); // a PAUSE latched outside a print
+        CHECK_FALSE(admit("standby", "", nullptr, false, false, "startup"));
     }
     SECTION("missing or malformed fields block") {
-        CHECK_FALSE(printer_is_idle(status(idle_stats, {{"file_path", nullptr}}), reason));
-        CHECK_FALSE(printer_is_idle(status(idle_stats, {{"is_active", "false"}, {"file_path", nullptr}}), reason));
-        CHECK_FALSE(printer_is_idle(status(idle_stats, {{"is_active", false}}), reason));
-        CHECK_FALSE(printer_is_idle(status(idle_stats, {{"is_active", false}, {"file_path", 3}}), reason));
-        CHECK_FALSE(printer_is_idle(status({{"state", "standby"}}, idle_sdcard), reason));
-        CHECK_FALSE(printer_is_idle(status({{"state", 0}, {"filename", ""}}, idle_sdcard), reason));
-        CHECK_FALSE(printer_is_idle(query({{"webhooks", {{"state", "ready"}}}}), reason));
-        CHECK_FALSE(printer_is_idle("not json", reason));
-        CHECK_FALSE(printer_is_idle("{\"result\": [1, 2]}", reason));
+        CHECK_FALSE(admit("standby", "", nullptr, "false"));
+        CHECK_FALSE(admit("standby", "", nullptr, false, "false"));
+        CHECK_FALSE(admit("standby", "", 3));
+        CHECK_FALSE(admit("standby", nullptr, nullptr));
+        CHECK_FALSE(admit(0, "", nullptr));
+        std::string reason;
+        CHECK_FALSE(printer_is_idle(query({{"webhooks", {{"state", "ready"}}},
+                                           {"print_stats", {{"state", "standby"}, {"filename", ""}}},
+                                           {"virtual_sdcard", {{"is_active", false}, {"file_path", nullptr}}}}),
+                                    root, reason)); // no pause_resume
+        CHECK_FALSE(printer_is_idle("not json", root, reason));
+        CHECK_FALSE(printer_is_idle("{\"result\": [1, 2]}", root, reason));
     }
+    SECTION("without a known G-code root a still-selected file cannot be matched") {
+        std::string reason;
+        CHECK_FALSE(printer_is_idle(query({{"webhooks", {{"state", "ready"}}},
+                                           {"print_stats", {{"state", "complete"}, {"filename", "last.gcode"}}},
+                                           {"virtual_sdcard", {{"is_active", false}, {"file_path", root + "/last.gcode"}}},
+                                           {"pause_resume", {{"is_paused", false}}}}),
+                                    "", reason));
+    }
+}
+
+TEST_CASE("Only Moonraker's own pre-execution refusal means a start did not run", "[FibreSeek]")
+{
+    const auto envelope = [](unsigned code) { return json{{"error", {{"code", code}, {"message", "refused"}}}}.dump(); };
+    for (unsigned code : {400u, 401u, 403u, 404u})
+        CHECK(start_refused_before_execution(code, envelope(code)));
+    CHECK_FALSE(start_refused_before_execution(502, envelope(502)));
+    CHECK_FALSE(start_refused_before_execution(500, envelope(500)));
+    CHECK_FALSE(start_refused_before_execution(504, "<html>Gateway Timeout</html>"));
+    CHECK_FALSE(start_refused_before_execution(403, "<html>Forbidden by proxy</html>"));
+    CHECK_FALSE(start_refused_before_execution(400, envelope(404)));
+    CHECK_FALSE(start_refused_before_execution(0, ""));
 }
 
 TEST_CASE("Each tool must carry the nozzle the job was sliced for", "[FibreSeek]")
@@ -239,7 +284,8 @@ TEST_CASE("A start is confirmed only when the printer is printing this exact fil
                            "job.gcode", detail);
     };
     CHECK(state("printing", "job.gcode") == StartState::Started);
-    CHECK(state("printing", "/home/pi/printer_data/gcodes/job.gcode") == StartState::Started);
+    CHECK(state("printing", "/home/pi/printer_data/gcodes/job.gcode") == StartState::Waiting); // not root-relative
+    CHECK(state("printing", "gcodes/job.gcode") == StartState::Waiting);                       // a subdirectory file
     CHECK(state("printing", "other/job.gcode") == StartState::Waiting);
     CHECK(state("printing", "other_job.gcode") == StartState::Waiting);
     CHECK(state("standby", "job.gcode") == StartState::Waiting);
@@ -306,9 +352,27 @@ TEST_CASE("A Seeker 3 connection keeps the FibreSeek host through save and reope
     }
 }
 
-#if defined(FIBRESEEK_MOCK_PYTHON) && defined(FIBRESEEK_MOCK_SCRIPT)
-
 namespace {
+
+// The mock printer's interpreter and script. CI sets TINMAN_REQUIRE_FIBRESEEK_MOCK
+// so a missing one fails instead of skipping the end-to-end tests.
+std::string mock_python()
+{
+    if (const char *env = std::getenv("FIBRESEEK_MOCK_PYTHON"))
+        return env;
+#ifdef FIBRESEEK_MOCK_PYTHON
+    if (fs::exists(FIBRESEEK_MOCK_PYTHON))
+        return FIBRESEEK_MOCK_PYTHON;
+#endif
+    return boost::process::search_path("python3").string();
+}
+
+std::string mock_script()
+{
+    if (const char *env = std::getenv("FIBRESEEK_MOCK_SCRIPT"))
+        return env;
+    return FIBRESEEK_MOCK_SCRIPT;
+}
 
 // Runs fibreseek_mock_moonraker.py on a free 127.0.0.1 port for one test case.
 class MockPrinter
@@ -319,7 +383,7 @@ public:
         const fs::path dir = fs::temp_directory_path() / fs::unique_path("tinman-fs3-mock-%%%%%%%%");
         fs::create_directories(dir);
         m_port_file = dir / "port";
-        m_child = boost::process::child(FIBRESEEK_MOCK_PYTHON, FIBRESEEK_MOCK_SCRIPT, "--port", "0", "--port-file",
+        m_child = boost::process::child(mock_python(), mock_script(), "--port", "0", "--port-file",
                                         m_port_file.string(), boost::process::std_out > boost::process::null);
         for (int i = 0; i < 100 && m_port.empty(); ++i) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -374,8 +438,11 @@ struct SendResult
 {
     bool     ok = false;
     wxString error;
-    int      progress_calls = 0;
+    bool     acknowledged_cancel = false; // the host told the queue "Canceled"
 };
+
+// The percent the host shows between phases (FibreSeek.cpp): 92 verify, 95 start, 97 watch.
+bool at_percent(const Http::Progress &p, size_t percent) { return p.ultotal == 100 && p.ulnow == percent; }
 
 // cancel_when(progress) returning true cancels the send at that progress call.
 SendResult send(const MockPrinter &printer, const fs::path &file, PrintHostPostUploadAction action,
@@ -399,8 +466,12 @@ SendResult send(const MockPrinter &printer, const fs::path &file, PrintHostPostU
     result.ok = host.upload(
         upload,
         [&](Http::Progress progress, bool &cancel) {
-            ++result.progress_calls;
-            if (!cancel && cancel_when && cancel_when(progress))
+            if (cancel) { // the queue's "Canceled" acknowledgement
+                result.acknowledged_cancel = true;
+                return;
+            }
+            CHECK((progress.ultotal == 0 || progress.ulnow < progress.ultotal)); // never 100% before the outcome
+            if (cancel_when && cancel_when(progress))
                 cancel = true;
         },
         [&](wxString error) { result.error = error; }, [](wxString, wxString) {});
@@ -417,19 +488,25 @@ bool contains(const std::vector<std::string> &calls, const std::string &call)
 TEST_CASE("Sending to a mock Seeker 3", "[FibreSeek][Mock]")
 {
     // The test binary may run on a machine other than the one that built it.
-    if (!fs::exists(FIBRESEEK_MOCK_PYTHON) || !fs::exists(FIBRESEEK_MOCK_SCRIPT)) {
+    if (mock_python().empty() || !fs::exists(mock_python()) || !fs::exists(mock_script())) {
+        if (std::getenv("TINMAN_REQUIRE_FIBRESEEK_MOCK"))
+            FAIL("Python 3 or the mock printer script is missing: " << mock_python() << ", " << mock_script());
         WARN("Python 3 or the mock printer script is missing here; skipping the mock send tests.");
         return;
     }
     MockPrinter printer;
     REQUIRE(printer.running());
     TempFile job(seeker3_gcode());
-    const std::regex unique_name("job-" + sha256_hex(seeker3_gcode()).substr(0, 8) + "-\\d{8}T\\d{6}\\.gcode");
+    const std::regex unique_name("job-" + sha256_hex(seeker3_gcode()).substr(0, 8) + "-\\d{8}T\\d{6}-[0-9a-f]{8}\\.gcode");
 
     // A refused admission must leave the printer untouched.
     const auto untouched = [&]() {
         CHECK(printer.uploads() == 0);
         CHECK(printer.starts() == 0);
+    };
+    const auto reset_state = [&]() {
+        printer.set({{"klippy_state", "ready"}, {"print_state", "standby"}, {"print_filename", ""}, {"sd_file_path", nullptr},
+                     {"sdcard_active", false}, {"paused_latch", false}, {"omit", json::array()}, {"override", json::object()}});
     };
 
     SECTION("upload only stores and verifies the file under a unique name, without starting it")
@@ -457,40 +534,68 @@ TEST_CASE("Sending to a mock Seeker 3", "[FibreSeek][Mock]")
         REQUIRE(log["starts"].size() == 1);
         CHECK(log["starts"][0] == log["files"][0]);
     }
+    SECTION("the same file sent twice in one second gets two names")
+    {
+        CHECK(send(printer, job.path, PrintHostPostUploadAction::None).ok);
+        CHECK(send(printer, job.path, PrintHostPostUploadAction::None).ok);
+        CHECK(printer.log()["files"].size() == 2);
+    }
     SECTION("a hostile local name is reduced to a safe one")
     {
         TempFile hostile(seeker3_gcode(), "a b;rm -rf %2e%2e.gcode");
         CHECK(send(printer, hostile.path, PrintHostPostUploadAction::None).ok);
         const std::string stored = printer.log()["files"][0];
-        CHECK(std::regex_match(stored, std::regex("a_b_rm_-rf_2e_2e-[0-9a-f]{8}-\\d{8}T\\d{6}\\.gcode")));
+        CHECK(std::regex_match(stored, std::regex("a_b_rm_-rf_2e_2e-[0-9a-f]{8}-\\d{8}T\\d{6}-[0-9a-f]{8}\\.gcode")));
     }
-    SECTION("busy, not ready, paused, erroring or loaded printers get nothing")
+    SECTION("a printer that finished or cancelled its last job accepts the next one")
+    {
+        for (const json &state : {json{{"print_state", "complete"}, {"print_filename", "last.gcode"}},
+                                  json{{"print_state", "cancelled"}, {"print_filename", "last.gcode"}},
+                                  json{{"print_state", "complete"}, {"print_filename", "last.gcode"},
+                                       {"sd_file_path", "/home/pi/printer_data/gcodes/last.gcode"}}}) {
+            printer.set(state);
+            CHECK(send(printer, job.path, PrintHostPostUploadAction::StartPrint).ok);
+            reset_state();
+        }
+    }
+    SECTION("busy, not ready, paused, erroring or selected printers get nothing")
     {
         for (const json &state : {json{{"print_state", "printing"}, {"print_filename", "other.gcode"}},
                                   json{{"klippy_state", "shutdown"}},
                                   json{{"print_state", "paused"}, {"print_filename", "other.gcode"}},
+                                  json{{"paused_latch", true}},
                                   json{{"print_state", "error"}},
-                                  json{{"print_state", "complete"}, {"print_filename", "last.gcode"}},
+                                  json{{"print_filename", "m23.gcode"}},
                                   json{{"sd_file_path", "/home/pi/printer_data/gcodes/m23.gcode"}},
+                                  json{{"print_state", "complete"}, {"print_filename", "last.gcode"},
+                                       {"sd_file_path", "/home/pi/printer_data/gcodes/other.gcode"}},
                                   json{{"sdcard_active", true}}}) {
             printer.set(state);
             const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint);
             CHECK_FALSE(result.ok);
             CHECK_FALSE(result.error.empty());
             untouched();
-            printer.set({{"klippy_state", "ready"}, {"print_state", "standby"}, {"print_filename", ""},
-                         {"sd_file_path", nullptr}, {"sdcard_active", false}});
+            reset_state();
         }
     }
     SECTION("missing or malformed status fields block")
     {
         for (const json &state : {json{{"omit", {"virtual_sdcard.is_active"}}}, json{{"override", {{"virtual_sdcard.is_active", "false"}}}},
-                                  json{{"omit", {"print_stats.filename"}}}, json{{"override", {{"webhooks.state", 1}}}}}) {
+                                  json{{"omit", {"pause_resume.is_paused"}}}, json{{"omit", {"print_stats.filename"}}},
+                                  json{{"override", {{"webhooks.state", 1}}}}}) {
             printer.set(state);
             CHECK_FALSE(send(printer, job.path, PrintHostPostUploadAction::StartPrint).ok);
             untouched();
-            printer.set({{"omit", json::array()}, {"override", json::object()}});
+            reset_state();
         }
+    }
+    SECTION("a printer that does not name itself is refused before upload")
+    {
+        printer.set({{"hostname", ""}});
+        const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint);
+        CHECK_FALSE(result.ok);
+        CHECK(result.error.Contains("host name"));
+        untouched();
     }
     SECTION("swapped, wrong or unreported nozzles stop the send before upload")
     {
@@ -521,13 +626,24 @@ TEST_CASE("Sending to a mock Seeker 3", "[FibreSeek][Mock]")
         CHECK_FALSE(send(printer, job.path, PrintHostPostUploadAction::None).ok);
         CHECK(printer.starts() == 0);
     }
-    SECTION("a refused start is reported and not retried")
+    SECTION("Moonraker refusing the start is reported as not started, and not retried")
     {
         printer.set({{"start_status", 403}});
         const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint);
         CHECK_FALSE(result.ok);
         CHECK(result.error.Contains("refused"));
+        CHECK(result.error.Contains("not started"));
         CHECK(printer.starts() == 1);
+    }
+    SECTION("a 502 after the printer took the start is an unknown outcome, not a refusal")
+    {
+        printer.set({{"start_reply_status", 502}});
+        const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint);
+        CHECK_FALSE(result.ok);
+        CHECK(result.error.Contains("unknown"));
+        CHECK_FALSE(result.error.Contains("not started"));
+        CHECK(printer.starts() == 1);
+        CHECK(printer.log()["state"]["print_state"] == "printing");
     }
     SECTION("a start whose reply is lost has an unknown outcome and is not retried")
     {
@@ -543,6 +659,17 @@ TEST_CASE("Sending to a mock Seeker 3", "[FibreSeek][Mock]")
         const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint);
         CHECK_FALSE(result.ok);
         CHECK(result.error.Contains("unknown"));
+        CHECK(printer.starts() == 1);
+    }
+    SECTION("a pending cancel cannot hide an unknown start outcome")
+    {
+        // Cancel arrives while the start reply is lost: it must not turn into "Canceled".
+        printer.set({{"drop", {"/printer/print/start"}}});
+        const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint,
+                                       [&](const Http::Progress &p) { return at_percent(p, 95) && printer.starts() > 0; });
+        CHECK_FALSE(result.ok);
+        CHECK(result.error.Contains("unknown"));
+        CHECK_FALSE(result.acknowledged_cancel);
         CHECK(printer.starts() == 1);
     }
     SECTION("a start the printer never confirms has an unknown outcome")
@@ -564,7 +691,7 @@ TEST_CASE("Sending to a mock Seeker 3", "[FibreSeek][Mock]")
     SECTION("stalled or dropped replies before the upload stop the send")
     {
         for (const json &fault : {json{{"delay", {{"/printer/objects/query", 4}}}}, json{{"drop", {"/server/files/metadata"}}},
-                                  json{{"drop", {"/server/info"}}}}) {
+                                  json{{"drop", {"/server/info"}}}, json{{"drop", {"/printer/info"}}}}) {
             printer.set(fault);
             CHECK_FALSE(send(printer, job.path, PrintHostPostUploadAction::StartPrint).ok);
             untouched();
@@ -579,6 +706,11 @@ TEST_CASE("Sending to a mock Seeker 3", "[FibreSeek][Mock]")
             printer.set({{"redirect", {{"/server/files/upload", "http://" + elsewhere.address() + "/server/files/upload"}}}});
             CHECK_FALSE(send(printer, job.path, PrintHostPostUploadAction::StartPrint).ok);
             CHECK(printer.starts() == 0);
+        }
+        SECTION("a query redirect sends nothing to the other host") {
+            printer.set({{"redirect", {{"/printer/objects/query", "http://" + elsewhere.address() + "/printer/objects/query"}}}});
+            CHECK_FALSE(send(printer, job.path, PrintHostPostUploadAction::StartPrint).ok);
+            untouched();
         }
         SECTION("a start redirect sends nothing to the other host") {
             printer.set({{"redirect", {{"/printer/print/start", "http://" + elsewhere.address() + "/printer/print/start"}}}});
@@ -596,22 +728,50 @@ TEST_CASE("Sending to a mock Seeker 3", "[FibreSeek][Mock]")
         CHECK(result.error.Contains("another-printer"));
         CHECK(printer.starts() == 0);
     }
+    SECTION("a printer that pauses between the upload and the start is not started")
+    {
+        // The idle check runs again right before the start.
+        bool paused = false;
+        const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint, [&](const Http::Progress &p) {
+            if (!paused && at_percent(p, 92)) {
+                printer.set({{"paused_latch", true}});
+                paused = true;
+            }
+            return false;
+        });
+        CHECK_FALSE(result.ok);
+        CHECK(result.error.Contains("paused"));
+        CHECK(printer.starts() == 0);
+    }
     SECTION("cancel before the upload sends nothing")
     {
         const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint, [](const Http::Progress &) { return true; });
         CHECK_FALSE(result.ok);
         CHECK(result.error.empty()); // a cancel is not an error
+        CHECK(result.acknowledged_cancel);
         untouched();
     }
-    SECTION("cancel after the upload never starts")
+    SECTION("cancel during the readback or just before the start never starts")
     {
-        // The host reports 1 of 1 bytes between the phases after the upload.
+        const size_t percent = GENERATE(size_t(92), size_t(95));
         const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint,
-                                       [](const Http::Progress &p) { return p.ultotal == 1 && p.ulnow == 1; });
+                                       [percent](const Http::Progress &p) { return at_percent(p, percent); });
         CHECK_FALSE(result.ok);
         CHECK(result.error.empty());
+        CHECK(result.acknowledged_cancel);
         CHECK(printer.uploads() == 1);
         CHECK(printer.starts() == 0);
+    }
+    SECTION("cancel after the start was sent warns that the printer may be printing")
+    {
+        printer.set({{"state_after_start", "preparing"}});
+        const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint,
+                                       [](const Http::Progress &p) { return at_percent(p, 97); });
+        CHECK_FALSE(result.ok);
+        CHECK(result.error.Contains("Stopped watching"));
+        CHECK(result.error.Contains("may be printing"));
+        CHECK_FALSE(result.acknowledged_cancel);
+        CHECK(printer.starts() == 1);
     }
     SECTION("a job sliced for another printer is refused before any request")
     {
@@ -622,5 +782,3 @@ TEST_CASE("Sending to a mock Seeker 3", "[FibreSeek][Mock]")
         CHECK(printer.calls().empty());
     }
 }
-
-#endif

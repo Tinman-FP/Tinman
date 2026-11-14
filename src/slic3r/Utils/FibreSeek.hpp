@@ -12,25 +12,31 @@ namespace Slic3r {
 // job needs before it reaches the printer (see FibreSeekSendChecks.hpp):
 //
 //   1. the G-code is plain text sliced with a Seeker 3 profile;
-//   2. Klipper is ready and idle with no file loaded
-//      (GET /printer/objects/query?webhooks&print_stats&virtual_sdcard);
-//   3. T0 and T1 carry the nozzles the job was sliced for
+//   2. the printer answers (GET /server/info) and reports its host name
+//      (GET /printer/info); without one the send stops;
+//   3. Klipper is ready and idle by the admission rules in
+//      FibreSeekSendChecks.hpp (GET /printer/objects/query?webhooks&
+//      print_stats&virtual_sdcard&pause_resume, GET /server/files/roots);
+//   4. T0 and T1 carry the nozzles the job was sliced for
 //      (GET /printer/objects/query?configfile=config);
-//   4. the job goes up under a name unique to this send
+//   5. the job goes up under a name unique to this send
 //      (POST /server/files/upload with print=false and Moonraker's SHA-256
 //      checksum), and the printer must report exactly that name, unstarted;
-//   5. the stored copy is downloaded and compared byte for byte
+//   6. the stored copy is downloaded and compared byte for byte
 //      (GET /server/files/gcodes/<name>);
-//   6. for "Upload and print": idle and the printer's host name
-//      (GET /printer/info) are checked again, one start request is sent
-//      (POST /printer/print/start, never retried) and print_stats is watched
-//      until it reports "printing" for that file. If the printer does not
-//      confirm, the result is "outcome unknown, check the printer".
+//   7. for "Upload and print": idle and the host name are checked again, one
+//      start request is sent (POST /printer/print/start, never retried) and
+//      print_stats is watched until it reports "printing" for that file.
+//      Only Moonraker's own 400/401/403/404 counts as "not started"; a 5xx, a
+//      proxy error, no reply or no confirmation is "outcome unknown, check
+//      the printer".
 //
 // Every request has a bounded timeout, follows no redirects (an API key or a
 // start must not move to another host) and verifies TLS for https addresses.
 // The upload queue's Cancel is honoured between all phases until the start
-// request is dispatched. Only standard Moonraker endpoints are used.
+// request is dispatched; after that, Cancel only stops the watching, with a
+// warning that the printer may be printing. Progress stays below 100% until
+// the outcome is known. Only standard Moonraker endpoints are used.
 class FibreSeek : public Moonraker
 {
 public:
@@ -69,6 +75,8 @@ private:
     // request got no HTTP answer. stop() is polled to cancel the request.
     bool get(const std::string &path, std::string &body, unsigned &http_status, wxString &error,
              const std::function<bool()> &stop) const;
+    // GET /server/info answers like Moonraker. test() is this without a cancel.
+    bool probe(wxString &msg, const std::function<bool()> &stop) const;
 };
 
 } // namespace Slic3r

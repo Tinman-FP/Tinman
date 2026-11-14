@@ -157,6 +157,9 @@ jobs:
           useCloudCache: true
       - name: Unpackage and Run Unit Tests
         timeout-minutes: 20
+        env:
+          # The FibreSeek send tests must run against their mock printer, not skip.
+          TINMAN_REQUIRE_FIBRESEEK_MOCK: "1"
         run: |
           tar -xvf build_tests.tar
           scripts/run_unit_tests.sh

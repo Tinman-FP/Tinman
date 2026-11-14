@@ -38,10 +38,13 @@ DEFAULT_STATE = {
     "print_filename": "",              # print_stats.filename
     "sd_file_path": None,              # virtual_sdcard.file_path
     "sdcard_active": False,            # virtual_sdcard.is_active
+    "paused_latch": False,             # pause_resume.is_paused
+    "gcode_root": "/home/pi/printer_data/gcodes",  # /server/files/roots path of "gcodes"
     "omit": [],                        # "object.field" names left out of status replies
     "override": {},                    # "object.field": value, replacing status values (e.g. malformed types)
     "nozzles": {"extruder": 0.7, "extruder1": 0.4},  # T0 composite, T1 polymer
-    "start_status": 200,               # HTTP status of POST /printer/print/start
+    "start_status": 200,               # Moonraker refusing POST /printer/print/start before running it
+    "start_reply_status": None,        # reply status (e.g. 502 from a proxy) after the start was applied
     "state_after_start": "printing",   # print_stats.state once a print is started
     "corrupt_stored_copy": False,      # serve different bytes than were uploaded
     "start_on_upload": False,          # claim print_started in the upload reply
@@ -80,6 +83,8 @@ def status_objects(query: str) -> dict:
             objects[name] = {"state": STATE["print_state"], "filename": STATE["print_filename"], "message": ""}
         elif name == "virtual_sdcard":
             objects[name] = {"is_active": STATE["sdcard_active"], "file_path": STATE["sd_file_path"]}
+        elif name == "pause_resume":
+            objects[name] = {"is_paused": STATE["paused_latch"]}
         elif name == "configfile":
             config = {section: {"nozzle_diameter": value if isinstance(value, str) else f"{value:.3f}"}
                       for section, value in STATE["nozzles"].items()}
@@ -128,6 +133,9 @@ def route(method: str, path: str, query: str, headers, data: bytes):
             if FILES and STATE["hostname_after_upload"]:
                 hostname = STATE["hostname_after_upload"]
             return 200, {"result": {"state": STATE["klippy_state"], "hostname": hostname}}, None
+        if path == "/server/files/roots":
+            return 200, {"result": [{"name": "gcodes", "path": STATE["gcode_root"], "permissions": "rw"},
+                                    {"name": "config", "path": "/home/pi/printer_data/config", "permissions": "rw"}]}, None
         if path == "/printer/objects/query":
             return 200, {"result": {"eventtime": 1.0, "status": status_objects(query)}}, None
         if path == "/server/files/metadata":
@@ -167,6 +175,8 @@ def route(method: str, path: str, query: str, headers, data: bytes):
             return error(400, f"File {name} does not exist")
         STATE["print_state"] = STATE["state_after_start"]
         STATE["print_filename"] = name
+        if STATE["start_reply_status"]:  # e.g. a proxy timing out after the printer took the start
+            return STATE["start_reply_status"], None, b"<html><body>502 Bad Gateway</body></html>"
         return 200, {"result": "ok"}, None
     return error(404, "Not found")
 

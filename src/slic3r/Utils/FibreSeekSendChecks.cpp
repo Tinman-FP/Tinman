@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <memory>
+#include <random>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem/fstream.hpp>
@@ -219,7 +220,16 @@ bool read_job(const boost::filesystem::path &path, JobInfo &job, std::string &re
     return true;
 }
 
-std::string remote_file_name(const std::string &local_name, const std::string &sha256, const std::string &stamp)
+std::string random_nonce()
+{
+    std::random_device device;
+    char               text[9];
+    std::snprintf(text, sizeof(text), "%08x", unsigned(device()));
+    return text;
+}
+
+std::string remote_file_name(const std::string &local_name, const std::string &sha256, const std::string &stamp,
+                             const std::string &nonce)
 {
     std::string stem = local_name;
     if (boost::iends_with(stem, ".gcode"))
@@ -238,24 +248,28 @@ std::string remote_file_name(const std::string &local_name, const std::string &s
         clean.resize(64);
     if (clean.empty())
         clean = "job";
-    return clean + "-" + sha256.substr(0, 8) + "-" + stamp + ".gcode";
+    return clean + "-" + sha256.substr(0, 8) + "-" + stamp + "-" + nonce + ".gcode";
 }
 
-std::string gcode_root_path(std::string path)
+std::string gcode_root_from_roots(const std::string &body)
 {
-    boost::replace_all(path, "\\", "/");
-    // Klipper can report an absolute path into Moonraker's G-code folder.
-    const std::string root = "printer_data/gcodes/";
-    if (const size_t at = path.rfind(root); at != std::string::npos)
-        path = path.substr(at + root.size());
-    while (boost::starts_with(path, "/"))
-        path.erase(0, 1);
-    if (boost::starts_with(path, "gcodes/"))
-        path.erase(0, 7);
-    return path;
+    json        reply;
+    std::string ignored;
+    if (!parse(body, reply, ignored, "storage roots"))
+        return {};
+    const json *roots = member(reply, "result");
+    if (!roots || !roots->is_array())
+        return {};
+    for (const json &root : *roots) {
+        const std::string *name = string_member(root, "name");
+        const std::string *path = string_member(root, "path");
+        if (name && *name == "gcodes" && path && boost::starts_with(*path, "/"))
+            return boost::trim_right_copy_if(*path, boost::is_any_of("/"));
+    }
+    return {};
 }
 
-bool printer_is_idle(const std::string &body, std::string &reason)
+bool printer_is_idle(const std::string &body, const std::string &gcode_root, std::string &reason)
 {
     json reply;
     if (!parse(body, reply, reason, "printer state"))
@@ -263,6 +277,7 @@ bool printer_is_idle(const std::string &body, std::string &reason)
     const json &webhooks = status_of(reply, "webhooks");
     const json &stats    = status_of(reply, "print_stats");
     const json &sdcard   = status_of(reply, "virtual_sdcard");
+    const json &pause    = status_of(reply, "pause_resume");
 
     const std::string *klipper = string_member(webhooks, "state");
     if (!klipper || *klipper != "ready") {
@@ -276,32 +291,46 @@ bool printer_is_idle(const std::string &body, std::string &reason)
     const std::string *filename = string_member(stats, "filename");
     const json        *active   = member(sdcard, "is_active");
     const json        *path     = member(sdcard, "file_path");
-    if (!state || !filename || !active || !active->is_boolean() || !path || !(path->is_null() || path->is_string())) {
+    const json        *paused   = member(pause, "is_paused");
+    if (!state || !filename || !active || !active->is_boolean() || !path || !(path->is_null() || path->is_string()) ||
+        !paused || !paused->is_boolean()) {
         reason = "The printer did not report its print state completely, so Tinman cannot tell whether it is idle.";
-        return false;
-    }
-    if (*state == "error") {
-        reason = "The printer still shows an error from its last job. Clear it on the printer, then send again.";
-        return false;
-    }
-    // Only these Klipper states mean nothing is running; anything else is busy.
-    if (*state != "standby" && *state != "complete" && *state != "cancelled") {
-        reason = "The printer is busy (" + *state + "). Wait until it is idle, then send again.";
         return false;
     }
     if (active->get<bool>()) {
         reason = "The printer is still reading a file. Wait until it is idle, then send again.";
         return false;
     }
-    const std::string loaded = !filename->empty() ? *filename : path->is_string() ? path->get<std::string>() : std::string();
-    if (!loaded.empty()) {
-        // A loaded file (for example after M23, or a finished job not yet
-        // cleared) would be replaced by the new start.
-        reason = "The printer still has \"" + gcode_root_path(loaded) +
-                 "\" loaded. Clear it on the printer (the SDCARD_RESET_FILE command), then send again.";
+    if (paused->get<bool>()) {
+        reason = "The printer is paused. Resume or cancel on the printer, then send again.";
         return false;
     }
-    return true;
+    const std::string selected = path->is_string() ? path->get<std::string>() : std::string();
+    if (*state == "standby") {
+        // A file named or selected without printing (M23) would be replaced by the start.
+        if (filename->empty() && selected.empty())
+            return true;
+        reason = "The printer has \"" + (filename->empty() ? selected : *filename) +
+                 "\" selected but not started. Clear it on the printer, then send again.";
+        return false;
+    }
+    if (*state == "complete" || *state == "cancelled") {
+        // print_stats keeps the finished job's name; that alone is history. A
+        // still-selected file must be that same job, by its exact path.
+        if (selected.empty())
+            return true;
+        const std::string prefix = gcode_root.empty() ? std::string() : gcode_root + "/";
+        if (!prefix.empty() && !filename->empty() && selected == prefix + *filename)
+            return true;
+        reason = "The printer still has \"" + selected + "\" selected. Clear it on the printer, then send again.";
+        return false;
+    }
+    if (*state == "error") {
+        reason = "The printer still shows an error from its last job. Clear it on the printer, then send again.";
+        return false;
+    }
+    reason = "The printer is busy (" + *state + "). Wait until it is idle, then send again.";
+    return false;
 }
 
 bool printer_tool_nozzles(const std::string &body, double &t0, double &t1, std::string &reason)
@@ -387,6 +416,19 @@ std::string printer_identity(const std::string &body)
     return hostname ? *hostname : std::string();
 }
 
+bool start_refused_before_execution(unsigned http_status, const std::string &body)
+{
+    if (http_status != 400 && http_status != 401 && http_status != 403 && http_status != 404)
+        return false;
+    json        reply;
+    std::string ignored;
+    if (!parse(body, reply, ignored, "start"))
+        return false;
+    const json &error = child(reply, "error");
+    const json *code  = member(error, "code");
+    return code && code->is_number_unsigned() && code->get<unsigned>() == http_status && string_member(error, "message");
+}
+
 StartState start_state(const std::string &body, const std::string &remote_name, std::string &detail)
 {
     json reply;
@@ -396,8 +438,9 @@ StartState start_state(const std::string &body, const std::string &remote_name, 
     const std::string *state    = string_member(stats, "state");
     const std::string *filename = string_member(stats, "filename");
     detail                      = state ? *state : std::string("no state reported");
-    // Until Klipper loads our file, print_stats still describes the previous job.
-    if (!state || !filename || gcode_root_path(*filename) != remote_name)
+    // Until Klipper loads our file, print_stats still describes the previous
+    // job. print_stats.filename is relative to the G-code root: compare exactly.
+    if (!state || !filename || *filename != remote_name)
         return StartState::Waiting;
     if (*state == "printing")
         return StartState::Started;

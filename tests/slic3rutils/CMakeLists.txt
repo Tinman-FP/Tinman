@@ -22,12 +22,13 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif ()
 
 # The FibreSeek send tests run a mock printer written in Python on 127.0.0.1.
-# Without Python 3 only their mock part is left out.
+# The interpreter is found at run time if CMake does not find one; without it
+# the mock tests are skipped, or fail when TINMAN_REQUIRE_FIBRESEEK_MOCK is set (CI).
+target_compile_definitions(${_TEST_NAME}_tests PRIVATE
+    FIBRESEEK_MOCK_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/fibreseek_mock_moonraker.py")
 find_package(Python3 COMPONENTS Interpreter QUIET)
 if (Python3_Interpreter_FOUND)
-    target_compile_definitions(${_TEST_NAME}_tests PRIVATE
-        FIBRESEEK_MOCK_PYTHON="${Python3_EXECUTABLE}"
-        FIBRESEEK_MOCK_SCRIPT="${CMAKE_CURRENT_SOURCE_DIR}/fibreseek_mock_moonraker.py")
+    target_compile_definitions(${_TEST_NAME}_tests PRIVATE FIBRESEEK_MOCK_PYTHON="${Python3_EXECUTABLE}")
 endif ()
 
 set_property(TARGET ${_TEST_NAME}_tests PROPERTY FOLDER "tests")
