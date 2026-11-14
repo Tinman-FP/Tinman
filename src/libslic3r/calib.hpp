@@ -1,5 +1,12 @@
 #pragma once
+#include "Point.hpp"
+#include <math.h>
+#include <cmath>
+#include <cstddef>
 #include <string>
+#include <vector>
+#include <utility>
+#include <memory>
 #define calib_pressure_advance_dd
 
 #include "GCodeWriter.hpp"
@@ -35,10 +42,10 @@ struct Calib_Params
 {
     Calib_Params() : mode(CalibMode::Calib_None){};
     int extruder_id = 0;
-    double    start, end, step;
-    bool      print_numbers;
-    double freqStartX, freqEndX, freqStartY, freqEndY;
-    int test_model;
+    double    start = 0.0, end = 1.0, step = 0.1;
+    bool      print_numbers = false;
+    double freqStartX = 0.0, freqEndX = 1.0, freqStartY = 0.0, freqEndY = 1.0;
+    int test_model = 0;
     std::string shaper_type;
     std::vector<double> accelerations;
     std::vector<double> speeds;
@@ -104,25 +111,15 @@ class CaliPresetInfo
 {
 public:
     int         tray_id;
-    int         extruder_id;
-    NozzleVolumeType nozzle_volume_type;
-    BedType     bed_type;
+    int         extruder_id = 0;
+    NozzleVolumeType nozzle_volume_type{nvtStandard};
+    BedType     bed_type{btDefault};
     float       nozzle_diameter;
+    int         nozzle_pos_id{-1};
+    std::string nozzle_sn;
     std::string filament_id;
     std::string setting_id;
     std::string name;
-
-    CaliPresetInfo &operator=(const CaliPresetInfo &other)
-    {
-        this->tray_id         = other.tray_id;
-        this->extruder_id     = other.extruder_id;
-        this->nozzle_volume_type = other.nozzle_volume_type;
-        this->nozzle_diameter = other.nozzle_diameter;
-        this->filament_id     = other.filament_id;
-        this->setting_id      = other.setting_id;
-        this->name            = other.name;
-        return *this;
-    }
 };
 
 struct PrinterCaliInfo
@@ -148,7 +145,9 @@ public:
     int         ams_id = 0;
     int         slot_id = 0;
     int         cali_idx = -1;
+    int         nozzle_pos_id = -1; //-1 means no nozzle pos
     float       nozzle_diameter;
+    std::string nozzle_sn;
     std::string filament_id;
     std::string setting_id;
     std::string name;
@@ -165,7 +164,9 @@ struct PACalibIndexInfo
     int         ams_id = 0;
     int         slot_id = 0;
     int         cali_idx = -1; // -1 means default
+    int         nozzle_pos_id = -1; //-1 means no nozzle pos
     float       nozzle_diameter;
+    std::string nozzle_sn;
     std::string filament_id;
 };
 
@@ -173,7 +174,9 @@ struct PACalibExtruderInfo
 {
     int              extruder_id = 0;
     NozzleVolumeType nozzle_volume_type;
+    int              nozzle_pos_id = -1; //-1 means no nozzle pos
     float            nozzle_diameter;
+    std::string      nozzle_sn;
     std::string      filament_id = "";
     bool             use_extruder_id{true};
     bool             use_nozzle_volume_type{true};
@@ -208,6 +211,7 @@ struct DrawBoxOptArgs
     double height;
     double line_width;
     double speed;
+    double e_per_mm{0.}; // 0: extrude with the first filament's settings
 };
 class CalibPressureAdvance
 {
@@ -246,8 +250,13 @@ protected:
                             double                              speed,
                             GCodeWriter                        &writer);
 
-    std::string draw_line(
-        GCodeWriter &writer, Vec2d to_pt, double line_width, double layer_height, double speed, const std::string &comment = std::string());
+    std::string draw_line(GCodeWriter       &writer,
+                          Vec2d              to_pt,
+                          double             line_width,
+                          double             layer_height,
+                          double             speed,
+                          const std::string &comment  = std::string(),
+                          double             e_per_mm = 0.);
     std::string draw_box(GCodeWriter &writer, double min_x, double min_y, double size_x, double size_y, DrawBoxOptArgs opt_args);
 
     double to_radians(double degrees) const { return degrees * M_PI / 180; };
@@ -307,7 +316,7 @@ private:
 
 struct SuggestedConfigCalibPAPattern
 {
-    const std::vector<std::pair<std::string, double>> float_pairs{{"initial_layer_speed", 30}};
+    const std::vector<std::pair<std::string, std::vector<double>>> floats_pairs{{"initial_layer_speed", {30}}};
 
     const std::vector<std::pair<std::string, double>> nozzle_ratio_pairs{{"line_width", 112.5}, {"initial_layer_line_width", 140}};
 
@@ -339,9 +348,9 @@ public:
 
 protected:
     // todo multi_extruders:
-    double speed_first_layer() const { return m_config.option<ConfigOptionFloat>("initial_layer_speed")->value; };
-    double speed_perimeter() const { return m_config.option<ConfigOptionFloat>("outer_wall_speed")->value; };
-    double accel_perimeter() const { return m_config.option<ConfigOptionFloat>("outer_wall_acceleration")->value; }
+    double speed_first_layer() const { return m_config.get_abs_value_at("initial_layer_speed", m_params.extruder_id); };
+    double speed_perimeter() const { return m_config.get_abs_value_at("outer_wall_speed", m_params.extruder_id); };
+    double accel_perimeter() const { return m_config.get_abs_value_at("outer_wall_acceleration", m_params.extruder_id); }
     double line_width_first_layer() const;
     double line_width() const;
     int    wall_count() const { return m_config.option<ConfigOptionInt>("wall_loops")->value; };
@@ -380,7 +389,10 @@ private:
 
     const Calib_Params &m_params;
 
-    GCodeWriter        m_writer;
+    // Belt printers get belt kinematics installed on it (_refresh_writer);
+    // shared_ptr keeps the class copyable — the writer is rebuilt by
+    // refresh_setup() before every use anyway.
+    std::shared_ptr<GCodeWriter> m_writer{std::make_shared<GCodeWriter>()};
     Vec3d              m_starting_point;
     bool               m_is_start_point_fixed = false;
 

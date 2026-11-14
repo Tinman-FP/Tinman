@@ -1,14 +1,19 @@
 #include <catch2/catch_all.hpp>
 
 #include <algorithm>
+#include "libslic3r/CustomGCode.hpp"
 #include <sstream>
 #include <string>
 #include <limits>
 
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "libslic3r/calib.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/Point.hpp"
 #include "libslic3r/Flow.hpp"
 #include "libslic3r/GCode.hpp"
 #include "libslic3r/Print.hpp"
@@ -140,11 +145,12 @@ TEST_CASE("PA line preview reports thickness independently of Z offset", "[Calib
 
 TEST_CASE("Adaptive PA accepts complete numeric measurements and rejects malformed values", "[Calib][Regression]")
 {
-    for (const auto* valid : {"", "\n", "0.02,10,1000", " 0.02, 10, 1000\r\n0.03,20,2000\n", "2e-2,1e1,1e3", "0.1,0.05,0.01"}) {
+    for (const auto* valid : {"", "\n", "0.02,10,1000", " 0.02, 10, 1000\r\n0.03,20,2000\n"}) {
         CAPTURE(valid);
         CHECK(AdaptivePAProcessor::validate_adaptive_pa_model(valid).empty());
     }
-    for (const auto* invalid : {"0.02.3,10,1000", "0.02,10.2.3,1000", "0.02,10,1000x", "nan,10,1000", "0.02,inf,1000",
+    // Orca 2.5.1 accepts only digits, commas and dots (no exponents) and wants PA < flow < acceleration.
+    for (const auto* invalid : {"2e-2,1e1,1e3", "0.1,0.05,0.01", "0.02.3,10,1000", "0.02,10.2.3,1000", "0.02,10,1000x", "nan,10,1000", "0.02,inf,1000",
          "0.02,10,1e999", "-0.02,10,1000", "2,10,1000", "0.02,0,1000", "0.02,10,0", "0.02,10", "0.02,10,", "0.02,10,1000,3"}) {
         CAPTURE(invalid);
         CHECK_FALSE(AdaptivePAProcessor::validate_adaptive_pa_model(invalid).empty());
@@ -167,8 +173,8 @@ TEST_CASE("Invalid enabled Adaptive PA blocks print validation without a warning
     print.auto_assign_extruders(object);
     print.apply(model, config);
     CHECK_THAT(print.validate().string, Catch::Matchers::ContainsSubstring("Invalid Adaptive Pressure Advance"));
-    StringObjectException warning;
-    CHECK_THAT(print.validate(&warning).string, Catch::Matchers::ContainsSubstring("Invalid Adaptive Pressure Advance"));
+    std::vector<StringObjectException> warnings;
+    CHECK_THAT(print.validate(&warnings).string, Catch::Matchers::ContainsSubstring("Invalid Adaptive Pressure Advance"));
 }
 
 namespace {

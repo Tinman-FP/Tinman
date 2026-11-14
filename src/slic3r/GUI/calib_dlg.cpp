@@ -2,17 +2,47 @@
 #include "GUI_App.hpp"
 #include "MsgDialog.hpp"
 #include "I18N.hpp"
+#include <algorithm>
+#include <sstream>
+#include <iterator>
+#include "slic3r/GUI/Widgets/CheckBox.hpp"
+#include <wx/anybutton.h>
+#include <wx/checklst.h>
+#include "libslic3r/Config.hpp"
+#include <cstddef>
+#include "slic3r/GUI/GUI_Utils.hpp"
+#include <wx/colour.h>
+#include "slic3r/GUI/Widgets/Button.hpp"
+#include "slic3r/GUI/Widgets/Label.hpp"
+#include "slic3r/GUI/Widgets/LabeledStaticBox.hpp"
+#include "slic3r/GUI/Widgets/RadioGroup.hpp"
+#include "slic3r/GUI/Widgets/TextInput.hpp"
+#include "libslic3r/calib.hpp"
+#include "libslic3r/libslic3r.h"
+#include "slic3r/GUI/Widgets/ComboBox.hpp"
+#include <boost/filesystem/path.hpp>
+#include <boost/filesystem/operations.hpp>
+#include "slic3r/GUI/wxExtensions.hpp"
 #include <wx/dcgraph.h>
 #include "MainFrame.hpp"
 #include "Widgets/DialogButtons.hpp"
-#include "Widgets/HyperLink.hpp"
 #include <string>
 #include <vector>
 #include <cmath>
+#include <wx/string.h>
+#include <wx/gdicmn.h>
+#include <wx/sizer.h>
+#include <wx/dialog.h>
+#include <wx/valtext.h>
+#include <wx/tglbtn.h>
+#include <wx/utils.h>
+#include <wx/event.h>
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Flow.hpp"
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/TuningGuide.hpp"
+#include "Plater.hpp"
+#include "GUI.hpp"
 
 namespace Slic3r { namespace GUI {
 
@@ -43,7 +73,7 @@ CheckBox* add_scale_checkbox(wxWindow* parent, wxSizer* settings_sizer)
     auto cb   = new CheckBox(parent);
     cb->SetValue(true);
     auto text = new wxStaticText(parent, wxID_ANY, _L("Auto-scale for nozzle"), wxDefaultPosition, wxDefaultSize, wxALIGN_LEFT);
-    cb->SetToolTip(_L("This model is designed around a 0.4 mm nozzle with a 0.2 mm layer height. \n"
+    cb->SetToolTip(_L("This model is designed around a 0.4 mm nozzle with a 0.2 mm layer height.\n"
                       "When the scaling option is enabled (recommended), it dynamically resizes to match your current nozzle diameter"
                       " and an appropriate layer height, making the test both accurate and easy to read.\n"
                       "Turn scaling off only if you wish to print the reference model exactly as-is."));
@@ -96,6 +126,19 @@ std::vector<wxString> make_shaper_type_labels()
     for (const auto& label : values)
         labels.emplace_back(wxString::FromUTF8(label.c_str()));
     return labels;
+}
+
+// ORCA-Belt: PA Line / PA Pattern have belt plumbing in place (drawn on the
+// belt surface via BeltKinematics world-coordinates mode) but are not
+// validated yet — belt printers are restricted to the PA Tower for now.
+bool is_belt_printer_selected()
+{
+    if (auto* preset_bundle = wxGetApp().preset_bundle) {
+        const auto& cfg = preset_bundle->printers.get_edited_preset().config;
+        const auto* opt = cfg.option<ConfigOptionBool>("belt_printer");
+        return opt != nullptr && opt->value;
+    }
+    return false;
 }
 
 }
@@ -211,8 +254,15 @@ PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* 
     auto dlg_btns = new DialogButtons(this, {"OK"});
 
     auto bottom_sizer = new wxBoxSizer(wxHORIZONTAL);
-    auto wiki = new HyperLink(this, _L("Wiki Guide"), from_u8(tuning_guide_url("pressure_advance_calib")));
-    bottom_sizer->Add(wiki, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(20));
+
+    auto wiki_btn = new Button(this, "", "toolbar_wiki", 0, 15);
+    auto wiki_url = from_u8(tuning_guide_url("pressure_advance_calib"));
+    wiki_btn->SetToolTip(_L("Wiki Guide") + "\n" + wiki_url);
+    wiki_btn->SetStyle(ButtonStyle::Confirm, ButtonType::Circle);
+    wiki_btn->SetCanFocus(false);
+    wiki_btn->Bind(wxEVT_LEFT_DOWN, ([wiki_url](auto& e) {wxLaunchDefaultBrowser(wiki_url);}));
+
+    bottom_sizer->Add(wiki_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
     bottom_sizer->AddStretchSpacer();
     bottom_sizer->Add(dlg_btns, 0, wxEXPAND);
     v_sizer->Add(bottom_sizer, 0, wxEXPAND);
@@ -308,6 +358,14 @@ void PA_Calibration_Dlg::on_start(wxCommandEvent& event) {
             m_params.mode = CalibMode::Calib_PA_Tower;
     }
 
+    // ORCA-Belt: backstop in case the selection slipped past the UI guards.
+    if (is_belt_printer_selected() && m_params.mode != CalibMode::Calib_PA_Tower) {
+        MessageDialog msg_dlg(nullptr, _L("PA Line and PA Pattern tests are not enabled yet on belt printers.\nPlease use the PA Tower method instead."),
+                              wxEmptyString, wxICON_WARNING | wxOK);
+        msg_dlg.ShowModal();
+        return;
+    }
+
     m_params.print_numbers = m_cbPrintNum->GetValue();
     ParseStringValues(m_tiBMAccels->GetTextCtrl()->GetValue().ToStdString(), m_params.accelerations);
     ParseStringValues(m_tiBMSpeeds->GetTextCtrl()->GetValue().ToStdString(), m_params.speeds);
@@ -334,6 +392,9 @@ void PA_Calibration_Dlg::on_extruder_type_changed(wxCommandEvent& event) {
     event.Skip();
 }
 void PA_Calibration_Dlg::on_method_changed(wxCommandEvent& event) {
+    // ORCA-Belt: only the PA Tower method is enabled on belt printers so far.
+    if (is_belt_printer_selected() && m_rbMethod->GetSelection() != 0)
+        m_rbMethod->SetSelection(0, true);
     PA_Calibration_Dlg::reset_params();
     event.Skip();
 }
@@ -344,6 +405,17 @@ void PA_Calibration_Dlg::on_dpi_changed(const wxRect& suggested_rect) {
 }
 
 void PA_Calibration_Dlg::on_show(wxShowEvent& event) {
+    // ORCA-Belt: the dialog is cached across printer switches, so refresh the
+    // belt restriction on every show.
+    if (is_belt_printer_selected()) {
+        m_rbMethod->SetSelection(0);
+        const wxString tip = _L("Not enabled yet on belt printers — use the PA Tower method instead.");
+        m_rbMethod->SetRadioTooltip(1, tip);
+        m_rbMethod->SetRadioTooltip(2, tip);
+    } else {
+        m_rbMethod->SetRadioTooltip(1, wxEmptyString);
+        m_rbMethod->SetRadioTooltip(2, wxEmptyString);
+    }
     PA_Calibration_Dlg::reset_params();
 }
 
@@ -379,6 +451,17 @@ Temp_Calibration_Dlg::Temp_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plat
 	m_rbFilamentType = new RadioGroup(this, { _L("PLA"), _L("ABS/ASA"), _L("PETG"), _L("PCTG"), _L("TPU"), _L("PA-CF"), _L("PET-CF"), _L("Custom") }, wxVERTICAL, 2);
     method_box->Add(m_rbFilamentType, 0, wxALL | wxEXPAND, FromDIP(4));
     v_sizer->Add(method_box, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
+
+    // Belt temperature-tower model: Standard (sectioned tower) vs Overhang (engraved
+    // inverted-L provini that stress overhang quality per temperature). Only affects
+    // belt printers; the upright tower ignores it, so the picker is only shown on
+    // belts. The dialog is cached across printer switches, so visibility is toggled
+    // per-show in on_show() rather than gated here at construction time.
+    auto labeled_box_model = new LabeledStaticBox(this, _L("Test model"));
+    m_model_box = new wxStaticBoxSizer(labeled_box_model, wxHORIZONTAL);
+    m_rbModel = new RadioGroup(this, { _L_CONTEXT("Standard", "Test model"), _L_CONTEXT("Overhang", "Test model") }, wxVERTICAL);
+    m_model_box->Add(m_rbModel, 0, wxALL | wxEXPAND, FromDIP(4));
+    v_sizer->Add(m_model_box, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
 
     // Settings
     wxString start_temp_str = _L("Start temp: ");
@@ -433,8 +516,15 @@ Temp_Calibration_Dlg::Temp_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plat
     auto dlg_btns = new DialogButtons(this, {"OK"});
 
     auto bottom_sizer = new wxBoxSizer(wxHORIZONTAL);
-    auto wiki = new HyperLink(this, _L("Wiki Guide"), from_u8(tuning_guide_url("temp_calib")));
-    bottom_sizer->Add(wiki, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(20));
+
+    auto wiki_btn = new Button(this, "", "toolbar_wiki", 0, 15);
+    auto wiki_url = from_u8(tuning_guide_url("temp_calib"));
+    wiki_btn->SetToolTip(_L("Wiki Guide") + "\n" + wiki_url);
+    wiki_btn->SetStyle(ButtonStyle::Confirm, ButtonType::Circle);
+    wiki_btn->SetCanFocus(false);
+    wiki_btn->Bind(wxEVT_LEFT_DOWN, ([wiki_url](auto& e) {wxLaunchDefaultBrowser(wiki_url);}));
+
+    bottom_sizer->Add(wiki_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
     bottom_sizer->AddStretchSpacer();
     bottom_sizer->Add(dlg_btns, 0, wxEXPAND);
     v_sizer->Add(bottom_sizer, 0, wxEXPAND);
@@ -442,6 +532,11 @@ Temp_Calibration_Dlg::Temp_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plat
     dlg_btns->GetOK()->Bind(wxEVT_BUTTON, &Temp_Calibration_Dlg::on_start, this);
 
     m_rbFilamentType->Connect(wxEVT_COMMAND_RADIOBOX_SELECTED, wxCommandEventHandler(Temp_Calibration_Dlg::on_filament_type_changed), NULL, this);
+
+    // Refresh the belt-only model picker on every show — the dialog is cached and
+    // reused across printer switches.
+    this->Connect(wxEVT_SHOW, wxShowEventHandler(Temp_Calibration_Dlg::on_show));
+    m_model_box->ShowItems(is_belt_printer_selected());
 
     wxGetApp().UpdateDlgDarkUI(this);
 
@@ -454,7 +549,8 @@ Temp_Calibration_Dlg::Temp_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plat
         if(!ti->GetTextCtrl()->GetValue().ToULong(&t))
             return;
         if(t> 500 || t < 155){
-            MessageDialog msg_dlg(nullptr, wxString::Format(L"Supported range: 170%s - 500%s",
+            // TRN %s is the temperature unit
+            MessageDialog msg_dlg(nullptr, wxString::Format(_L("Supported range: 170%s - 500%s"),
                 _L("\u2103" /* °C */), _L("\u2103" /* °C */)),
                 wxEmptyString, wxICON_WARNING | wxOK);
             msg_dlg.ShowModal();
@@ -500,9 +596,25 @@ void Temp_Calibration_Dlg::on_start(wxCommandEvent& event) {
     m_params.end = end;
     m_params.nozzle_based_resize = m_cbResize->GetValue();
     m_params.mode = CalibMode::Calib_Temp_Tower;
+    // Picker only exists on belt printers; default non-belt to the Standard model.
+    m_params.test_model = m_rbModel ? m_rbModel->GetSelection() : 0;
     m_plater->calib_temp(m_params);
     EndModal(wxID_OK);
 
+}
+
+void Temp_Calibration_Dlg::on_show(wxShowEvent& event) {
+    // ORCA-Belt: the dialog is cached across printer switches, so refresh the
+    // belt-only "Test model" picker on every show. The Overhang model only
+    // applies to belt printers; hide it (and resize the dialog) otherwise.
+    const bool belt = is_belt_printer_selected();
+    if (m_model_box->AreAnyItemsShown() != belt) {
+        m_model_box->ShowItems(belt);
+        Layout();
+        Fit();
+        GetSizer()->SetSizeHints(this);
+    }
+    event.Skip();
 }
 
 void Temp_Calibration_Dlg::on_filament_type_changed(wxCommandEvent& event) {
@@ -570,7 +682,7 @@ MaxVolumetricSpeed_Test_Dlg::MaxVolumetricSpeed_Test_Dlg(wxWindow* parent, wxWin
     // Settings
     wxString start_vol_str = _L("Start volumetric speed: ");
     wxString end_vol_str   = _L("End volumetric speed: ");
-    wxString vol_step_str  = _L("Step") + ": ";
+    wxString vol_step_str  = _L_CONTEXT("Step", "Increment") + ": ";
     int text_max = GetTextMax(this, std::vector<wxString>{start_vol_str, end_vol_str, vol_step_str});
 
     auto st_size = wxSize(text_max, -1);
@@ -615,8 +727,15 @@ MaxVolumetricSpeed_Test_Dlg::MaxVolumetricSpeed_Test_Dlg(wxWindow* parent, wxWin
     auto dlg_btns = new DialogButtons(this, {"OK"});
 
     auto bottom_sizer = new wxBoxSizer(wxHORIZONTAL);
-    auto wiki = new HyperLink(this, _L("Wiki Guide"), from_u8(tuning_guide_url("volumetric_speed_calib")));
-    bottom_sizer->Add(wiki, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(20));
+
+    auto wiki_btn = new Button(this, "", "toolbar_wiki", 0, 15);
+    auto wiki_url = from_u8(tuning_guide_url("volumetric_speed_calib"));
+    wiki_btn->SetToolTip(_L("Wiki Guide") + "\n" + wiki_url);
+    wiki_btn->SetStyle(ButtonStyle::Confirm, ButtonType::Circle);
+    wiki_btn->SetCanFocus(false);
+    wiki_btn->Bind(wxEVT_LEFT_DOWN, ([wiki_url](auto& e) {wxLaunchDefaultBrowser(wiki_url);}));
+
+    bottom_sizer->Add(wiki_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
     bottom_sizer->AddStretchSpacer();
     bottom_sizer->Add(dlg_btns, 0, wxEXPAND);
     v_sizer->Add(bottom_sizer, 0, wxEXPAND);
@@ -676,7 +795,7 @@ VFA_Test_Dlg::VFA_Test_Dlg(wxWindow* parent, wxWindowID id, Plater* plater)
     // Settings
     wxString start_str    = _L("Start speed: ");
     wxString end_vol_str  = _L("End speed: ");
-    wxString vol_step_str = _L("Step") + ": ";
+    wxString vol_step_str = _L_CONTEXT("Step", "Increment") + ": ";
     int text_max = GetTextMax(this, std::vector<wxString>{start_str, end_vol_str, vol_step_str});
 
     auto st_size = wxSize(text_max, -1);
@@ -739,8 +858,15 @@ VFA_Test_Dlg::VFA_Test_Dlg(wxWindow* parent, wxWindowID id, Plater* plater)
     auto dlg_btns = new DialogButtons(this, {"OK"});
 
     auto bottom_sizer = new wxBoxSizer(wxHORIZONTAL);
-    auto wiki = new HyperLink(this, _L("Wiki Guide"), from_u8(tuning_guide_url("vfa_calib")));
-    bottom_sizer->Add(wiki, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(20));
+
+    auto wiki_btn = new Button(this, "", "toolbar_wiki", 0, 15);
+    auto wiki_url = from_u8(tuning_guide_url("vfa_calib"));
+    wiki_btn->SetToolTip(_L("Wiki Guide") + "\n" + wiki_url);
+    wiki_btn->SetStyle(ButtonStyle::Confirm, ButtonType::Circle);
+    wiki_btn->SetCanFocus(false);
+    wiki_btn->Bind(wxEVT_LEFT_DOWN, ([wiki_url](auto& e) {wxLaunchDefaultBrowser(wiki_url);}));
+
+    bottom_sizer->Add(wiki_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
     bottom_sizer->AddStretchSpacer();
     bottom_sizer->Add(dlg_btns, 0, wxEXPAND);
     v_sizer->Add(bottom_sizer, 0, wxEXPAND);
@@ -851,7 +977,7 @@ void VFA_Test_Dlg::on_start(wxCommandEvent& event)
             MessageDialog msg_dlg(nullptr,
                 wxString::Format(_L("The end speed (%.0f mm/s) exceeds the filament's maximum volumetric speed "
                                     "(%.1f mm³/s), which limits the outer wall to about %.0f mm/s at this line width and "
-                                    "layer height.\n Speeds above this will be clamped, so the upper blocks of the tower "
+                                    "layer height.\nSpeeds above this will be clamped, so the upper blocks of the tower "
                                     "will not print at the requested speed.\n\n%s"),
                                  m_params.end, max_vol_speed, speed_limit_for_lh(default_lh), question),
                 _L("VFA test"), wxICON_WARNING | wxYES_NO | wxNO_DEFAULT);
@@ -954,7 +1080,7 @@ Retraction_Test_Dlg::Retraction_Test_Dlg(wxWindow* parent, wxWindowID id, Plater
     // Settings
     wxString start_length_str = _L("Start retraction length: ");
     wxString end_length_str   = _L("End retraction length: ");
-    wxString length_step_str  = _L("Step") + ": ";
+    wxString length_step_str  = _L_CONTEXT("Step", "Increment") + ": ";
     int text_max = GetTextMax(this, std::vector<wxString>{start_length_str, end_length_str, length_step_str});
 
     auto st_size = wxSize(text_max, -1);
@@ -1001,8 +1127,15 @@ Retraction_Test_Dlg::Retraction_Test_Dlg(wxWindow* parent, wxWindowID id, Plater
     auto dlg_btns = new DialogButtons(this, {"OK"});
 
     auto bottom_sizer = new wxBoxSizer(wxHORIZONTAL);
-    auto wiki = new HyperLink(this, _L("Wiki Guide"), from_u8(tuning_guide_url("retraction_calib")));
-    bottom_sizer->Add(wiki, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(20));
+
+    auto wiki_btn = new Button(this, "", "toolbar_wiki", 0, 15);
+    auto wiki_url = from_u8(tuning_guide_url("retraction_calib"));
+    wiki_btn->SetToolTip(_L("Wiki Guide") + "\n" + wiki_url);
+    wiki_btn->SetStyle(ButtonStyle::Confirm, ButtonType::Circle);
+    wiki_btn->SetCanFocus(false);
+    wiki_btn->Bind(wxEVT_LEFT_DOWN, ([wiki_url](auto& e) {wxLaunchDefaultBrowser(wiki_url);}));
+
+    bottom_sizer->Add(wiki_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
     bottom_sizer->AddStretchSpacer();
     bottom_sizer->Add(dlg_btns, 0, wxEXPAND);
     v_sizer->Add(bottom_sizer, 0, wxEXPAND);
@@ -1091,7 +1224,7 @@ Input_Shaping_Freq_Test_Dlg::Input_Shaping_Freq_Test_Dlg(wxWindow* parent, wxWin
             firmware_note = _L("Klipper version => 0.9.0");
             break;
         case GCodeFlavor::gcfRepRapFirmware:
-            firmware_note = _L("RepRap firmware version => 3.4.0\nCheck your firmware documentation for supported shaper types.");
+            firmware_note = _L("RepRapFirmware version => 3.4.0\nCheck your firmware documentation for supported shaper types.");
             break;
         default:
             break;
@@ -1105,8 +1238,8 @@ Input_Shaping_Freq_Test_Dlg::Input_Shaping_Freq_Test_Dlg(wxWindow* parent, wxWin
     v_sizer->Add(type_box, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
 
     // Settings
-    wxString x_axis_str = reprap_firmware ? _L("Frequency (Start / End): ") : "X " + _L("Start / End") + ": ";
-    wxString y_axis_str = "Y " + _L("Start / End") + ": ";
+    wxString x_axis_str = reprap_firmware ? _L("Frequency (Start / End): ") : _L("X Start / End: ");
+    wxString y_axis_str = _L("Y Start / End: ");
     int text_max = GetTextMax(this, std::vector<wxString>{x_axis_str, y_axis_str});
 
     auto st_size = wxSize(text_max, -1);
@@ -1151,8 +1284,8 @@ Input_Shaping_Freq_Test_Dlg::Input_Shaping_Freq_Test_Dlg(wxWindow* parent, wxWin
         m_tiFreqEndY->Hide();
         settings_sizer->Hide(y_freq_sizer);
         start_x_text->SetLabel(_L("Frequency (Start / End): "));
-        m_tiFreqStartX->GetTextCtrl()->SetToolTip(_L("RepRap firmware uses the same frequency range for both axes."));
-        m_tiFreqEndX->GetTextCtrl()->SetToolTip(_L("RepRap firmware uses the same frequency range for both axes."));
+        m_tiFreqStartX->GetTextCtrl()->SetToolTip(_L("RepRapFirmware uses the same frequency range for both axes."));
+        m_tiFreqEndX->GetTextCtrl()->SetToolTip(_L("RepRapFirmware uses the same frequency range for both axes."));
     }
 
     // Damping Factor
@@ -1181,8 +1314,15 @@ Input_Shaping_Freq_Test_Dlg::Input_Shaping_Freq_Test_Dlg(wxWindow* parent, wxWin
     auto dlg_btns = new DialogButtons(this, {"OK"});
 
     auto bottom_sizer = new wxBoxSizer(wxHORIZONTAL);
-    auto wiki = new HyperLink(this, _L("Wiki Guide"), from_u8(tuning_guide_url("input_shaping_calib")));
-    bottom_sizer->Add(wiki, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(20));
+
+    auto wiki_btn = new Button(this, "", "toolbar_wiki", 0, 15);
+    auto wiki_url = from_u8(tuning_guide_url("input_shaping_calib"));
+    wiki_btn->SetToolTip(_L("Wiki Guide") + "\n" + wiki_url);
+    wiki_btn->SetStyle(ButtonStyle::Confirm, ButtonType::Circle);
+    wiki_btn->SetCanFocus(false);
+    wiki_btn->Bind(wxEVT_LEFT_DOWN, ([wiki_url](auto& e) {wxLaunchDefaultBrowser(wiki_url);}));
+
+    bottom_sizer->Add(wiki_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
     bottom_sizer->AddStretchSpacer();
     bottom_sizer->Add(dlg_btns, 0, wxEXPAND);
     v_sizer->Add(bottom_sizer, 0, wxEXPAND);
@@ -1309,7 +1449,7 @@ Input_Shaping_Damp_Test_Dlg::Input_Shaping_Damp_Test_Dlg(wxWindow* parent, wxWin
             firmware_note = _L("Klipper version => 0.9.0");
             break;
         case GCodeFlavor::gcfRepRapFirmware:
-            firmware_note = _L("RepRap firmware version => 3.4.0\nCheck your firmware documentation for supported shaper types.");
+            firmware_note = _L("RepRapFirmware version => 3.4.0\nCheck your firmware documentation for supported shaper types.");
             break;
         default:
             break;
@@ -1323,8 +1463,8 @@ Input_Shaping_Damp_Test_Dlg::Input_Shaping_Damp_Test_Dlg(wxWindow* parent, wxWin
     v_sizer->Add(type_box, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
 
     // Settings
-    wxString freq_str = reprap_firmware ? _L("Frequency: ") : _L("Frequency") + " X / Y: ";
-    wxString damp_str = _L("Damp") + " " + _L("Start / End") + ": ";
+    wxString freq_str = reprap_firmware ? _L("Frequency: ") : _L("Frequency X / Y: ");
+    wxString damp_str = _L("Damp (Start / End): ");
     int text_max = GetTextMax(this, std::vector<wxString>{freq_str, damp_str});
 
     auto st_size = wxSize(text_max, -1);
@@ -1350,7 +1490,7 @@ Input_Shaping_Damp_Test_Dlg::Input_Shaping_Damp_Test_Dlg(wxWindow* parent, wxWin
         m_tiFreqY->GetTextCtrl()->SetValue(m_tiFreqX->GetTextCtrl()->GetValue());
         m_tiFreqY->Hide();
         freq_text->SetLabel(freq_str);
-        m_tiFreqX->GetTextCtrl()->SetToolTip(_L("RepRap firmware uses the same frequency for both axes."));
+        m_tiFreqX->GetTextCtrl()->SetToolTip(_L("RepRapFirmware uses the same frequency for both axes."));
     }
 
     // Damping Factor Start and End
@@ -1380,8 +1520,15 @@ Input_Shaping_Damp_Test_Dlg::Input_Shaping_Damp_Test_Dlg(wxWindow* parent, wxWin
     auto dlg_btns = new DialogButtons(this, {"OK"});
 
     auto bottom_sizer = new wxBoxSizer(wxHORIZONTAL);
-    auto wiki = new HyperLink(this, _L("Wiki Guide"), from_u8(tuning_guide_url("input_shaping_calib")));
-    bottom_sizer->Add(wiki, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(20));
+
+    auto wiki_btn = new Button(this, "", "toolbar_wiki", 0, 15);
+    auto wiki_url = from_u8(tuning_guide_url("input_shaping_calib"));
+    wiki_btn->SetToolTip(_L("Wiki Guide") + "\n" + wiki_url);
+    wiki_btn->SetStyle(ButtonStyle::Confirm, ButtonType::Circle);
+    wiki_btn->SetCanFocus(false);
+    wiki_btn->Bind(wxEVT_LEFT_DOWN, ([wiki_url](auto& e) {wxLaunchDefaultBrowser(wiki_url);}));
+
+    bottom_sizer->Add(wiki_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
     bottom_sizer->AddStretchSpacer();
     bottom_sizer->Add(dlg_btns, 0, wxEXPAND);
     v_sizer->Add(bottom_sizer, 0, wxEXPAND);
@@ -1576,8 +1723,15 @@ Cornering_Test_Dlg::Cornering_Test_Dlg(wxWindow* parent, wxWindowID id, Plater* 
     auto dlg_btns = new DialogButtons(this, {"OK"});
 
     auto bottom_sizer = new wxBoxSizer(wxHORIZONTAL);
-    auto wiki = new HyperLink(this, _L("Wiki Guide"), from_u8(tuning_guide_url("cornering_calib")));
-    bottom_sizer->Add(wiki, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(20));
+
+    auto wiki_btn = new Button(this, "", "toolbar_wiki", 0, 15);
+    auto wiki_url = from_u8(tuning_guide_url("cornering_calib"));
+    wiki_btn->SetToolTip(_L("Wiki Guide") + "\n" + wiki_url);
+    wiki_btn->SetStyle(ButtonStyle::Confirm, ButtonType::Circle);
+    wiki_btn->SetCanFocus(false);
+    wiki_btn->Bind(wxEVT_LEFT_DOWN, ([wiki_url](auto& e) {wxLaunchDefaultBrowser(wiki_url);}));
+
+    bottom_sizer->Add(wiki_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
     bottom_sizer->AddStretchSpacer();
     bottom_sizer->Add(dlg_btns, 0, wxEXPAND);
     v_sizer->Add(bottom_sizer, 0, wxEXPAND);
@@ -1664,12 +1818,24 @@ FlowRateCalibrationDialog::FlowRateCalibrationDialog(wxWindow* parent, wxWindowI
     type_box->Add(m_rbType, 0, wxALL | wxEXPAND, FromDIP(4));
     v_sizer->Add(type_box, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
 
-    // Pattern selection
-    auto labeled_box_pattern = new LabeledStaticBox(this, _L("Top Surface Pattern"));
-    auto pattern_box = new wxStaticBoxSizer(labeled_box_pattern, wxVERTICAL);
+    // Settings
+    auto stb = new LabeledStaticBox(this, _L("Settings"));
+    auto settings_sizer = new wxStaticBoxSizer(stb, wxVERTICAL);
+
+    wxString pattern_str = _L("Top Surface Pattern");
+    int text_max = GetTextMax(this, std::vector<wxString>{pattern_str});
+
+    settings_sizer->AddSpacer(FromDIP(5));
+
+    auto st_size = wxSize(text_max, -1);
+    auto ti_size = FromDIP(wxSize(120, -1));
+
+    // Top surface pattern
+    auto pattern_sizer = new wxBoxSizer(wxHORIZONTAL);
+    auto pattern_text  = new wxStaticText(this, wxID_ANY, pattern_str, wxDefaultPosition, st_size, wxALIGN_LEFT);
 
     // ORCA: Use ComboBox with icons instead of RadioGroup
-    m_rbPattern = new ComboBox(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0, nullptr, wxCB_READONLY);
+    m_rbPattern = new ComboBox(this, wxID_ANY, wxEmptyString, wxDefaultPosition, ti_size, 0, nullptr, wxCB_READONLY);
     
     boost::filesystem::path image_path(Slic3r::resources_dir());
     image_path /= "images";
@@ -1690,17 +1856,28 @@ FlowRateCalibrationDialog::FlowRateCalibrationDialog(wxWindow* parent, wxWindowI
     m_rbPattern->SetSelection(0); // Default to Archimedean Chords
     // ORCA: explicit set value to ensure display on Windows
     m_rbPattern->SetValue(m_rbPattern->GetString(0));
+    m_rbPattern->GetDropDown().SetUseContentWidth(true);
 
-    pattern_box->Add(m_rbPattern, 0, wxALL | wxEXPAND, FromDIP(4));
-    v_sizer->Add(pattern_box, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
+    pattern_sizer->Add(pattern_text, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+    pattern_sizer->Add(m_rbPattern , 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+    settings_sizer->Add(pattern_sizer, 0, wxLEFT, FromDIP(3));
+
+    v_sizer->Add(settings_sizer, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
 
     v_sizer->AddSpacer(FromDIP(5));
 
     auto dlg_btns = new DialogButtons(this, {"OK"});
 
     auto bottom_sizer = new wxBoxSizer(wxHORIZONTAL);
-    auto wiki = new HyperLink(this, _L("Wiki Guide"), from_u8(tuning_guide_url("flow_ratio_calib")));
-    bottom_sizer->Add(wiki, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(20));
+
+    auto wiki_btn = new Button(this, "", "toolbar_wiki", 0, 15);
+    auto wiki_url = from_u8(tuning_guide_url("flow_ratio_calib"));
+    wiki_btn->SetToolTip(_L("Wiki Guide") + "\n" + wiki_url);
+    wiki_btn->SetStyle(ButtonStyle::Confirm, ButtonType::Circle);
+    wiki_btn->SetCanFocus(false);
+    wiki_btn->Bind(wxEVT_LEFT_DOWN, ([wiki_url](auto& e) {wxLaunchDefaultBrowser(wiki_url);}));
+
+    bottom_sizer->Add(wiki_btn, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(10));
     bottom_sizer->AddStretchSpacer();
     bottom_sizer->Add(dlg_btns, 0, wxEXPAND);
     v_sizer->Add(bottom_sizer, 0, wxEXPAND);

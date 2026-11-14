@@ -1,5 +1,6 @@
 #pragma once
 
+#include "IPrinterAgent.hpp"
 #include "MoonrakerPrinterAgent.hpp"
 
 #include <mutex>
@@ -24,7 +25,7 @@ public:
     static AgentInfo get_agent_info_static();
     AgentInfo        get_agent_info() override { return get_agent_info_static(); }
 
-    bool fetch_filament_info(std::string dev_id) override;
+    bool fetch_filament_info(std::string dev_id, FilamentSyncMode sync_mode = FilamentSyncMode::pull) override;
 
     // Prefer the U1's live slot material. Saved metadata is only a fallback for
     // firmware that does not expose a usable live type/subtype pair.
