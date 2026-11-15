@@ -1,5 +1,8 @@
 #include "SnapmakerPrinterAgent.hpp"
 #include "Http.hpp"
+#include "MoonrakerPrinterAgent.hpp"
+#include "IPrinterAgent.hpp"
+#include "NetworkAgentFactory.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
 
@@ -8,6 +11,11 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <functional>
+#include <vector>
+#include <string>
+#include "libslic3r/Preset.hpp"
+#include <cstddef>
 #include <utility>
 
 namespace Slic3r {
@@ -92,10 +100,11 @@ std::string material_type_from_label(const std::string& label)
     return {};
 }
 
-bool fetch_json_document(const std::string& url,
-                         const std::string& api_key,
-                         nlohmann::json& output,
-                         std::string& error)
+bool fetch_json_document(const std::string&           url,
+                         const std::string&           api_key,
+                         nlohmann::json&              output,
+                         std::string&                 error,
+                         const std::function<bool()>& cancelled)
 {
     std::string body;
     bool        success = false;
@@ -103,6 +112,8 @@ bool fetch_json_document(const std::string& url,
     auto http = Http::get(url);
     if (!api_key.empty())
         http.header("X-Api-Key", api_key);
+    if (cancelled)
+        http.on_progress([&cancelled](Http::Progress, bool& cancel) { cancel = cancelled(); });
     http.timeout_connect(5)
         .timeout_max(10)
         .on_complete([&](std::string response, unsigned status) {
@@ -169,7 +180,7 @@ SnapmakerPrinterAgent::SnapmakerPrinterAgent(std::string log_dir) : MoonrakerPri
 
 AgentInfo SnapmakerPrinterAgent::get_agent_info_static()
 {
-    return AgentInfo{"snapmaker", "Snapmaker", SNAPMAKER_AGENT_VERSION, "Snapmaker printer agent"};
+    return AgentInfo{SNAPMAKER_PRINTER_AGENT_ID, "Snapmaker", SNAPMAKER_AGENT_VERSION, "Snapmaker printer agent"};
 }
 
 std::string SnapmakerPrinterAgent::combine_filament_type(const std::string& type, const std::string& sub_type)
@@ -254,19 +265,20 @@ SnapmakerPrinterAgent::parse_nozzle_metadata(const nlohmann::json& product_info,
     return result;
 }
 
-bool SnapmakerPrinterAgent::fetch_device_info(const std::string& base_url,
-                                              const std::string& api_key,
-                                              MoonrakerDeviceInfo& info,
-                                              std::string& error) const
+bool SnapmakerPrinterAgent::fetch_device_info(const std::string&           base_url,
+                                              const std::string&           api_key,
+                                              MoonrakerDeviceInfo&         info,
+                                              std::string&                 error,
+                                              const std::function<bool()>& cancelled) const
 {
-    if (!MoonrakerPrinterAgent::fetch_device_info(base_url, api_key, info, error))
+    if (!MoonrakerPrinterAgent::fetch_device_info(base_url, api_key, info, error, cancelled))
         return false;
 
     nlohmann::json product_info = nlohmann::json::object();
     nlohmann::json save_variables = nlohmann::json::object();
     std::string tooling_error;
     const bool have_product = fetch_json_document(join_url(base_url, "/server/files/config/snapmaker/product_info.json"),
-                                                  api_key, product_info, tooling_error);
+                                                  api_key, product_info, tooling_error, cancelled);
     if (!have_product) {
         BOOST_LOG_TRIVIAL(warning) << "SnapmakerPrinterAgent: product metadata unavailable: " << tooling_error;
     }
@@ -274,7 +286,7 @@ bool SnapmakerPrinterAgent::fetch_device_info(const std::string& base_url,
     nlohmann::json variables_response;
     tooling_error.clear();
     if (fetch_json_document(join_url(base_url, "/printer/objects/query?save_variables"),
-                            api_key, variables_response, tooling_error)) {
+                            api_key, variables_response, tooling_error, cancelled)) {
         const auto& result = variables_response.contains("result") ? variables_response["result"] : nlohmann::json::object();
         const auto& status = result.contains("status") ? result["status"] : nlohmann::json::object();
         const auto& saved = status.contains("save_variables") ? status["save_variables"] : nlohmann::json::object();
@@ -326,7 +338,7 @@ void SnapmakerPrinterAgent::augment_print_payload_locked(nlohmann::json& payload
     payload["print"]["tinman_tooling"] = std::move(tooling);
 }
 
-bool SnapmakerPrinterAgent::fetch_filament_info(std::string dev_id)
+bool SnapmakerPrinterAgent::fetch_filament_info(std::string dev_id, FilamentSyncMode /*sync_mode*/)
 {
     std::string url = join_url(device_info.base_url, "/printer/objects/query?print_task_config&save_variables&filament_detect");
 

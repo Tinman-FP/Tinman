@@ -1,9 +1,12 @@
 #ifndef slic3r_PhysicalPrinterDialog_hpp_
 #define slic3r_PhysicalPrinterDialog_hpp_
 
+#include "libslic3r/PrintConfig.hpp"
+#include <string>
 #include <vector>
 #include <memory>
 
+#include <wx/event.h>
 #include <wx/gdicmn.h>
 
 #include "libslic3r/Preset.hpp"
@@ -34,9 +37,9 @@ class PhysicalPrinterDialog : public DPIDialog
 
     Button*     m_printhost_browse_btn              {nullptr};
     Button*     m_printhost_test_btn                {nullptr};
+    Button*     m_printhost_generate_creds_btn      {nullptr};
     Button*     m_printhost_logout_btn              {nullptr};
     Button*     m_printhost_cafile_browse_btn       {nullptr};
-    Button*     m_printhost_client_cert_browse_btn  {nullptr};
     Button*     m_printhost_port_browse_btn         {nullptr};
 
     RoundedRectangle*   m_input_area                        {nullptr};
@@ -70,7 +73,6 @@ public:
 
     void        update(bool printer_change = false);
     void        update_host_type(bool printer_change);
-    void        update_printer_agent_type();
     void        update_preset_input();
     void        update_printhost_buttons();
     void        update_printers();

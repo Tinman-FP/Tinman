@@ -443,10 +443,20 @@ bool tinmanx_normalize_multitool_config(DynamicPrintConfig &config,
         changed = true;
     }
 
+    // One flush multiplier per block of flush_volumes_matrix. OrcaSlicer 2.5 also purges multi-tool
+    // printers from a single shared block, and G-code export rejects a multiplier count that doesn't
+    // match the matrix, so leave the multipliers alone when they already match such a matrix.
     if (auto *flush_multipliers = config.option<ConfigOptionFloats>("flush_multiplier", false);
         flush_multipliers != nullptr && flush_multipliers->values.size() != tool_count) {
-        flush_multipliers->values.resize(tool_count, 1.0);
-        changed = true;
+        const auto  *matrix  = config.option<ConfigOptionFloats>("flush_volumes_matrix");
+        const auto  *colours = config.option<ConfigOptionStrings>("filament_colour");
+        const size_t slots   = colours != nullptr && !colours->values.empty() ? colours->values.size() : filament_count;
+        const bool shared_block = matrix != nullptr && !matrix->values.empty() &&
+                                  matrix->values.size() == slots * slots * flush_multipliers->values.size();
+        if (!shared_block) {
+            flush_multipliers->values.resize(tool_count, 1.0);
+            changed = true;
+        }
     }
 
     if (auto *ams_counts = config.option<ConfigOptionStrings>("extruder_ams_count", false);
