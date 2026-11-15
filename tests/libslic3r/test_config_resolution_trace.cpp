@@ -1,5 +1,7 @@
 #include <catch2/catch_all.hpp>
 
+#include <optional>
+
 #include "libslic3r/ConfigResolutionTrace.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/TinManHardwareCatalog.hpp"

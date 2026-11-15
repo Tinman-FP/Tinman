@@ -15,6 +15,7 @@
 #include "slic3r/Utils/CrealityPrint.hpp"
 #include "slic3r/Utils/CrealityPrintAgent.hpp"
 #include "slic3r/Utils/Http.hpp"
+#include "slic3r/Utils/IPrinterAgent.hpp"
 #include "slic3r/Utils/OrcaCloudServiceAgent.hpp"
 #include "slic3r/Utils/OrcaPrinterAgent.hpp"
 #include "slic3r/Utils/NetworkAgent.hpp"

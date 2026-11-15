@@ -1,7 +1,9 @@
 #include <catch2/catch_all.hpp>
 
 #include "libslic3r/FilamentSelection.hpp"
+#include "libslic3r/Config.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r/PrintConfig.hpp"
 
 using namespace Slic3r;
 

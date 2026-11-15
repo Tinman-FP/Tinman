@@ -20,6 +20,7 @@
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/Config.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r/Preset.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/asio.hpp>
