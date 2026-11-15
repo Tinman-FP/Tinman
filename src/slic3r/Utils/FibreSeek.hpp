@@ -1,7 +1,13 @@
 #ifndef slic3r_FibreSeek_hpp_
 #define slic3r_FibreSeek_hpp_
 
+#include <functional>
+#include <string>
+
+#include <wx/string.h>
+
 #include "Moonraker.hpp"
+#include "PrintHost.hpp"
 
 namespace Slic3r {
 

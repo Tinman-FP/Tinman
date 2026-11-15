@@ -1,10 +1,26 @@
 #include <catch2/catch_all.hpp>
+#include <catch2/catch_approx.hpp>
+#include <catch2/catch_message.hpp>
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
+
+#include <cstddef>
+#include <map>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include <boost/filesystem.hpp>
+#include <boost/filesystem/operations.hpp>
+#include <boost/filesystem/path.hpp>
 
+#include "libslic3r/Config.hpp"
 #include "libslic3r/FibreSeekMaterials.hpp"
 #include "libslic3r/FilamentSelection.hpp"
+#include "libslic3r/Preset.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r/PrintConfig.hpp"
 
 using namespace Slic3r;
 

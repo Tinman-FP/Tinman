@@ -23,6 +23,7 @@
 #include <ostream>
 #include <memory>
 #include "libslic3r/Polygon.hpp"
+#include "libslic3r/Point.hpp"
 #include <wx/app.h>
 #include <wx/event.h>
 #include <wx/panel.h>

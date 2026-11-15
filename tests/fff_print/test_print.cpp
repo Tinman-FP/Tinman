@@ -16,6 +16,8 @@
 #include <catch2/catch_message.hpp>
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/libslic3r.h"
+#include "libslic3r/calib.hpp"
+#include "libslic3r_version.h"
 #include <cstddef>
 #include "libslic3r/Surface.hpp"
 #include "libslic3r/Config.hpp"

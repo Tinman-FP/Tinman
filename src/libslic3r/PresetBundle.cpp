@@ -32,6 +32,7 @@
 #include <sstream>
 
 #include "PresetBundle.hpp"
+#include "FibreSeekMaterials.hpp"
 #include "PrinterBedAssets.hpp"
 
 #include "Config.hpp"

@@ -1,11 +1,15 @@
 #include <catch2/catch_all.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include <array>
 #include <memory>
 #include <limits>
 #include <new>
+#include <vector>
 
 #include "libslic3r/Print.hpp"
+#include "libslic3r/Config.hpp"
+#include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/GCode/ConflictChecker.hpp"
 #include "test_helpers.hpp"

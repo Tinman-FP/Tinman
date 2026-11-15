@@ -28,6 +28,7 @@
 #include "slic3r/GUI/ReleaseNote.hpp"
 #include "slic3r/GUI/GUI.hpp"
 #include <vector>
+#include <map>
 #include "libslic3r/PublishSettings.hpp"
 #include "libslic3r/Config.hpp"
 #include "slic3r/GUI/Widgets/StateColor.hpp"

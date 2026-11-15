@@ -14,6 +14,7 @@
 #include "slic3r/Utils/FileTransferUtils.hpp"
 #include "slic3r/Utils/BBLNetworkPlugin.hpp"
 #include "slic3r/Utils/NetworkAgentFactory.hpp"
+#include "slic3r/Utils/IPrinterAgent.hpp"
 #include "NetworkAgent.hpp"
 #include <string>
 #include "libslic3r/Utils.hpp"
