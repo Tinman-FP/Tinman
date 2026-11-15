@@ -124,9 +124,11 @@ later, after these pass.
 ## Settings for every print
 
 - Layer height 0.20 mm. One coupon per plate, in the middle of the bed.
-- Fiber manufacturing mode: **Plastic + fiber overlay** (the default). Leave
-  "Fiber-owned composite roads" for later: it now uses the new route planner,
-  which has never been printed.
+- Fiber manufacturing mode: **Plastic + fiber overlay**. It is Tinman's
+  default, but the generated Seeker 3 process profiles ("0.20mm Plastic +
+  Continuous Fiber Light/Medium/Heavy") select "Fiber-owned composite roads",
+  so check it after choosing one. Leave composite roads for later: that mode
+  now uses the new route planner, which has never been printed.
 - PCTG temperatures, bed and chamber as in your earlier plastic prints.
 - In the preview, check before you send: the fibre summary (number of routes
   and fibre length), the first and last layer with fibre, and that no fibre
