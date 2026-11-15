@@ -52,6 +52,11 @@ jobs:
       - name: Unpackage and Run Unit Tests
         timeout-minutes: 20
         shell: bash
+        env:
+          # Tinman: the FibreSeek send tests must run against their mock printer
+          # (tests/slic3rutils/fibreseek_mock_moonraker.py), not skip. Windows
+          # runners may have no working Python 3, so there they run when one is found.
+          TINMAN_REQUIRE_FIBRESEEK_MOCK: ${{ runner.os != 'Windows' && '1' || '0' }}
         run: |
           tar -xvf build_tests.tar
           # Every platform builds with a multi-config generator (build_linux.sh uses Ninja

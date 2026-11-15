@@ -15,7 +15,10 @@
 #include <cstdlib>
 #include <regex>
 #include <set>
+#include <string>
+#include <system_error>
 #include <thread>
+#include <vector>
 
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
@@ -359,15 +362,49 @@ namespace {
 
 // The mock printer's interpreter and script. CI sets TINMAN_REQUIRE_FIBRESEEK_MOCK
 // so a missing one fails instead of skipping the end-to-end tests.
-std::string mock_python()
+//
+// Since 2.5.1 the unit tests run on every platform's CI runner, not only Linux,
+// so a candidate must really run Python 3: on Windows, python3.exe can be the
+// Microsoft Store stub, which exists but only prints an install hint.
+bool python_runs_mock(const std::string &python)
+{
+    boost::system::error_code exists_ec;
+    if (python.empty() || !fs::exists(python, exists_ec))
+        return false;
+    std::error_code ec;
+    const int       code = boost::process::system(python, "-c", "import http.server, sys; sys.exit(sys.version_info[0] != 3)",
+                                                  boost::process::std_out > boost::process::null,
+                                                  boost::process::std_err > boost::process::null, ec);
+    return !ec && code == 0;
+}
+
+std::string find_mock_python()
 {
     if (const char *env = std::getenv("FIBRESEEK_MOCK_PYTHON"))
         return env;
+    std::vector<std::string> candidates;
 #ifdef FIBRESEEK_MOCK_PYTHON
-    if (fs::exists(FIBRESEEK_MOCK_PYTHON))
-        return FIBRESEEK_MOCK_PYTHON;
+    candidates.emplace_back(FIBRESEEK_MOCK_PYTHON);
 #endif
-    return boost::process::search_path("python3").string();
+    for (const char *name : {"python3", "python"})
+        candidates.push_back(boost::process::search_path(name).string());
+    for (const std::string &candidate : candidates)
+        if (python_runs_mock(candidate))
+            return candidate;
+    return {};
+}
+
+std::string mock_python()
+{
+    static const std::string python = find_mock_python();
+    return python;
+}
+
+// Set and not "0". The workflow passes "0" where Python may be missing (Windows).
+bool mock_required()
+{
+    const char *value = std::getenv("TINMAN_REQUIRE_FIBRESEEK_MOCK");
+    return value != nullptr && *value != '\0' && std::string(value) != "0";
 }
 
 std::string mock_script()
@@ -499,7 +536,7 @@ TEST_CASE("Sending to a mock Seeker 3", "[FibreSeek][Mock]")
 {
     // The test binary may run on a machine other than the one that built it.
     if (mock_python().empty() || !fs::exists(mock_python()) || !fs::exists(mock_script())) {
-        if (std::getenv("TINMAN_REQUIRE_FIBRESEEK_MOCK"))
+        if (mock_required())
             FAIL("Python 3 or the mock printer script is missing: " << mock_python() << ", " << mock_script());
         WARN("Python 3 or the mock printer script is missing here; skipping the mock send tests.");
         return;
@@ -849,7 +886,7 @@ bool wait_for(const std::function<bool()> &condition, int seconds = 15)
 TEST_CASE("The upload queue never turns a dispatched FibreSeek job into Canceled", "[FibreSeek][Mock][Queue]")
 {
     if (mock_python().empty() || !fs::exists(mock_python()) || !fs::exists(mock_script())) {
-        if (std::getenv("TINMAN_REQUIRE_FIBRESEEK_MOCK"))
+        if (mock_required())
             FAIL("Python 3 or the mock printer script is missing: " << mock_python() << ", " << mock_script());
         WARN("Python 3 or the mock printer script is missing here; skipping the queue tests.");
         return;
