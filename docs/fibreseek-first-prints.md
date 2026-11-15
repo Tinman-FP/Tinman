@@ -194,9 +194,10 @@ if one causes trouble:
 - **Prime line.** In the default fibre mode, the planner lays a 90 mm prime
   line at the start of the first fibre layer. It primes much more matrix than
   a route start does. Watch for a blob or overflow at the prime.
-- **Cut position.** The default mode cuts 54.8 mm before a route's end; the
-  composite-only mode cuts 58 mm before it. Check where the fibre ends
-  against the preview.
+- **Cut position.** Both modes cut Fiber cut distance (58 mm in the Seeker 3
+  test profiles) before a route's end, and the `;CUT DISTANCE` line prints
+  that value. Until the planner swap the default mode cut 54.8 mm before the
+  end. Check where the fibre ends against the preview.
 - **Fixed values.** Standby temperatures (150 °C plastic, 180 °C fibre) and
   fan speeds in the default mode are fixed values with no documented source.
   Note what the printer does at each tool change.

@@ -210,8 +210,11 @@ TEST_CASE("Settings and schedule are read from a print config by key", "[Fibrese
     CHECK(s.mode == ReinforcementMode::Heavy);
     CHECK(s.infill_angles_deg == std::vector<double>{ 15., 105., -30. });
 
-    // Unset cut distance falls back to the writer's 58 mm.
-    CHECK(settings_from_config(DynamicPrintConfig::full_print_config()).cut_distance_mm == Approx(58.));
+    // An unset cut distance stays unset (0): the planner refuses it rather than guessing, and
+    // PrintObject::plan_fibreseek_routes() stops the slice with an error naming the setting.
+    const PlannerSettings unset = settings_from_config(DynamicPrintConfig::full_print_config());
+    CHECK(unset.cut_distance_mm == 0.);
+    CHECK_FALSE(unset.valid());
 
     // "4 starts fiber on layer 4 and leaves the last 4 layers without fiber"; heavy is every layer.
     const LayerSchedule sch = schedule_from_config(config, 0.2);

@@ -996,7 +996,9 @@ def machine_common() -> dict:
         "fiber_motion_blocks_buffer_size": "16",
         "fiber_cut_distance": "58",
         "fiber_restart_length": "55",
-        "fiber_cut_gcode": "M2800\nM400\n;CUT DISTANCE 54.8",
+        # The writers append ";CUT DISTANCE <fiber_cut_distance>" themselves, so the cut
+        # G-code names no distance of its own.
+        "fiber_cut_gcode": "M2800\nM400",
         "fiber_nozzle_contact_radius": "1.2",
         "fiber_nozzle_contact_radius_extended": "1.8",
         "fiber_toolchange_gcode_before": "G0 Y280 F10000\nM106 P1 S255\nM400\n",

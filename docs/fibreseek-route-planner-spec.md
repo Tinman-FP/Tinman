@@ -40,7 +40,7 @@ don't break it:
 | infill inset | `fiber_infill_inset` (0) | Extra clearance between walls (or holes) and infill ribs. |
 | walls / infill | `fiber_generate_perimeters`, `fiber_generate_infill` | Turn each candidate family on or off. |
 | outer / hole loops | `fiber_outer_perimeter_loops` (1), `fiber_inner_perimeter_loops` (1) | Number of concentric fibre loops along the outside and around each hole. |
-| cut distance `L_cut` | `fiber_cut_distance` (0 → 58 mm, the writer's fallback) | Length of strand between the cutter and the nozzle tip. |
+| cut distance `L_cut` | `fiber_cut_distance` (required; 0 stops the slice) | Length of strand between the cutter and the nozzle tip. The writers cut and print `;CUT DISTANCE` with this same value. |
 | hardware minimum | `fiber_mechanical_min_route_length` (55 mm) | Hard floor: no route is ever shorter. |
 | wall minimum | `fiber_perimeter_min_route_length` (55 mm) | Extra floor for wall routes. |
 | user minimum | `fiber_min_route_length` (0 = planner default) | Extra floor for all routes. |
@@ -109,7 +109,7 @@ L_min = max(hardware minimum, L_cut + a, user minimum)          (all routes)
 L_min_wall = max(L_min, wall minimum)                            (wall routes)
 ```
 
-With defaults this is max(55, 58 + 7, 0) = **65 mm**. A shorter candidate is either
+With the Seeker 3 profile's 58 mm cut distance this is max(55, 58 + 7, 0) = **65 mm**. A shorter candidate is either
 extended (§5) or skipped. A route is never emitted below the hardware minimum. The writer
 puts `M1001 L` at ceil(length + `L_cut`) and places the cut itself, so the planner's
 `PostCutTail` phase marks exactly the span the writer feeds after the cut.
@@ -376,17 +376,22 @@ and the summary helpers in `GCode.cpp` read, so swapping planners is a type rena
 | `route.coalesce_transition_length_mm` | spiral transition length `T` |
 | `route.unsupported_void_crossing_count` | `void_crossings` |
 
-Notes for the swap step:
+How Tinman calls it (the swap, which removed the old planner):
 
-- The writer prints `warnings=native_route_warnings` when a route has warnings. The audit
-  counts warning tokens (for example `below_min_bend_radius`), so printing
-  `route.warnings` comma-joined would bring the real advisories through.
-- The writer calls a helper from the old planner to compute a "transition threshold".
-  With `planned_segments` filled in, that threshold only reaches a comment line and the
-  no-planned-segments fallback. The swap can replace it with a constant or the adapter's
-  `T`.
-- `LayerRegion` stores the old planner's per-layer diagnostic. Store `WriterLayerRoutes`
-  there instead, or give the writer a `using` alias.
+- `PrintObject::plan_fibreseek_routes()` runs at the end of `PrintObject::infill()` in
+  composite-only mode. For each fibre layer (`schedule_from_config`) and region it plans the
+  region's slices, stores `to_writer_routes()` in `LayerRegion::fibreseek_routes`, and cuts
+  the plastic fills (internal, solid, top, bottom and bridge infill) away under
+  `fibre_footprint`. Layers are planned in parallel.
+- `infill_candidates` stays empty, so infill always uses the planner's own ribs, whatever
+  `fiber_infill_source_policy` says. Plastic traces would first need thinning to one fibre
+  width apart.
+- A change to any `fiber_*` setting in composite-only mode re-runs the infill step
+  (`Print::apply`), so the routes and the trimmed infill always come from the same settings.
+- The writer prints `route.warnings` comma-joined and `coalesce_threshold` = `T`. It has no
+  path for routes without planned segments, since a release-safe route always has them.
+- `fiber_cut_distance` and `fiber_restart_length` have no stand-in values: when they are 0
+  the slice stops with an error naming the setting.
 
 ## 8. Not done yet, and candidate new settings
 

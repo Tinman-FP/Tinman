@@ -1722,6 +1722,19 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
                 m_has_auto_filament_map_result = false;
                 break;
             }
+        // Composite-only FibreSeek routes are planned at the end of posInfill, which also trims the
+        // plastic infill under the fibre (PrintObject::plan_fibreseek_routes). Most fibre settings
+        // live outside PrintConfig and so never reach invalidate_state_by_config_options(); redo the
+        // infill when one of them changes in that mode, so the routes and the trimmed infill match.
+        auto composite_only = [](const DynamicPrintConfig &config) {
+            const ConfigOption *mode = config.option("fiber_manufacturing_mode");
+            return mode != nullptr && mode->getInt() == int(FiberManufacturingMode::CompositeOnly);
+        };
+        if ((composite_only(m_full_print_config) || composite_only(new_full_config)) &&
+            std::any_of(full_config_diff.begin(), full_config_diff.end(),
+                        [](const t_config_option_key &key) { return key.rfind("fiber_", 0) == 0; }))
+            for (PrintObject *object : m_objects)
+                update_apply_status(object->invalidate_step(posInfill));
         //BBS: add more logs
         BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(" %1%: found full_config_diff changed.")%__LINE__;
         update_apply_status(this->invalidate_step(psGCodeExport));

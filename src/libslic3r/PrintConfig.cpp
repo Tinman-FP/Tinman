@@ -4696,7 +4696,7 @@ void PrintConfigDef::init_fff_params()
     def = this->add("fiber_infill_solid_payload", coString);
     def->label = L("Fiber solid infill payload");
     def->category = L("Fiber Settings");
-    def->tooltip = L("Serialized solid fiber infill settings, including angle list, road width, extension, and minimum segment length for native composite-road planning.");
+    def->tooltip = L("Not used. Tinman's FibreSeek route planner reads the regular fiber settings instead; this is kept so older profiles still load.");
     def->mode = comExpert;
     def->set_default_value(new ConfigOptionString());
 
@@ -6719,7 +6719,7 @@ void PrintConfigDef::init_fff_params()
 
     def = this->add("fiber_cut_distance", coFloat);
     def->label = L("Fiber cut distance");
-    def->tooltip = L("Distance the printer uses to cut the fiber. This must match the hardware.");
+    def->tooltip = L("Length of fiber between the cutter and the nozzle tip. The cut fires this far before the end of each route, and the G-code's CUT DISTANCE marker prints this value. This must match the hardware.");
     def->sidetext = L("mm");
     def->min = 0;
     def->mode = comAdvanced;

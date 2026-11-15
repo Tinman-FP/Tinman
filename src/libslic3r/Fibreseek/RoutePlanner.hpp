@@ -28,8 +28,9 @@ enum class SeamMode { Source, Nearest, Aligned, Rear, Random };
 enum class ReinforcementMode { Light, Medium, Heavy };
 enum class RibPattern { Solid, Rhombic, Isogrid, Anisogrid, Tetragrid };
 
-// Every tunable value (spec sec. 1). The defaults match the option defaults, plus the
-// writer's 58 mm cut-distance fallback.
+// Every tunable value (spec sec. 1). The defaults match the option defaults, except the cut
+// distance: settings_from_config() takes it from the printer profile with no stand-in, and the
+// 58 mm here (the FibreSeeker 3 contract value) only serves settings built by hand.
 struct PlannerSettings
 {
     // Widths and the plastic loops around the fibre.

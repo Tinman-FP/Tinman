@@ -13,7 +13,9 @@
 #include "BoundingBox.hpp"
 #include "ClipperUtils.hpp"
 #include "ConnectedBodies.hpp"
-#include "FiberseekCompositePlanner.hpp"
+#include "ExtrusionEntity.hpp"
+#include "Fibreseek/RoutePlanner.hpp"
+#include "Fibreseek/WriterAdapter.hpp"
 #include "Geometry.hpp"
 #include "I18N.hpp"
 #include "Layer.hpp"
@@ -76,7 +78,6 @@
 #include <utility>
 
 #include <boost/log/trivial.hpp>
-#include <nlohmann/json.hpp>
 #include <Eigen/Core>
 
 #include <tbb/parallel_for.h>
@@ -135,21 +136,6 @@ namespace Slic3r {
 
 namespace {
 
-struct TinmanRocketSolidFiberPayload {
-    bool present { false };
-    bool has_extrusion_width_mm { false };
-    bool has_extend_into_perimeters_mm { false };
-    bool has_min_segment_length_mm { false };
-    bool has_coalesce_transition_length_mm { false };
-    bool has_route_stitch_transition_length_mm { false };
-    double extrusion_width_mm { 0.0 };
-    double extend_into_perimeters_mm { 0.0 };
-    double min_segment_length_mm { 0.0 };
-    double coalesce_transition_length_mm { 0.0 };
-    double route_stitch_transition_length_mm { 0.0 };
-    std::vector<double> angles_deg;
-};
-
 static bool tinman_dynamic_bool_option(const DynamicPrintConfig &config, const char *key)
 {
     if (const ConfigOptionBool *option = config.opt<ConfigOptionBool>(key))
@@ -171,106 +157,10 @@ static double tinman_dynamic_float_option(const DynamicPrintConfig &config, cons
     return default_value;
 }
 
-static std::string tinman_dynamic_string_option(const DynamicPrintConfig &config, const char *key)
-{
-    if (const ConfigOptionString *option = config.opt<ConfigOptionString>(key))
-        return option->value;
-    return {};
-}
-
-static bool tinman_json_float(const nlohmann::json &json, const char *key, double &out)
-{
-    if (!json.contains(key) || json.at(key).is_null())
-        return false;
-
-    try {
-        if (json.at(key).is_number()) {
-            out = json.at(key).get<double>();
-            return true;
-        }
-        if (json.at(key).is_string()) {
-            out = std::stod(json.at(key).get<std::string>());
-            return true;
-        }
-    } catch (...) {
-        return false;
-    }
-
-    return false;
-}
-
-static std::vector<double> tinman_parse_angle_list(const std::string &value)
-{
-    std::string normalized = value;
-    for (char &ch : normalized)
-        if (ch == '/' || ch == ';')
-            ch = ',';
-
-    std::vector<double> angles;
-    std::stringstream stream(normalized);
-    std::string token;
-    while (std::getline(stream, token, ',')) {
-        try {
-            size_t parsed = 0;
-            const double angle = std::stod(token, &parsed);
-            if (parsed > 0)
-                angles.push_back(angle);
-        } catch (...) {
-        }
-    }
-    return angles;
-}
-
-static TinmanRocketSolidFiberPayload tinman_parse_rocket_solid_payload(const DynamicPrintConfig &config)
-{
-    TinmanRocketSolidFiberPayload payload;
-    const std::string raw_payload = tinman_dynamic_string_option(config, "fiber_infill_solid_payload");
-    if (raw_payload.empty())
-        return payload;
-
-    try {
-        const nlohmann::json json = nlohmann::json::parse(raw_payload);
-        if (!json.is_object())
-            return payload;
-
-        payload.present = true;
-        if (json.contains("angle_list_raw") && json.at("angle_list_raw").is_string())
-            payload.angles_deg = tinman_parse_angle_list(json.at("angle_list_raw").get<std::string>());
-        else if (json.contains("angles_deg") && json.at("angles_deg").is_array()) {
-            for (const nlohmann::json &angle : json.at("angles_deg")) {
-                if (angle.is_number())
-                    payload.angles_deg.push_back(angle.get<double>());
-            }
-        }
-
-        payload.has_extrusion_width_mm = tinman_json_float(json, "extrusion_width_mm", payload.extrusion_width_mm);
-        payload.has_extend_into_perimeters_mm = tinman_json_float(json, "extend_into_perimeters_mm", payload.extend_into_perimeters_mm);
-        payload.has_min_segment_length_mm = tinman_json_float(json, "min_segment_length_mm", payload.min_segment_length_mm);
-        payload.has_coalesce_transition_length_mm = tinman_json_float(json, "coalesce_transition_length_mm", payload.coalesce_transition_length_mm);
-        if (!payload.has_coalesce_transition_length_mm)
-            payload.has_coalesce_transition_length_mm = tinman_json_float(json, "route_coalesce_transition_length_mm", payload.coalesce_transition_length_mm);
-        payload.has_route_stitch_transition_length_mm = tinman_json_float(json, "route_stitch_transition_length_mm", payload.route_stitch_transition_length_mm);
-        if (!payload.has_route_stitch_transition_length_mm)
-            payload.has_route_stitch_transition_length_mm = tinman_json_float(json, "component_stitch_transition_length_mm", payload.route_stitch_transition_length_mm);
-    } catch (const std::exception &ex) {
-        BOOST_LOG_TRIVIAL(warning) << "Tinman FibreSeek solid payload parse failed: " << ex.what();
-    }
-
-    return payload;
-}
-
-static bool tinman_fiberseek_composite_only_infill_requested(const DynamicPrintConfig &config)
-{
-    const int manufacturing_mode = tinman_dynamic_int_option(
-        config,
-        "fiber_manufacturing_mode",
-        int(FiberManufacturingMode::PlasticPlusFiberOverlay));
-
-    return manufacturing_mode == int(FiberManufacturingMode::CompositeOnly) &&
-           tinman_dynamic_bool_option(config, "fiber_enabled") &&
-           tinman_dynamic_bool_option(config, "fiber_generate_infill");
-}
-
+// Composite-only FibreSeek mode: the route planner in src/libslic3r/Fibreseek places the
+// continuous fibre and GCode::extrude_fiberseek_composite_routes_for_layer() writes it. In the
+// default plastic-plus-overlay mode the Python planner rewrites the finished G-code instead
+// (see Print::export_gcode), and nothing here runs.
 static bool tinman_fiberseek_composite_only_requested(const DynamicPrintConfig &config)
 {
     const int manufacturing_mode = tinman_dynamic_int_option(
@@ -284,340 +174,70 @@ static bool tinman_fiberseek_composite_only_requested(const DynamicPrintConfig &
             tinman_dynamic_bool_option(config, "fiber_generate_perimeters"));
 }
 
-static int tinman_fiber_mode_default_layer_step(const DynamicPrintConfig &config)
+// The plastic fill roles that the fibre replaces where it lies. The composite nozzle lays the
+// strand inside its own matrix, so plastic under the bead would be a second, overlapping
+// extrusion. Fibre layers are mostly internal, but the planner covers the whole region slice,
+// so top, bottom and bridge fills are trimmed too.
+static bool tinman_fibre_replaces_role(ExtrusionRole role)
 {
-    const int reinforcement_mode = tinman_dynamic_int_option(
-        config,
-        "fiber_reinforcement_mode",
-        int(FiberReinforcementMode::Light));
-
-    if (reinforcement_mode == int(FiberReinforcementMode::Heavy))
-        return 1;
-    if (reinforcement_mode == int(FiberReinforcementMode::Medium))
-        return 2;
-    return 3;
+    return role == erInternalInfill || role == erSolidInfill || role == erTopSolidInfill || role == erBottomSurface ||
+           role == erBridgeInfill || role == erInternalBridgeInfill;
 }
 
-static int tinman_fiber_effective_layer_step(const DynamicPrintConfig &config, int configured_layer_step)
-{
-    const int reinforcement_mode = tinman_dynamic_int_option(
-        config,
-        "fiber_reinforcement_mode",
-        int(FiberReinforcementMode::Light));
-
-    const int mode_default = tinman_fiber_mode_default_layer_step(config);
-
-    if (reinforcement_mode == int(FiberReinforcementMode::Heavy) &&
-        tinman_fiberseek_composite_only_requested(config))
-        return mode_default;
-
-    return configured_layer_step > 0 ? configured_layer_step : mode_default;
-}
-
-static double tinman_fiber_mode_default_spacing_mm(const DynamicPrintConfig &config, double fiber_line_width_mm)
-{
-    const int reinforcement_mode = tinman_dynamic_int_option(
-        config,
-        "fiber_reinforcement_mode",
-        int(FiberReinforcementMode::Light));
-
-    if (reinforcement_mode == int(FiberReinforcementMode::Heavy))
-        return fiber_line_width_mm;
-    if (reinforcement_mode == int(FiberReinforcementMode::Medium))
-        return fiber_line_width_mm * 2.0;
-    return fiber_line_width_mm * 3.0;
-}
-
-static bool tinman_fiber_layer_is_selected(
-    size_t layer_index,
-    size_t layer_count,
-    int fiber_start_layer,
-    int layer_step)
-{
-    const size_t first_allowed_index = fiber_start_layer > 0 ? size_t(std::max(fiber_start_layer - 1, 0)) : 0;
-    const size_t top_guard_start = fiber_start_layer > 0 ?
-        std::max(layer_count > size_t(fiber_start_layer) ? layer_count - size_t(fiber_start_layer) : size_t(0), first_allowed_index) :
-        layer_count;
-
-    if (layer_index < first_allowed_index)
-        return false;
-    if (fiber_start_layer > 0 && layer_index >= top_guard_start)
-        return false;
-
-    const size_t selected_offset = layer_index - first_allowed_index;
-    return layer_step <= 1 || selected_offset % size_t(layer_step) == 0;
-}
-
-static InfillPattern tinman_fiber_pattern_to_slicer_pattern(const DynamicPrintConfig &config)
-{
-    const int fiber_pattern = tinman_dynamic_int_option(config, "fiber_infill_pattern", int(FiberInfillPattern::Solid));
-    switch (fiber_pattern) {
-    case int(FiberInfillPattern::Solid):
-    case int(FiberInfillPattern::Rhombic):
-    case int(FiberInfillPattern::Isogrid):
-    case int(FiberInfillPattern::Anisogrid):
-    case int(FiberInfillPattern::Tetragrid):
-    default:
-        return ipRectilinear;
-    }
-}
-
-static FiberseekComposite::CandidateFamily tinman_fiber_pattern_to_candidate_family(const DynamicPrintConfig &config)
-{
-    const int fiber_pattern = tinman_dynamic_int_option(config, "fiber_infill_pattern", int(FiberInfillPattern::Solid));
-    switch (fiber_pattern) {
-    case int(FiberInfillPattern::Rhombic):
-        return FiberseekComposite::CandidateFamily::RhombicInfill;
-    case int(FiberInfillPattern::Isogrid):
-        return FiberseekComposite::CandidateFamily::IsogridInfill;
-    case int(FiberInfillPattern::Anisogrid):
-        return FiberseekComposite::CandidateFamily::AnisogridInfill;
-    case int(FiberInfillPattern::Tetragrid):
-        return FiberseekComposite::CandidateFamily::TetragridInfill;
-    case int(FiberInfillPattern::Solid):
-    default:
-        return FiberseekComposite::CandidateFamily::SolidInfill;
-    }
-}
-
-static bool tinman_fiber_surface_is_composite_infill_candidate(const Surface &surface)
-{
-    return surface.surface_type == stInternal ||
-           surface.surface_type == stInternalSolid ||
-           surface.surface_type == stInternalBridge ||
-           surface.surface_type == stSecondInternalBridge ||
-           surface.surface_type == stInternalAfterExternalBridge;
-}
-
-static bool tinman_fiber_owned_infill_role(ExtrusionRole role)
-{
-    return role == erInternalInfill || role == erSolidInfill;
-}
-
-static bool tinman_clone_non_fiber_owned_entity(const ExtrusionEntity &entity, ExtrusionEntityCollection &target)
+// Copies `entity` into `out`, cutting away the parts of its fill paths that lie under the fibre
+// footprint. Collections keep their order flag, and every other role is copied unchanged.
+static void tinman_append_outside_fibre(const ExtrusionEntity &entity, const ExPolygons &footprint, ExtrusionEntitiesPtr &out)
 {
     if (const auto *collection = dynamic_cast<const ExtrusionEntityCollection *>(&entity)) {
-        auto *filtered = new ExtrusionEntityCollection();
-        filtered->no_sort = collection->no_sort;
-        for (const ExtrusionEntity *child : collection->entities) {
+        auto *kept    = new ExtrusionEntityCollection();
+        kept->no_sort = collection->no_sort;
+        for (const ExtrusionEntity *child : collection->entities)
             if (child != nullptr)
-                tinman_clone_non_fiber_owned_entity(*child, *filtered);
-        }
-        if (!filtered->entities.empty()) {
-            target.entities.emplace_back(filtered);
-            return true;
-        }
-        delete filtered;
-        return false;
-    }
-
-    if (tinman_fiber_owned_infill_role(entity.role()))
-        return false;
-
-    target.entities.emplace_back(entity.clone());
-    return true;
-}
-
-static Flow tinman_fiber_fallback_flow(const LayerRegion &layerm, ExtrusionRole role)
-{
-    return role == erSolidInfill ? layerm.flow(frSolidInfill) : layerm.flow(frInfill);
-}
-
-static void tinman_append_fiber_fallbacks(
-    LayerRegion &layerm,
-    ExtrusionEntityCollection &target,
-    const FiberseekComposite::CompositeLayerDiagnostic &diagnostic)
-{
-    for (const FiberseekComposite::CompositeFallback &fallback : diagnostic.fallbacks) {
-        auto *collection = new ExtrusionEntityCollection();
-        const Flow flow = tinman_fiber_fallback_flow(layerm, fallback.extrusion_role);
-        for (const Polyline &segment : fallback.replacement_segments) {
-            if (segment.points.size() < 2)
-                continue;
-            ExtrusionPath path(fallback.extrusion_role, flow.mm3_per_mm(), flow.width(), flow.height());
-            path.polyline = Polyline3(segment);
-            collection->entities.emplace_back(new ExtrusionPath(std::move(path)));
-        }
-        if (!collection->entities.empty())
-            target.entities.emplace_back(collection);
+                tinman_append_outside_fibre(*child, footprint, kept->entities);
+        if (kept->entities.empty())
+            delete kept;
         else
-            delete collection;
+            out.push_back(kept);
+        return;
     }
+    if (!tinman_fibre_replaces_role(entity.role())) {
+        out.push_back(entity.clone());
+        return;
+    }
+    auto clip = [&footprint, &out](const ExtrusionPath &path) {
+        const coord_t z = path.polyline.points.empty() ? 0 : path.polyline.points.front().z();
+        for (const Polyline &piece : diff_pl(Polylines{ path.polyline.to_polyline() }, footprint)) {
+            if (piece.points.size() < 2)
+                continue;
+            auto *kept     = new ExtrusionPath(path);
+            kept->polyline = Polyline3(piece, z);
+            out.push_back(kept);
+        }
+    };
+    if (const auto *path = dynamic_cast<const ExtrusionPath *>(&entity))
+        clip(*path);
+    else if (const auto *multi = dynamic_cast<const ExtrusionMultiPath *>(&entity))
+        for (const ExtrusionPath &path : multi->paths)
+            clip(path);
+    else if (const auto *loop = dynamic_cast<const ExtrusionLoop *>(&entity))
+        for (const ExtrusionPath &path : loop->paths)
+            clip(path); // a concentric fill loop that the fibre crosses becomes open paths
+    else
+        out.push_back(entity.clone());
 }
 
-static void tinman_apply_fiberseek_composite_only_infill_ownership(
-    LayerRegion &layerm,
-    const FiberseekComposite::CompositeLayerDiagnostic &diagnostic)
+// Trims the region's plastic fills to what the fibre leaves uncovered (spec sec. 4.5). Plastic
+// then refills only the area the fibre beads don't cover, including ribs the planner skipped.
+static void tinman_trim_fills_under_fibre(LayerRegion &layerm, const ExPolygons &footprint)
 {
-    if (diagnostic.candidates.empty())
+    if (footprint.empty())
         return;
-
-    ExtrusionEntityCollection replacement;
-    replacement.no_sort = layerm.fills.no_sort;
-    for (const ExtrusionEntity *entity : layerm.fills.entities) {
+    ExtrusionEntityCollection trimmed;
+    trimmed.no_sort = layerm.fills.no_sort;
+    for (const ExtrusionEntity *entity : layerm.fills.entities)
         if (entity != nullptr)
-            tinman_clone_non_fiber_owned_entity(*entity, replacement);
-    }
-    tinman_append_fiber_fallbacks(layerm, replacement, diagnostic);
-    layerm.fills.swap(replacement);
-}
-
-static bool tinman_diagnostic_has_fiber_owned_infill(
-    const FiberseekComposite::CompositeLayerDiagnostic &diagnostic)
-{
-    for (const FiberseekComposite::CompositeCandidate &candidate : diagnostic.candidates)
-        if (candidate.family != FiberseekComposite::CandidateFamily::Perimeter)
-            return true;
-    return false;
-}
-
-static std::size_t tinman_next_route_id(const FiberseekComposite::CompositeLayerDiagnostic &diagnostic)
-{
-    std::size_t next_id = 0;
-    for (const FiberseekComposite::CompositeRoute &route : diagnostic.routes)
-        next_id = std::max(next_id, route.id + 1);
-    return next_id;
-}
-
-static std::size_t tinman_next_fallback_id(const FiberseekComposite::CompositeLayerDiagnostic &diagnostic)
-{
-    std::size_t next_id = 0;
-    for (const FiberseekComposite::CompositeFallback &fallback : diagnostic.fallbacks)
-        next_id = std::max(next_id, fallback.id + 1);
-    return next_id;
-}
-
-static double tinman_composite_route_strength_score_mm(const FiberseekComposite::CompositeRoute &route)
-{
-    if (route.fiber_positive_length_mm > EPSILON)
-        return route.fiber_positive_length_mm;
-    return route.printable_length_mm();
-}
-
-static const FiberseekComposite::CompositeCandidate *tinman_find_composite_candidate(
-    const FiberseekComposite::CompositeLayerDiagnostic &diagnostic,
-    std::size_t candidate_id)
-{
-    for (const FiberseekComposite::CompositeCandidate &candidate : diagnostic.candidates)
-        if (candidate.id == candidate_id)
-            return &candidate;
-    return nullptr;
-}
-
-static void tinman_add_composite_route_cap_fallbacks(
-    FiberseekComposite::CompositeLayerDiagnostic &diagnostic,
-    const FiberseekComposite::CompositeRoute &route)
-{
-    std::size_t next_fallback_id = tinman_next_fallback_id(diagnostic);
-    for (const std::size_t candidate_id : route.candidate_ids) {
-        const FiberseekComposite::CompositeCandidate *candidate =
-            tinman_find_composite_candidate(diagnostic, candidate_id);
-        if (candidate == nullptr ||
-            candidate->family == FiberseekComposite::CandidateFamily::Perimeter ||
-            candidate->polyline.points.size() < 2)
-            continue;
-
-        FiberseekComposite::CompositeFallback fallback;
-        fallback.id = next_fallback_id++;
-        fallback.layer_id = diagnostic.layer_id;
-        fallback.candidate_ids.push_back(candidate->id);
-        fallback.replacement_segments.push_back(candidate->polyline);
-        fallback.extrusion_role = candidate->fallback_role;
-        fallback.reason = FiberseekComposite::FallbackReason::RouteCapRemainder;
-        diagnostic.fallbacks.push_back(std::move(fallback));
-    }
-}
-
-static void tinman_cap_fiberseek_composite_routes(
-    FiberseekComposite::CompositeLayerDiagnostic &diagnostic,
-    std::size_t max_routes)
-{
-    if (max_routes == 0 || diagnostic.routes.size() <= max_routes)
-        return;
-
-    std::vector<std::size_t> order;
-    order.reserve(diagnostic.routes.size());
-    for (std::size_t route_index = 0; route_index < diagnostic.routes.size(); ++route_index)
-        order.push_back(route_index);
-
-    std::sort(order.begin(), order.end(), [&diagnostic](std::size_t lhs_index, std::size_t rhs_index) {
-        const FiberseekComposite::CompositeRoute &lhs = diagnostic.routes[lhs_index];
-        const FiberseekComposite::CompositeRoute &rhs = diagnostic.routes[rhs_index];
-        const bool lhs_safe = lhs.is_release_safe();
-        const bool rhs_safe = rhs.is_release_safe();
-        if (lhs_safe != rhs_safe)
-            return lhs_safe;
-
-        const double lhs_score = tinman_composite_route_strength_score_mm(lhs);
-        const double rhs_score = tinman_composite_route_strength_score_mm(rhs);
-        if (std::abs(lhs_score - rhs_score) > EPSILON)
-            return lhs_score > rhs_score;
-
-        return lhs.id < rhs.id;
-    });
-
-    std::vector<bool> keep(diagnostic.routes.size(), false);
-    for (std::size_t keep_index = 0; keep_index < max_routes; ++keep_index)
-        keep[order[keep_index]] = true;
-
-    for (std::size_t route_index = 0; route_index < diagnostic.routes.size(); ++route_index)
-        if (!keep[route_index])
-            tinman_add_composite_route_cap_fallbacks(diagnostic, diagnostic.routes[route_index]);
-
-    std::vector<FiberseekComposite::CompositeRoute> capped_routes;
-    capped_routes.reserve(max_routes);
-    for (std::size_t route_index = 0; route_index < diagnostic.routes.size(); ++route_index)
-        if (keep[route_index])
-            capped_routes.push_back(std::move(diagnostic.routes[route_index]));
-
-    diagnostic.routes = std::move(capped_routes);
-}
-
-static void tinman_append_fiberseek_composite_diagnostic(
-    FiberseekComposite::CompositeLayerDiagnostic &target,
-    FiberseekComposite::CompositeLayerDiagnostic source)
-{
-    if (source.empty())
-        return;
-
-    if (target.empty()) {
-        target.layer_id = source.layer_id;
-        target.object_id = source.object_id;
-        target.region_id = source.region_id;
-    }
-
-    const std::size_t route_id_offset = tinman_next_route_id(target);
-    for (FiberseekComposite::CompositeRoute &route : source.routes)
-        route.id += route_id_offset;
-
-    const std::size_t fallback_id_offset = tinman_next_fallback_id(target);
-    for (FiberseekComposite::CompositeFallback &fallback : source.fallbacks)
-        fallback.id += fallback_id_offset;
-
-    target.direct_candidate_count += source.direct_candidate_count;
-    target.short_candidate_count += source.short_candidate_count;
-    target.graph_component_count += source.graph_component_count;
-    target.candidates.reserve(target.candidates.size() + source.candidates.size());
-    target.routes.reserve(target.routes.size() + source.routes.size());
-    target.fallbacks.reserve(target.fallbacks.size() + source.fallbacks.size());
-    std::move(source.candidates.begin(), source.candidates.end(), std::back_inserter(target.candidates));
-    std::move(source.routes.begin(), source.routes.end(), std::back_inserter(target.routes));
-    std::move(source.fallbacks.begin(), source.fallbacks.end(), std::back_inserter(target.fallbacks));
-}
-
-static double tinman_fiber_infill_angle_rad(
-    const DynamicPrintConfig &config,
-    size_t layer_index,
-    const TinmanRocketSolidFiberPayload &solid_payload)
-{
-    if (!solid_payload.angles_deg.empty())
-        return Geometry::deg2rad(solid_payload.angles_deg[layer_index % solid_payload.angles_deg.size()]);
-
-    const double seam_angle_deg = tinman_dynamic_float_option(config, "fiber_seam_angle", 0.0);
-    if (std::abs(seam_angle_deg) > EPSILON)
-        return Geometry::deg2rad(seam_angle_deg);
-
-    return layer_index % 2 == 0 ? Geometry::deg2rad(45.0) : Geometry::deg2rad(135.0);
+            tinman_append_outside_fibre(*entity, footprint, trimmed.entities);
+    layerm.fills.swap(trimmed);
 }
 
 } // namespace
@@ -1334,7 +954,7 @@ void PrintObject::infill()
         );
         m_print->throw_if_canceled();
         BOOST_LOG_TRIVIAL(debug) << "Filling layers in parallel - end";
-        this->generate_fiberseek_composite_diagnostics();
+        this->plan_fibreseek_routes();
         /*  we could free memory now, but this would make this step not idempotent
         ### $_->fill_surfaces->clear for map @{$_->regions}, @{$object->layers};
         */
@@ -1342,213 +962,70 @@ void PrintObject::infill()
     }
 }
 
-void PrintObject::ensure_fiberseek_composite_diagnostics_for_export()
+void PrintObject::plan_fibreseek_routes()
 {
-    BOOST_LOG_TRIVIAL(info)
-        << "Tinman FibreSeek export diagnostics: object " << this->get_id()
-        << " has " << m_layers.size() << " layers before route regeneration.";
-    this->generate_fiberseek_composite_diagnostics();
-}
-
-void PrintObject::generate_fiberseek_composite_diagnostics()
-{
-    const DynamicPrintConfig &full_config = m_print->full_print_config();
-
     for (Layer *layer : m_layers)
         for (LayerRegion *layerm : layer->regions())
-            layerm->fiberseek_composite_diagnostic = FiberseekComposite::CompositeLayerDiagnostic{};
+            layerm->fibreseek_routes = Fibreseek::WriterLayerRoutes{};
 
-    const int manufacturing_mode = tinman_dynamic_int_option(
-        full_config,
-        "fiber_manufacturing_mode",
-        int(FiberManufacturingMode::PlasticPlusFiberOverlay));
-    const bool fiber_enabled = tinman_dynamic_bool_option(full_config, "fiber_enabled");
-    const bool generate_fiber_infill = tinman_dynamic_bool_option(full_config, "fiber_generate_infill");
-    const bool generate_fiber_perimeters = tinman_dynamic_bool_option(full_config, "fiber_generate_perimeters");
-
-    if (manufacturing_mode != int(FiberManufacturingMode::CompositeOnly) ||
-        !fiber_enabled ||
-        (!generate_fiber_infill && !generate_fiber_perimeters)) {
-        BOOST_LOG_TRIVIAL(info)
-            << "Tinman FibreSeek composite-road diagnostic skipped: mode="
-            << manufacturing_mode << " fiber_enabled=" << fiber_enabled
-            << " perimeters=" << generate_fiber_perimeters
-            << " infill=" << generate_fiber_infill << ".";
+    const DynamicPrintConfig &config = m_print->full_print_config();
+    if (!tinman_fiberseek_composite_only_requested(config))
         return;
-    }
 
-    const TinmanRocketSolidFiberPayload solid_payload = tinman_parse_rocket_solid_payload(full_config);
+    // The cutter sits this far upstream of the nozzle tip. The planner's shortest route, the
+    // writer's cut position, M1001 L and the ;CUT DISTANCE marker all use this one value from
+    // the printer profile, so a missing value stops the slice rather than being guessed.
+    if (!(tinman_dynamic_float_option(config, "fiber_cut_distance", 0.) > 0.))
+        throw Slic3r::SlicingError(L("Continuous fiber needs the distance from the fiber cutter to the nozzle tip. "
+                                     "Enter Fiber cut distance in the printer profile."));
 
-    double fiber_line_width_mm = tinman_dynamic_float_option(full_config, "fiber_line_width", 0.8);
-    if (solid_payload.has_extrusion_width_mm && solid_payload.extrusion_width_mm > EPSILON)
-        fiber_line_width_mm = solid_payload.extrusion_width_mm;
-    fiber_line_width_mm = std::max(0.01, fiber_line_width_mm);
-
-    double fiber_spacing_mm = tinman_dynamic_float_option(full_config, "fiber_infill_spacing", 0.0);
-    if (fiber_spacing_mm <= EPSILON && solid_payload.has_extrusion_width_mm && solid_payload.extrusion_width_mm > EPSILON)
-        fiber_spacing_mm = solid_payload.extrusion_width_mm;
-    if (fiber_spacing_mm <= EPSILON)
-        fiber_spacing_mm = tinman_fiber_mode_default_spacing_mm(full_config, fiber_line_width_mm);
-
-    const double density_percent = tinman_dynamic_float_option(full_config, "fiber_infill_density", 0.0);
-    if (density_percent > EPSILON) {
-        const double density_fraction = std::clamp(density_percent / 100.0, 0.01, 1.0);
-        fiber_spacing_mm = fiber_line_width_mm / density_fraction;
-    }
-    fiber_spacing_mm = std::max(fiber_spacing_mm, fiber_line_width_mm);
-
-    const int fiber_start_layer = std::max(tinman_dynamic_int_option(full_config, "fiber_start_layer", 0), 0);
-    const int configured_layer_step = tinman_dynamic_int_option(full_config, "fiber_layer_step", 0);
-    const int layer_step = tinman_fiber_effective_layer_step(full_config, configured_layer_step);
-    const int configured_max_routes_per_layer = tinman_dynamic_int_option(full_config, "fiber_max_routes_per_layer", 0);
-    const std::size_t max_routes_per_layer = configured_max_routes_per_layer > 0 ?
-        std::size_t(configured_max_routes_per_layer) :
-        std::size_t(0);
-
-    FiberseekComposite::CompositeRouteGraphOptions route_options;
-    route_options.cut_distance_mm = std::max(0.0, tinman_dynamic_float_option(full_config, "fiber_cut_distance", 58.0));
-    route_options.cut_safety_margin_mm = 5.0;
-    route_options.min_segment_length_mm =
-        solid_payload.has_min_segment_length_mm && solid_payload.min_segment_length_mm > EPSILON ?
-        solid_payload.min_segment_length_mm :
-        std::max(0.0, tinman_dynamic_float_option(full_config, "fiber_min_route_length", 10.0));
-    route_options.min_route_length_mm = std::max(
-        0.0,
-        tinman_dynamic_float_option(
-            full_config,
-            "fiber_mechanical_min_route_length",
-            tinman_dynamic_float_option(full_config, "fiber_min_route_length", 55.0)));
-    route_options.line_spacing_mm = fiber_spacing_mm;
-    route_options.max_transition_length_mm = FiberseekComposite::rocket_style_transition_limit_mm(fiber_line_width_mm);
-    route_options.coalesce_transition_length_mm =
-        solid_payload.has_coalesce_transition_length_mm && solid_payload.coalesce_transition_length_mm > EPSILON ?
-        solid_payload.coalesce_transition_length_mm :
-        route_options.max_transition_length_mm;
-    route_options.route_stitch_transition_length_mm =
-        solid_payload.has_route_stitch_transition_length_mm && solid_payload.route_stitch_transition_length_mm > EPSILON ?
-        solid_payload.route_stitch_transition_length_mm :
-        0.0;
-    route_options.plastic_mm_per_mm = 1.0;
-    route_options.fiber_mm_per_mm = 1.0;
-    route_options.strategy = FiberseekComposite::CompositeRouteGraphStrategy::RocketRowGraph;
-
-    std::size_t total_candidates = 0;
-    std::size_t total_routes = 0;
-    std::size_t total_fallbacks = 0;
-    std::size_t selected_layers = 0;
-    std::size_t selected_regions = 0;
-    std::size_t perimeter_source_regions = 0;
-    std::size_t infill_source_regions = 0;
-
-    for (size_t layer_idx = 0; layer_idx < m_layers.size(); ++layer_idx) {
-        m_print->throw_if_canceled();
-
-        if (!tinman_fiber_layer_is_selected(layer_idx, m_layers.size(), fiber_start_layer, layer_step))
-            continue;
-
-        Layer *layer = m_layers[layer_idx];
-        ++selected_layers;
-
-        for (size_t region_id = 0; region_id < layer->region_count(); ++region_id) {
-            LayerRegion *layerm = layer->get_region(int(region_id));
-            ++selected_regions;
-            FiberseekComposite::CompositeLayerDiagnostic diagnostic;
-            diagnostic.layer_id = layer->id();
-            diagnostic.object_id = this->get_id();
-            diagnostic.region_id = region_id;
-
-            if (generate_fiber_perimeters && !layerm->slices.surfaces.empty()) {
-                ++perimeter_source_regions;
-                FiberseekComposite::CompositePerimeterOptions perimeter_options;
-                perimeter_options.layer_id = layer->id();
-                perimeter_options.object_id = this->get_id();
-                perimeter_options.region_id = region_id;
-                perimeter_options.first_candidate_id = diagnostic.candidates.size();
-                perimeter_options.first_route_id = tinman_next_route_id(diagnostic);
-                perimeter_options.inset_mm = std::max(0.0, tinman_dynamic_float_option(full_config, "fiber_perimeter_inset", 0.85));
-                perimeter_options.spacing_mm = fiber_spacing_mm;
-                perimeter_options.min_route_length_mm = std::max(0.0, tinman_dynamic_float_option(full_config, "fiber_perimeter_min_route_length", 55.0));
-                perimeter_options.outer_loop_count = std::size_t(std::max(0, tinman_dynamic_int_option(full_config, "fiber_outer_perimeter_loops", 1)));
-                perimeter_options.inner_loop_count = std::size_t(std::max(0, tinman_dynamic_int_option(full_config, "fiber_inner_perimeter_loops", 1)));
-
-                FiberseekComposite::CompositeLayerDiagnostic perimeter_diagnostic =
-                    FiberseekComposite::plan_perimeter_routes_from_expolygons(
-                        to_expolygons(layerm->slices.surfaces),
-                        perimeter_options,
-                        route_options);
-                tinman_append_fiberseek_composite_diagnostic(diagnostic, std::move(perimeter_diagnostic));
-            }
-
-            if (generate_fiber_infill) {
-                std::vector<const Surface *> fiber_surfaces;
-                fiber_surfaces.reserve(layerm->fill_surfaces.surfaces.size());
-                for (const Surface &surface : layerm->fill_surfaces.surfaces) {
-                    if (tinman_fiber_surface_is_composite_infill_candidate(surface))
-                        fiber_surfaces.push_back(&surface);
-                }
-
-                if (!fiber_surfaces.empty()) {
-                    ++infill_source_regions;
-                    FiberseekComposite::CompositeSurfaceFillOptions surface_options;
-                    surface_options.family = tinman_fiber_pattern_to_candidate_family(full_config);
-                    surface_options.layer_id = layer->id();
-                    surface_options.object_id = this->get_id();
-                    surface_options.region_id = region_id;
-                    surface_options.first_candidate_id = diagnostic.candidates.size();
-                    surface_options.pattern = tinman_fiber_pattern_to_slicer_pattern(full_config);
-                    surface_options.density = 1.0;
-                    surface_options.spacing_mm = fiber_spacing_mm;
-                    surface_options.overlap_mm =
-                        solid_payload.has_extend_into_perimeters_mm ?
-                        std::max(0.0, solid_payload.extend_into_perimeters_mm) :
-                        0.0;
-                    surface_options.fiber_line_width_mm = fiber_line_width_mm;
-                    surface_options.fallback_infill_line_width_mm = layerm->flow(frInfill).width();
-                    surface_options.fallback_solid_line_width_mm = layerm->flow(frSolidInfill).width();
-                    surface_options.angle_rad = tinman_fiber_infill_angle_rad(full_config, layer_idx, solid_payload);
-                    surface_options.z_mm = layer->print_z;
-                    surface_options.resolution_mm = std::max(0.001, tinman_dynamic_float_option(full_config, "resolution", 0.0125));
-                    surface_options.fixed_angle = true;
-                    surface_options.connect_to_perimeters = false;
-                    surface_options.adjust_spacing = false;
-                    surface_options.residual_plastic_refill_enabled = true;
-                    surface_options.bounding_box = this->bounding_box();
-
-                    FiberseekComposite::CompositeLayerDiagnostic infill_diagnostic =
-                        FiberseekComposite::plan_surface_fill_routes(fiber_surfaces, surface_options, route_options);
-                    tinman_append_fiberseek_composite_diagnostic(diagnostic, std::move(infill_diagnostic));
-                }
-            }
-
-            if (diagnostic.empty())
+    // Layers are planned independently (spec sec. 9), so they run in parallel. Each region is
+    // planned on its own; the planner never joins separate islands either.
+    const Fibreseek::LayerSchedule schedule = Fibreseek::schedule_from_config(config, m_config.layer_height.value);
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, m_layers.size()), [this, &config, &schedule](const tbb::blocked_range<size_t> &range) {
+        for (size_t layer_idx = range.begin(); layer_idx < range.end(); ++layer_idx) {
+            m_print->throw_if_canceled();
+            if (!schedule.is_fibre_layer(layer_idx, m_layers.size()))
                 continue;
-
-            const std::size_t stitch_prefilter_route_limit = max_routes_per_layer > 0 ?
-                std::max(max_routes_per_layer * 4, max_routes_per_layer + 12) :
-                std::size_t(0);
-            tinman_cap_fiberseek_composite_routes(diagnostic, stitch_prefilter_route_limit);
-            FiberseekComposite::stitch_composite_layer_routes(diagnostic, route_options);
-            tinman_cap_fiberseek_composite_routes(diagnostic, max_routes_per_layer);
-            total_candidates += diagnostic.candidates.size();
-            total_routes += diagnostic.routes.size();
-            total_fallbacks += diagnostic.fallbacks.size();
-            if (tinman_diagnostic_has_fiber_owned_infill(diagnostic))
-                tinman_apply_fiberseek_composite_only_infill_ownership(*layerm, diagnostic);
-
-            diagnostic.candidates.clear();
-            diagnostic.candidates.shrink_to_fit();
-            layerm->fiberseek_composite_diagnostic = std::move(diagnostic);
+            Layer *layer = m_layers[layer_idx];
+            for (size_t region_id = 0; region_id < layer->region_count(); ++region_id) {
+                LayerRegion *layerm = layer->get_region(int(region_id));
+                if (layerm->slices.surfaces.empty())
+                    continue;
+                // The matrix width is the width of the plastic walls around the fibre.
+                const Fibreseek::PlannerSettings settings = Fibreseek::settings_from_config(config, layerm->flow(frPerimeter).width());
+                Fibreseek::LayerInput input;
+                input.layer_id            = layer->id();
+                input.print_z             = layer->print_z;
+                input.height              = layer->height;
+                input.slices              = to_expolygons(layerm->slices.surfaces);
+                input.fibre_layer_ordinal = schedule.ordinal(layer_idx);
+                // input.infill_candidates stays empty, so fibre infill is always the planner's own
+                // ribs. Following the plastic traces (fiber_infill_source_policy = plastic_traces,
+                // the default) would need those traces thinned to one fibre width apart first,
+                // which the planner does not do yet; the planner this one replaced did not follow
+                // them either.
+                const Fibreseek::LayerPlan plan = Fibreseek::RoutePlanner(settings).plan_layer(input);
+                if (plan.routes.empty())
+                    continue;
+                tinman_trim_fills_under_fibre(*layerm, plan.fibre_footprint);
+                layerm->fibreseek_routes = Fibreseek::to_writer_routes(plan, region_id, settings.hardware_min_length_mm);
+            }
         }
-    }
+    });
+    m_print->throw_if_canceled();
 
-    BOOST_LOG_TRIVIAL(info)
-        << "Tinman FibreSeek composite-road diagnostic planned "
-        << total_routes << " routes from " << total_candidates
-        << " candidates with " << total_fallbacks
-        << " fallbacks across " << selected_layers << " selected layers, "
-        << selected_regions << " selected regions, "
-        << perimeter_source_regions << " perimeter source regions and "
-        << infill_source_regions << " infill source regions.";
+    size_t fibre_layers = 0;
+    size_t routes       = 0;
+    for (const Layer *layer : m_layers) {
+        size_t layer_routes = 0;
+        for (const LayerRegion *layerm : layer->regions())
+            layer_routes += layerm->fibreseek_routes.routes.size();
+        fibre_layers += layer_routes > 0 ? 1 : 0;
+        routes += layer_routes;
+    }
+    BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek route planner: object " << this->get_id() << " has " << routes
+                            << " fibre routes on " << fibre_layers << " of " << m_layers.size() << " layers.";
 }
 
 void PrintObject::ironing()

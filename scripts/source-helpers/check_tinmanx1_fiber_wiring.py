@@ -285,15 +285,19 @@ def require_planner_handoff() -> None:
     require_all(
         print_object_cpp,
         [
-            '"fiber_infill_solid_payload"',
-            "tinman_parse_rocket_solid_payload",
-            "angle_list_raw",
-            "extrusion_width_mm",
-            "min_segment_length_mm",
-            "FiberseekComposite::CompositeRouteGraphOptions",
+            "Fibreseek::schedule_from_config",
+            "Fibreseek::settings_from_config",
+            "Fibreseek::RoutePlanner",
+            "Fibreseek::to_writer_routes",
+            '"fiber_cut_distance"',
         ],
-        "PrintObject.cpp Rocket-compare solid payload consumption",
+        "PrintObject.cpp FibreSeek route planner call site",
     )
+    # The route selector written from notes on Rocket Slicer's decompiled code was removed with
+    # FiberseekCompositePlanner.*; none of its names may come back.
+    for stale in ("FiberseekComposite", "tinman_parse_rocket_solid_payload", "rocket_style_transition_limit_mm"):
+        if stale in print_object_cpp or stale in gcode_cpp:
+            fail(f"PrintObject.cpp or GCode.cpp still uses the removed route planner: {stale}")
 
     for option, token_sets in CRITICAL_PLANNER_HANDOFFS.items():
         if option not in print_cpp:

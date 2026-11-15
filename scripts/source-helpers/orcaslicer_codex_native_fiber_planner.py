@@ -120,10 +120,13 @@ class ParsedGCode:
 
 @dataclass
 class PlannerConfig:
-    cut_distance: float = 58.0
-    restart_length: float = 55.0
-    start_length: float = 15.0
-    slow_length: float = 10.0
+    # Cut, restart, start and slow lengths come from the G-code's config block (the printer and
+    # process profiles), the same values the C++ writer uses; 0 = not set. Cut distance and
+    # restart length are required, start and slow length may be 0 (off).
+    cut_distance: float = 0.0
+    restart_length: float = 0.0
+    start_length: float = 0.0
+    slow_length: float = 0.0
     # Material data comes from the G-code's config block (the composite profile); 0 = not set.
     fiber_diameter: float = 0.0
     fiber_linear_density: float = 0.0
@@ -190,7 +193,7 @@ class PlannerConfig:
     layup_payload_warnings: list[str] = field(default_factory=list)
     fiber_tool_command: str = "T0 ; switch extruder type to:FIBER"
     plastic_tool_command: str = "T1 ; switch extruder type to:PLASTIC"
-    cut_gcode: list[str] = field(default_factory=lambda: ["M2800", "M400", ";CUT DISTANCE 54.8"])
+    cut_gcode: list[str] = field(default_factory=list)  # built by cut_gcode_from_value()
     plastic_nozzle_temperature: float = 260.0
     fiber_nozzle_temperature: float = 275.0
     plastic_standby_temperature: float = 150.0
@@ -649,11 +652,21 @@ def speed_mm_s_to_feedrate(value: str | None, default_feedrate: float) -> float:
 
 
 def cut_gcode_from_value(value: str | None, cut_distance: float) -> list[str]:
-    if not value:
-        return ["M2800", "M400", f";CUT DISTANCE {fmt_float(max(cut_distance - 3.2, 0.0), 1)}"]
-    expanded = value.replace("\\r\\n", "\n").replace("\\n", "\n").replace("\r\n", "\n")
-    commands = [line.strip() for line in expanded.splitlines() if line.strip()]
-    return commands or ["M2800", "M400", f";CUT DISTANCE {fmt_float(max(cut_distance - 3.2, 0.0), 1)}"]
+    """The cutter commands for every route: fiber_cut_gcode (M2800, M400 when empty), then the
+    ;CUT DISTANCE marker. As in the C++ writer (tinman_fiber_cut_gcode in GCode.cpp), the marker
+    always carries fiber_cut_distance, the value that places the cut and sizes M1001 L. A custom
+    cut G-code may name the distance itself, but only that same value."""
+    expanded = (value or "").replace("\\r\\n", "\n").replace("\\n", "\n").replace("\r\n", "\n")
+    commands = [line.strip() for line in expanded.splitlines() if line.strip()] or ["M2800", "M400"]
+    named = cut_distance_from_gcode(commands)
+    if named is None:
+        return commands + [f";CUT DISTANCE {fmt_float(cut_distance, 3)}"]
+    if abs(named - cut_distance) > 1e-3:
+        raise SystemExit(
+            f"Fiber cut G-code names CUT DISTANCE {fmt_float(named, 3)}, but Fiber cut distance is "
+            f"{fmt_float(cut_distance, 3)} mm. Remove the CUT DISTANCE line from the cut G-code, or make the two match."
+        )
+    return commands
 
 
 def cut_distance_from_gcode(commands: Sequence[str]) -> float | None:
@@ -1225,10 +1238,10 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
     if args.fiber_reinforcement_mode:
         cfg.reinforcement_mode = parse_reinforcement_mode(args.fiber_reinforcement_mode, cfg.reinforcement_mode)
         cfg.input_source = "live-slicer-config"
-    cfg.cut_distance = parse_first_positive_float(comments.get("fiber_cut_distance"), cfg.cut_distance)
-    cfg.restart_length = parse_first_positive_float(comments.get("fiber_restart_length"), cfg.restart_length)
-    cfg.start_length = parse_first_positive_float(comments.get("fiber_start_length"), cfg.start_length)
-    cfg.slow_length = parse_first_positive_float(comments.get("fiber_slow_length"), cfg.slow_length)
+    cfg.cut_distance = parse_first_positive_float(comments.get("fiber_cut_distance"), 0.0)
+    cfg.restart_length = parse_first_positive_float(comments.get("fiber_restart_length"), 0.0)
+    cfg.start_length = max(parse_first_float(comments.get("fiber_start_length"), 0.0), 0.0)
+    cfg.slow_length = max(parse_first_float(comments.get("fiber_slow_length"), 0.0), 0.0)
     # Strand data comes from the composite profile (Tinman copies it into
     # continuous_fiber_*); "0" or a missing key means not set.
     # Per-material values come only from the composite's own slot, never from
@@ -1350,10 +1363,6 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
         comments.get("fiber_infill_source_policy") or comments.get("fiber_infill_source"),
         cfg.infill_source_policy,
     )
-    cfg.cut_gcode = cut_gcode_from_value(comments.get("fiber_cut_gcode"), cfg.cut_distance)
-    macro_cut_distance = cut_distance_from_gcode(cfg.cut_gcode)
-    if macro_cut_distance is not None:
-        cfg.cut_distance = macro_cut_distance
     cfg.angles = angles_for_pattern(cfg.pattern, angle_override)
 
     nozzle_temperatures = parse_float_values(comments.get("nozzle_temperature"))
@@ -1468,6 +1477,18 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
         cfg.generate_infill = False
 
     validate_fiberseek_process_contract(comments, cfg)
+    # Checked after the process contract, so a wrong process profile is reported first.
+    if cfg.cut_distance <= 0.0:
+        raise SystemExit(
+            "Continuous fiber needs the distance from the fiber cutter to the nozzle tip. "
+            "Enter Fiber cut distance in the printer profile."
+        )
+    if cfg.restart_length <= 0.0:
+        raise SystemExit(
+            "Continuous fiber needs the length of fiber fed after a cut to bring the strand back to the nozzle. "
+            "Enter Fiber restart length in the printer profile."
+        )
+    cfg.cut_gcode = cut_gcode_from_value(comments.get("fiber_cut_gcode"), cfg.cut_distance)
 
     return cfg
 
