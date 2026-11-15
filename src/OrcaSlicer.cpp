@@ -96,6 +96,7 @@
 
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/Config.hpp"
+#include "libslic3r/FibreSeekMaterials.hpp"
 #include "libslic3r/FilamentMixer.hpp"
 #include "libslic3r/Preset.hpp"
 #include "libslic3r/Geometry.hpp"
@@ -4278,6 +4279,11 @@ int CLI::run(int argc, char **argv)
         // exporting the merged configuration in JSON or 3MF.
         const auto *filaments = m_print_config.option<ConfigOptionStrings>("filament_settings_id");
         tinmanx_normalize_multitool_config(m_print_config, filaments ? filaments->values.size() : 1);
+        // FibreSeek: the fibre writers read the strand data (diameter, linear density) from
+        // continuous_fiber_*. PresetBundle::full_fff_config takes it from the effective CFC
+        // composite for the GUI; do the same here, or a CLI fibre slice stops with "diameter
+        // is not set" although the composite profile sets it.
+        apply_continuous_fiber_strand_data(m_print_config);
     } else {
         boost::nowide::cerr << "invalid printer_technology " << std::endl;
         record_exit_reson(outfile_dir, CLI_INVALID_PRINTER_TECH, 0, cli_errors[CLI_INVALID_PRINTER_TECH], sliced_info);
