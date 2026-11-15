@@ -70,9 +70,11 @@ class FibreSeekMaterialMappingTests(unittest.TestCase):
             ("void PresetBundle::set_filament_preset(", "void PresetBundle::set_default_suppressed("),
         ):
             self.assertIn("normalize_fibreseek_material_mapping(*this);", bundle.split(start, 1)[1].split(end, 1)[0])
-        project_load = bundle.split("// 4) Load the project config values", 1)[1].split("break;", 1)[0]
+        project_load = bundle.split("Load the project config values", 1)[1].split("break;", 1)[0]
         self.assertLess(project_load.index("this->fibreseek_mapping = {};"),
-                        project_load.index("this->project_config.apply_only(config, s_project_options);"))
+                        project_load.index("this->project_config.apply_only(config, "))
+        # A published project keeps the receiver's filament data, so only a normal load forgets the memory.
+        self.assertIn("if (!is_published)\n            this->fibreseek_mapping = {};", project_load)
 
 
 if __name__ == "__main__":
