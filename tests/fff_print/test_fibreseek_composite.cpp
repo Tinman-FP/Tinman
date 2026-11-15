@@ -30,11 +30,9 @@ using Catch::Matchers::ContainsSubstring;
 
 namespace {
 
-// One composite material (a CFC filament with test strand data) printing a 60 x 40 x 4 mm plate,
-// with medium reinforcement: fibre on every second layer.
-DynamicPrintConfig composite_only_config()
+// The fibre settings for a 60 x 40 x 4 mm plate with medium reinforcement: fibre on every second layer.
+void set_composite_only(DynamicPrintConfig &config)
 {
-    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
     config.set_deserialize_strict({
         { "fiber_enabled", "1" },
         { "fiber_manufacturing_mode", "composite_only" },
@@ -43,8 +41,6 @@ DynamicPrintConfig composite_only_config()
         { "fiber_reinforcement_mode", "medium" },
         { "fiber_cut_distance", "58" },
         { "fiber_restart_length", "55" },
-        { "filament_type", "CFC" },
-        { "fiber_feed_factor", "0.8" },
         { "continuous_fiber_diameter", "0.25" },
         { "layer_height", "0.2" },
         { "initial_layer_print_height", "0.2" },
@@ -53,6 +49,25 @@ DynamicPrintConfig composite_only_config()
         { "brim_type", "no_brim" },
         { "enable_prime_tower", "0" },
     });
+}
+
+// The Seeker 3 composite printer as the generated profile sets it up: extruder 1 (0.4 mm) prints
+// the plastic filament, extruder 2 (0.7 mm) the CFC composite, which carries the strand data.
+DynamicPrintConfig composite_only_config()
+{
+    DynamicPrintConfig config = Test::multifilament_config(2, {
+        { "nozzle_diameter", "0.4,0.7" },
+        { "printer_extruder_id", "1,2" },
+        { "printer_extruder_variant", "Direct Drive Standard,Direct Drive Standard" },
+        { "extruder_printable_height", "0,0" },
+        { "filament_self_index", "1,2" },
+        { "filament_map", "1,2" },
+        { "single_extruder_multi_material", "0" },
+        { "filament_type", "PCTG;CFC" },
+        { "fiber_feed_factor", "0,0.8" },
+    });
+    Test::size_flush_to_nozzles(config);
+    set_composite_only(config);
     return config;
 }
 
@@ -158,6 +173,18 @@ TEST_CASE("Fibre slicing stops with the setting's name when a cut or restart val
         init_plate(print, model, config);
         REQUIRE_THROWS_WITH(Test::gcode(print), ContainsSubstring("Fiber restart length"));
     }
+}
+
+TEST_CASE("Composite-only slicing on a one-extruder printer stops with a clear error", "[Fibreseek][FibreseekSlicing]")
+{
+    // The writer prints plastic with T1 and fibre with T0, so one extruder can't run it.
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({ { "filament_type", "CFC" }, { "fiber_feed_factor", "0.8" } });
+    set_composite_only(config);
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    REQUIRE_THROWS_WITH(print.process(), ContainsSubstring("needs a printer with two extruders"));
 }
 
 TEST_CASE("An old CUT DISTANCE line in the cut G-code is dropped with a warning", "[Fibreseek][FibreseekSlicing]")

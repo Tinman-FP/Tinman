@@ -972,6 +972,12 @@ void PrintObject::plan_fibreseek_routes()
     if (!tinman_fiberseek_composite_only_requested(config))
         return;
 
+    // The composite-only writer drives two tools: T1 prints the plastic and T0 lays the fibre
+    // (GCode::extrude_fiberseek_composite_routes_for_layer). With one extruder, T1 names no tool.
+    if (m_print->config().nozzle_diameter.size() < 2)
+        throw Slic3r::SlicingError(L("Composite-only fiber printing needs a printer with two extruders, one for plastic "
+                                     "and one for the composite. Choose the FibreSeek Seeker 3 composite printer profile."));
+
     // The cutter sits this far upstream of the nozzle tip. The planner's shortest route, the
     // writer's cut position, M1001 L and the ;CUT DISTANCE marker all use this one value from
     // the printer profile, so a missing value stops the slice rather than being guessed.

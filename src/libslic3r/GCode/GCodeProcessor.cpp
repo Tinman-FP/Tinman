@@ -3173,6 +3173,12 @@ bool GCodeProcessor::check_multi_extruder_gcode_valid(const int                 
         int                                object_label_id = obj_iter->first;
         const std::map<int, GCodePosInfo> &path_pos        = obj_iter->second;
         for (auto iter = path_pos.begin(); iter != path_pos.end(); ++iter) {
+            // Tinman: continuous-fibre moves carry the preview filament that
+            // ensure_orcaslicer_codex_continuous_fiber_preview_filament() adds after the real ones. It has
+            // no filament map entry (nor a limit_filament_maps slot), so leave it unchecked; the fibre lies
+            // inside the part's plastic, which is checked under its own filament.
+            if (iter->first < 0 || size_t(iter->first) >= filament_map.size())
+                continue;
             int extruder_id = filament_map[iter->first] - 1;
             // A filament map entry of 0 names no extruder, and the errors below are listed under the
             // filament's extruder, so leave that filament unchecked.
