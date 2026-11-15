@@ -290,26 +290,30 @@ static void tinman_append_raw_multiline_gcode(std::string &gcode, const std::str
 
 // The cutter commands written for every route: Fiber cut G-code (M2800, M400 when empty), then the
 // ;CUT DISTANCE marker. The marker always carries Fiber cut distance, the same value that places the
-// cut and sizes M1001 L, and the one the Python planner and the contract audit read back. A custom
-// cut G-code may name the distance itself, but only that same value.
-static std::string tinman_fiber_cut_gcode(const std::string &custom_gcode, double cut_distance_mm)
+// cut and sizes M1001 L, and the one the Python planner and the contract audit read back. Older
+// generated profiles put their own ";CUT DISTANCE 54.8" line into the cut G-code; such a line is
+// dropped, so there is only ever one marker. When it named a different distance, that number is
+// returned in `ignored_distance` so the caller can warn (see GCode::_do_export).
+static std::string tinman_fiber_cut_gcode(const std::string &custom_gcode, double cut_distance_mm, std::string *ignored_distance = nullptr)
 {
+    static const std::regex marker(R"(^\s*;\s*CUT\s+DISTANCE\s+([-+]?(?:\d+(?:\.\d*)?|\.\d+))\s*$)", std::regex::icase);
+    std::string lines;
+    tinman_append_raw_multiline_gcode(lines, custom_gcode);
     std::string out;
-    if (custom_gcode.empty())
-        out = "M2800\nM400\n";
-    else
-        tinman_append_raw_multiline_gcode(out, custom_gcode);
-    static const std::regex named_distance(R"(CUT\s+DISTANCE\s+([-+]?(?:\d+(?:\.\d*)?|\.\d+)))", std::regex::icase);
-    std::smatch match;
-    if (!std::regex_search(out, match, named_distance)) {
-        out += Slic3r::format(";CUT DISTANCE %.3f\n", cut_distance_mm);
-        return out;
+    std::istringstream stream(lines);
+    for (std::string line; std::getline(stream, line);) {
+        std::smatch match;
+        if (std::regex_match(line, match, marker)) {
+            if (ignored_distance != nullptr && ignored_distance->empty() && std::abs(std::stod(match[1].str()) - cut_distance_mm) > 1e-3)
+                *ignored_distance = match[1].str();
+            continue;
+        }
+        out += line;
+        out += '\n';
     }
-    if (std::abs(std::stod(match[1].str()) - cut_distance_mm) > 1e-3)
-        throw Slic3r::SlicingError(Slic3r::format(
-            _(L("Fiber cut G-code names CUT DISTANCE %1%, but Fiber cut distance is %2% mm. Remove the CUT DISTANCE line from the cut G-code, "
-                "or make the two match.")),
-            match[1].str(), Slic3r::float_to_string_decimal_point(cut_distance_mm, 3)));
+    if (out.empty())
+        out = "M2800\nM400\n";
+    out += Slic3r::format(";CUT DISTANCE %.3f\n", cut_distance_mm);
     return out;
 }
 
@@ -3867,6 +3871,17 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     // leave them at their defaults; take them from the full config so the profile's values apply.
     m_config.apply_only(print.full_print_config(), FiberReinforcementConfig().keys(), true);
     const bool tinman_native_composite_export = tinman_native_composite_only_export_requested(print.full_print_config());
+    if (tinman_dynamic_bool_option_for_gcode(print.full_print_config(), "fiber_enabled")) {
+        // Both fibre writers drop a CUT DISTANCE line of the cut G-code's own and print Fiber cut
+        // distance instead (tinman_fiber_cut_gcode here, cut_gcode_from_value() in Python). Say so once
+        // when that line named another value, so the profile can be tidied up.
+        std::string ignored_distance;
+        tinman_fiber_cut_gcode(m_config.fiber_cut_gcode.value, m_config.fiber_cut_distance.value, &ignored_distance);
+        if (!ignored_distance.empty())
+            print.active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
+                Slic3r::format(_(L("Fiber cut G-code has ;CUT DISTANCE %1%. Tinman uses Fiber cut distance (%2% mm) and ignores that line.")),
+                               ignored_distance, Slic3r::float_to_string_decimal_point(m_config.fiber_cut_distance.value)));
+    }
 
     //m_volumetric_speed = DoExport::autospeed_volumetric_limit(print);
     print.throw_if_canceled();

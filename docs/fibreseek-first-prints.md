@@ -214,7 +214,7 @@ The planner swap (PR #25) changes what the printer receives. Old → new:
 - **`M1001 L`:** ceil(L + 54.8) → ceil(L + 58), about 3 mm more fibre loaded per route.
 - **Shortest standalone route:** 64.8 → 68 mm (cut distance + slow length). Routes from 64.8 to 68 mm long are now left out.
 - **Restart, start and slow lengths:** taken from the profile, with no stand-ins. The Seeker 3 test profiles set 55 / 15 / 10, so these numbers don't change. A profile that leaves Fiber cut distance or Fiber restart length at 0 now stops the slice; before, 58 / 55 were used silently.
-- **Old cut G-code line:** if a printer preset's Fiber cut G-code still has the line `;CUT DISTANCE 54.8`, slicing stops with an error naming it. Delete that line (Tinman adds it), or set Fiber cut distance to 54.8 if that is the real cutter-to-tip length.
+- **Old cut G-code line:** if a printer preset's Fiber cut G-code still has the line `;CUT DISTANCE 54.8` (older generated profiles did), Tinman ignores that line and shows a slicing warning naming both values. The slice still works, with one `;CUT DISTANCE 58` per route. Delete the line when convenient, since Tinman adds the marker itself. If 54.8 is the real cutter-to-tip length, set Fiber cut distance to 54.8 instead.
 
 **Fibre-owned composite roads** (composite-only, the C++ writer):
 

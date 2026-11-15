@@ -140,7 +140,7 @@ TEST_CASE("Fibre G-code cuts at the profile's cut distance and prints that same 
     CHECK(count(gcode, "G1 F1500 U55.000 ; Extrude restart") == routes);
 }
 
-TEST_CASE("Fibre slicing stops with the setting's name when a cut value is missing or contradicts it", "[Fibreseek][FibreseekSlicing]")
+TEST_CASE("Fibre slicing stops with the setting's name when a cut or restart value is missing", "[Fibreseek][FibreseekSlicing]")
 {
     DynamicPrintConfig config = composite_only_config();
     Print              print;
@@ -156,9 +156,29 @@ TEST_CASE("Fibre slicing stops with the setting's name when a cut value is missi
         init_plate(print, model, config);
         REQUIRE_THROWS_WITH(Test::gcode(print), ContainsSubstring("Fiber restart length"));
     }
-    SECTION("a cut G-code naming another distance") {
-        config.set_deserialize_strict("fiber_cut_gcode", "M2800\nM400\n;CUT DISTANCE 54.8");
-        init_plate(print, model, config);
-        REQUIRE_THROWS_WITH(Test::gcode(print), ContainsSubstring("CUT DISTANCE 54.8") && ContainsSubstring("Fiber cut distance"));
-    }
+}
+
+TEST_CASE("An old CUT DISTANCE line in the cut G-code is dropped with a warning", "[Fibreseek][FibreseekSlicing]")
+{
+    // Older generated Seeker 3 profiles carry ";CUT DISTANCE 54.8" in Fiber cut G-code. Those profiles
+    // keep slicing: the line is dropped, the one marker per route shows Fiber cut distance, and the
+    // export warns so the profile can be tidied up.
+    DynamicPrintConfig config = composite_only_config();
+    config.set_deserialize_strict("fiber_cut_gcode", "M2800\nM400\n;CUT DISTANCE 54.8");
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    const std::string gcode = Test::gcode(print);
+
+    const size_t routes = count(gcode, "; ORCA_CODEX_FIBER_ROUTE_START");
+    REQUIRE(routes > 0);
+    CHECK(count(gcode, "\n;CUT DISTANCE 58.000\n") == routes);
+    // Marker lines only: the config block at the end still quotes the profile's cut G-code.
+    CHECK(count(gcode, "\n;CUT DISTANCE ") == routes);
+    CHECK(count(gcode, "\nM2800\n") == routes);
+
+    std::string warnings;
+    for (const auto &warning : print.step_state_with_warnings(psGCodeExport).warnings)
+        warnings += warning.message + "\n";
+    CHECK_THAT(warnings, ContainsSubstring("CUT DISTANCE 54.8") && ContainsSubstring("Fiber cut distance (58 mm)"));
 }

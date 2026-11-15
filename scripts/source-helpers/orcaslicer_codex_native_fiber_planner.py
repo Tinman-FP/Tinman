@@ -651,33 +651,31 @@ def speed_mm_s_to_feedrate(value: str | None, default_feedrate: float) -> float:
     return speed * 60.0 if speed > EPSILON else default_feedrate
 
 
+CUT_DISTANCE_LINE_RE = re.compile(r"^\s*;\s*CUT\s+DISTANCE\s+([-+]?(?:\d+(?:\.\d*)?|\.\d+))\s*$", re.IGNORECASE)
+
+
 def cut_gcode_from_value(value: str | None, cut_distance: float) -> list[str]:
     """The cutter commands for every route: fiber_cut_gcode (M2800, M400 when empty), then the
     ;CUT DISTANCE marker. As in the C++ writer (tinman_fiber_cut_gcode in GCode.cpp), the marker
-    always carries fiber_cut_distance, the value that places the cut and sizes M1001 L. A custom
-    cut G-code may name the distance itself, but only that same value."""
+    always carries fiber_cut_distance, the value that places the cut and sizes M1001 L. Older
+    generated profiles put their own ";CUT DISTANCE 54.8" line into the cut G-code; such a line is
+    dropped, so there is only one marker. Tinman's slicer warns when it named another value; this
+    script notes it on stderr."""
     expanded = (value or "").replace("\\r\\n", "\n").replace("\\n", "\n").replace("\r\n", "\n")
-    commands = [line.strip() for line in expanded.splitlines() if line.strip()] or ["M2800", "M400"]
-    named = cut_distance_from_gcode(commands)
-    if named is None:
-        return commands + [f";CUT DISTANCE {fmt_float(cut_distance, 3)}"]
-    if abs(named - cut_distance) > 1e-3:
-        raise SystemExit(
-            f"Fiber cut G-code names CUT DISTANCE {fmt_float(named, 3)}, but Fiber cut distance is "
-            f"{fmt_float(cut_distance, 3)} mm. Remove the CUT DISTANCE line from the cut G-code, or make the two match."
-        )
-    return commands
-
-
-def cut_distance_from_gcode(commands: Sequence[str]) -> float | None:
-    for command in commands:
-        match = re.search(r"\bCUT\s+DISTANCE\s+([-+]?(?:\d+(?:\.\d*)?|\.\d+))", command, flags=re.IGNORECASE)
-        if not match:
+    commands = []
+    for line in (line.strip() for line in expanded.splitlines()):
+        match = CUT_DISTANCE_LINE_RE.match(line)
+        if match:
+            if abs(float(match.group(1)) - cut_distance) > 1e-3:
+                print(
+                    f"warning: Fiber cut G-code has ;CUT DISTANCE {match.group(1)}; using Fiber cut distance "
+                    f"({fmt_float(cut_distance, 3)} mm) and ignoring that line.",
+                    file=sys.stderr,
+                )
             continue
-        value = float(match.group(1))
-        if value > EPSILON:
-            return value
-    return None
+        if line:
+            commands.append(line)
+    return (commands or ["M2800", "M400"]) + [f";CUT DISTANCE {fmt_float(cut_distance, 3)}"]
 
 
 def pattern_from_comments(comments: dict[str, str], default: str) -> str:
