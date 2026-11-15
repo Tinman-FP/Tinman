@@ -1,6 +1,7 @@
 #ifndef slic3r_FibreSeekMaterials_hpp_
 #define slic3r_FibreSeekMaterials_hpp_
 
+#include "Config.hpp"
 #include "PrintConfig.hpp"
 
 #include <cstddef>

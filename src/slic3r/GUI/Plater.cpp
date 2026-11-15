@@ -146,6 +146,7 @@
 #include <wx/progdlg.h>
 #include <wx/strconv.h>
 #include <wx/string.h>
+#include <wx/translation.h>
 #include <wx/types.h>
 #include <wx/utils.h>
 #include <wx/toplevel.h>

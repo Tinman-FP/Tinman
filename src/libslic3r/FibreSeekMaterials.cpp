@@ -1,11 +1,19 @@
 #include "FibreSeekMaterials.hpp"
+#include "Config.hpp"
 #include "FilamentSelection.hpp"
+#include "Preset.hpp"
 #include "PresetBundle.hpp"
+#include "PrintConfig.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <optional>
+#include <string>
 #include <utility>
+#include <vector>
 #include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 
 namespace Slic3r {
 
