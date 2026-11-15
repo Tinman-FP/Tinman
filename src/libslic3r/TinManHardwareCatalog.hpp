@@ -15,6 +15,8 @@ enum class TinManConnectionMode {
     QidiMoonraker,
     Snapmaker,
     Moonraker,
+    PrusaLink,
+    FibreSeek, // Moonraker with the FibreSeek print host's pre-send checks
 };
 
 struct TinManMachineDefinition {

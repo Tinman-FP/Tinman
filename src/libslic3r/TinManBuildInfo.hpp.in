@@ -5,6 +5,10 @@
 #define TINMANX1_REVISION "@TINMANX1_REVISION@"
 #define TINMAN_VERSION "@TINMANX1_PACKAGE_VERSION@"
 #define TINMAN_DISPLAY_VERSION "@TINMAN_DISPLAY_VERSION@"
+// OrcaSlicer 2.5 also generates git_commit_hash.h with this macro (read through BuildCommit.hpp);
+// don't redefine it in a file that includes both.
+#ifndef GIT_COMMIT_HASH
 #define GIT_COMMIT_HASH "@GIT_COMMIT_HASH@"
+#endif
 
 #endif

@@ -1,22 +1,29 @@
 name: Check profiles
 on:
+  # approve_pr_checks.yml approves these runs for first-time contributors and finds this
+  # workflow by its file name.
   pull_request:
+    # release/* is included because pr-merge-bot.yml lets delegates merge into
+    # it, and it gates on this workflow's result. Without it a delegated merge
+    # into a release branch would run no profile validation at all.
     branches:
     - main
+    - release/*
     paths:
     - 'resources/profiles/**'
-    - 'resources/orcaslicer_codex/hardware/**'
+    # orca_profile_tool.py also validates resources/printers/bambu_filament_ids.json, and
+    # both it and its tests live in scripts/, so a PR touching only those must still run
+    # this workflow.
+    - 'resources/printers/**'
+    - 'resources/info/legacy_compatible_printers.json'
+    - 'scripts/**'
+    # orca_profile_tool.py reads the variant key sets from PrintConfig.cpp, and its
+    # tests the obsolete keys, so a PR changing either must be checked against the profiles.
+    - 'src/libslic3r/PrintConfig.cpp'
+    # Tinman: the hardware catalog and motion envelopes the Tinman checks below read.
     - 'checks/verify_tinman_machine_profile_catalog.py'
-    - 'manifests/tinmanx1-profile-resources.sha256'
-    - 'scripts/lint_tinmanx1_fiberseek_profiles.py'
-    - 'scripts/orca_extra_profile_check.py'
-    - 'scripts/profile-contracts/**'
-    - 'scripts/source-helpers/codex_filament_contracts.py'
-    - 'scripts/source-helpers/audit_prusa_core_one_l_hf_catalog.py'
-    - 'scripts/source-helpers/normalize_tinman_machine_catalog.py'
-    - 'scripts/test_tinman_motion_envelope.py'
+    - 'resources/orcaslicer_codex/hardware/**'
     - 'resources/orcaslicer_codex/motion_envelope/**'
-    - 'scripts/source-helpers/tinman_profile_manifest.py'
     - ".github/workflows/check_profiles.yml"
 
   workflow_dispatch:
@@ -32,33 +39,75 @@ permissions:
 
 jobs:
   check_profiles:
+    # This job name is the check-run name pr-merge-bot.yml requires before a
+    # delegated merge. Renaming it silently disables that gate.
     name: Check profiles
     runs-on: ubuntu-24.04
+    # approve_pr_checks.yml starts first-time contributors' runs without a maintainer looking
+    # at the pull request first. A run takes 2-6 minutes; this bounds a runaway one.
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
-      - name: Run extra JSON check
-        id: extra_json_check
+      # Deliberately not continue-on-error, unlike every check below: if the tool itself is
+      # broken, nothing it then reports about the profiles is worth reading.
+      - name: Run the profile tool's own unit tests
+        run: python3 -m unittest discover -s scripts/tests -t scripts
+
+      # Tinman: the runtime hardware catalog and machine-contract sources, and the validated
+      # machine motion envelopes (c61295e000). The catalog check skips the four-nozzle vendor
+      # bundles, which ship only with the private TinManX1 distribution; so do
+      # tinman_profile_manifest.py and audit_prusa_core_one_l_hf_catalog.py, which are not run here.
+      - name: Tinman machine catalog and motion envelope checks
+        run: |
+          python3 checks/verify_tinman_machine_profile_catalog.py
+          python3 scripts/test_tinman_motion_envelope.py
+
+      # What the validator below cannot see. It loads the tree the way the slicer does, so
+      # it never notices a profile no <vendor>.json indexes, a preset name two files claim,
+      # an id that is not the mint of its own triple, or a file that normalize and
+      # update-index would still rewrite.
+      # The step id is the handle the PR comment and the failure gate below use; renaming it
+      # silently disables them.
+      - name: Check profiles (orca_profile_tool.py)
+        id: profile_tool
         continue-on-error: true
         run: |
           set +e
-          status=0
-          python3 ./scripts/orca_extra_profile_check.py 2>&1 | tee ${{ runner.temp }}/extra_json_check.log
-          status=${PIPESTATUS[0]}
-          python3 ./scripts/lint_tinmanx1_fiberseek_profiles.py 2>&1 | tee -a ${{ runner.temp }}/extra_json_check.log
-          lint_status=${PIPESTATUS[0]}
-          if [ "${status}" -ne 0 ]; then
-            exit "${status}"
-          fi
-          exit "${lint_status}"
+          python3 ./scripts/orca_profile_tool.py check 2>&1 | tee ${{ runner.temp }}/profile_tool.log
+          exit ${PIPESTATUS[0]}
 
-      - name: Verify TinMan profile manifest and CORE One L HF catalog
+      # The app installs a bundled profile only when its version is newer than the installed
+      # one, and the OTA profile update is named after it, so a changed bundle whose
+      # <Vendor>.json keeps its version never reaches users. HEAD is the PR's merge commit, so
+      # HEAD^1 is the base it merges onto.
+      - name: Check that changed bundles bumped their version
+        id: version_bump
+        if: ${{ github.event_name == 'pull_request' }}
+        continue-on-error: true
         run: |
-          python3 checks/verify_tinman_machine_profile_catalog.py
-          python3 scripts/source-helpers/tinman_profile_manifest.py
-          python3 scripts/source-helpers/audit_prusa_core_one_l_hf_catalog.py
-          python3 scripts/test_tinman_motion_envelope.py
+          set -o pipefail
+          {
+            git fetch --no-tags --depth=2 origin "$(git rev-parse HEAD)" &&
+            python3 ./scripts/orca_profile_tool.py version-check --base HEAD^1 --head HEAD
+          } 2>&1 | tee ${{ runner.temp }}/version_bump.log
+
+      # The app migrates user filament presets made against 2.4.2 back to the printers their
+      # parent listed then, from resources/info/legacy_compatible_printers.json. A PR that
+      # renames a filament preset or narrows its compatible_printers changes what that map
+      # must say, so it has to regenerate it.
+      - name: Check the legacy compatible printers map
+        id: legacy_compat
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          base="${{ runner.temp }}/v2.4.2"
+          # Tinman: its repository does not carry upstream's release tags, so fetch v2.4.2 from OrcaSlicer.
+          git fetch --no-tags --depth=1 https://github.com/OrcaSlicer/OrcaSlicer.git refs/tags/v2.4.2:refs/tags/v2.4.2
+          mkdir -p "$base"
+          git archive v2.4.2 resources/profiles | tar -x -C "$base"
+          python3 ./scripts/orca_profile_tool.py legacy-compat --base "$base/resources/profiles" --check 2>&1 | tee ${{ runner.temp }}/legacy_compat.log
 
       # download
       - name: Download
@@ -67,111 +116,47 @@ jobs:
           curl -L -o OrcaSlicer_profile_validator https://github.com/OrcaSlicer/OrcaSlicer/releases/download/nightly-builds/OrcaSlicer_profile_validator_Linux_Ubuntu2404_nightly
           chmod +x ./OrcaSlicer_profile_validator
 
-      - name: Prepare validator profile trees
-        run: |
-          validation_profiles="${{ runner.temp }}/upstream-validator-profiles"
-          custom_validation_profiles="${{ runner.temp }}/custom-validator-profiles"
-          rm -rf "${validation_profiles}" "${custom_validation_profiles}"
-          mkdir -p "${validation_profiles}" "${custom_validation_profiles}"
-          cp -a "${{ github.workspace }}/resources/profiles/." "${validation_profiles}/"
-          cp -a "${{ github.workspace }}/resources/profiles/." "${custom_validation_profiles}/"
-          VALIDATION_PROFILES="${validation_profiles}" CUSTOM_VALIDATION_PROFILES="${custom_validation_profiles}" python3 <<'PY'
-          import json
-          import os
-          import shutil
-          from pathlib import Path
-
-          system_root = Path(os.environ["VALIDATION_PROFILES"])
-          custom_root = Path(os.environ["CUSTOM_VALIDATION_PROFILES"])
-
-          for root, vendors in (
-              (system_root, ("Codex", "Qidi", "Snapmaker", "TinManX1")),
-              (custom_root, ("Codex", "TinManX1")),
-          ):
-              for vendor in vendors:
-                  vendor_dir = root / vendor
-                  vendor_json = root / f"{vendor}.json"
-                  if vendor_dir.exists():
-                      shutil.rmtree(vendor_dir)
-                  if vendor_json.exists():
-                      vendor_json.unlink()
-
-          # The custom preset fixture archive contains historical user presets that inherit
-          # from local Qidi/Snapmaker parents. Keep those parents in the fixture tree, but make
-          # sure locally added Qidi machine preset files are indexed and compatible with the
-          # upstream nightly validator used by CI.
-          qidi_json = custom_root / "Qidi.json"
-          if qidi_json.exists():
-              data = json.loads(qidi_json.read_text(encoding="utf-8"))
-              machine_list = data.setdefault("machine_list", [])
-              existing = {
-                  entry.get("name")
-                  for entry in machine_list
-                  if isinstance(entry, dict)
-              }
-              qidi_machine_dir = custom_root / "Qidi" / "machine"
-              if qidi_machine_dir.exists():
-                  for path in sorted(qidi_machine_dir.glob("QidiMaxEz *.json")):
-                      profile = json.loads(path.read_text(encoding="utf-8"))
-                      name = profile.get("name")
-                      if profile.get("type") == "machine" and name and name not in existing:
-                          machine_list.append({
-                              "name": name,
-                              "sub_path": f"machine/{path.name}",
-                          })
-                          existing.add(name)
-              qidi_json.write_text(
-                  json.dumps(data, indent="\t", ensure_ascii=False) + "\n",
-                  encoding="utf-8",
-              )
-
-          obsolete_qidi_keys = {
-              "filament_dev_ams_drying_ams_limitations",
-              "filament_dev_ams_drying_heat_distortion_temperature",
-              "filament_dev_ams_drying_temperature",
-              "filament_dev_ams_drying_time",
-              "filament_dev_chamber_drying_bed_temperature",
-              "filament_dev_chamber_drying_time",
-              "filament_dev_drying_cooling_temperature",
-              "filament_dev_drying_softening_temperature",
-              "machine_prepare_compensation_time",
-          }
-          qidi_dir = custom_root / "Qidi"
-          if qidi_dir.exists():
-              for path in qidi_dir.rglob("*.json"):
-                  try:
-                      data = json.loads(path.read_text(encoding="utf-8"))
-                  except Exception:
-                      continue
-                  if not isinstance(data, dict):
-                      continue
-                  if obsolete_qidi_keys.isdisjoint(data):
-                      continue
-                  for key in obsolete_qidi_keys:
-                      data.pop(key, None)
-                  path.write_text(
-                      json.dumps(data, indent="\t", ensure_ascii=False) + "\n",
-                      encoding="utf-8",
-                  )
-          PY
-          echo "VALIDATION_PROFILES=${validation_profiles}" >> "$GITHUB_ENV"
-          echo "CUSTOM_VALIDATION_PROFILES=${custom_validation_profiles}" >> "$GITHUB_ENV"
-
       # Validate all system profiles.
       - name: validate system profiles
         id: validate_system
         continue-on-error: true
         run: |
           set +e
-          ./OrcaSlicer_profile_validator -p "${VALIDATION_PROFILES}" -l 2 2>&1 | tee ${{ runner.temp }}/validate_system.log
+          ./OrcaSlicer_profile_validator -p ${{ github.workspace }}/resources/profiles -l 2 2>&1 | tee ${{ runner.temp }}/validate_system.log
           exit ${PIPESTATUS[0]}
-      # For now run filament subtype check only for BBL profiles until we fix other vendors' profiles.
-      - name: validate filament subtype check for BBL profiles
+      # The validator above is the nightly build of main, so it cannot slice profiles that use
+      # settings a PR adds to the engine: it reports their placeholders as undefined. A PR that
+      # changes src/ also runs Build all, whose Slice check runs this same sweep with the
+      # validator built from the PR, so the sweep below only runs for the other PRs.
+      - name: Detect engine changes
+        id: engine_changes
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          base=${{ github.event.pull_request.base.sha }}
+          if git fetch --no-tags --depth=1 origin "$base" && ! git diff --quiet "$base" HEAD -- src/; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::This PR changes src/, so Build all's Slice check slices the profiles with the PR-built validator."
+          fi
+      # Slice a two-colour cube through every printer, and through every system process/filament whose
+      # templates no printer's own slice reaches, so every custom g-code and filename_format shipped is
+      # expanded (names in {if} branches not taken included) - catches undefined-placeholder /
+      # invalid-flow bugs the static checks above cannot see.
+      - name: validate slice (expand custom g-code)
+        id: validate_slice
+        if: ${{ steps.engine_changes.outputs.changed != 'true' }}
+        continue-on-error: true
+        run: |
+          set +e
+          ./OrcaSlicer_profile_validator -p ${{ github.workspace }}/resources/profiles -s -l 2 2>&1 | tee ${{ runner.temp }}/validate_slice.log
+          exit ${PIPESTATUS[0]}
+      # All vendors' filament_id collisions were fixed, so the duplicate-filament-subtype
+      # check runs tree-wide.
+      - name: validate filament subtype check
         id: validate_filament_subtypes
         continue-on-error: true
         run: |
           set +e
-          ./OrcaSlicer_profile_validator -p "${VALIDATION_PROFILES}" -l 2 -v BBL -f 2>&1 | tee ${{ runner.temp }}/validate_filament_subtypes.log
+          ./OrcaSlicer_profile_validator -p ${{ github.workspace }}/resources/profiles -l 2 -f 2>&1 | tee ${{ runner.temp }}/validate_filament_subtypes.log
           exit ${PIPESTATUS[0]}
 
       - name: validate custom presets
@@ -225,61 +210,6 @@ jobs:
 
           status=0
           failed_logs=()
-          normalizer="${output_dir}/normalize_compatible_printers.py"
-
-          cat > "${normalizer}" <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          root = Path(os.environ["PROFILE_TREE"])
-          valid_machines = set()
-
-          for index in root.glob("*.json"):
-              try:
-                  data = json.loads(index.read_text(encoding="utf-8"))
-              except Exception:
-                  continue
-              if not isinstance(data, dict):
-                  continue
-              for entry in data.get("machine_list", []):
-                  if isinstance(entry, dict) and entry.get("name"):
-                      valid_machines.add(entry["name"])
-
-          for path in root.rglob("*.json"):
-              try:
-                  data = json.loads(path.read_text(encoding="utf-8"))
-              except Exception:
-                  continue
-              if isinstance(data, dict) and data.get("type") == "machine" and data.get("name"):
-                  valid_machines.add(data["name"])
-
-          changed = 0
-          for path in root.rglob("*.json"):
-              try:
-                  data = json.loads(path.read_text(encoding="utf-8"))
-              except Exception:
-                  continue
-              if not isinstance(data, dict):
-                  continue
-              printers = data.get("compatible_printers")
-              if not isinstance(printers, list):
-                  continue
-              filtered = [printer for printer in printers if printer in valid_machines]
-              if filtered == printers:
-                  continue
-              if filtered:
-                  data["compatible_printers"] = filtered
-              else:
-                  data.pop("compatible_printers", None)
-              path.write_text(
-                  json.dumps(data, indent="\t", ensure_ascii=False) + "\n",
-                  encoding="utf-8",
-              )
-              changed += 1
-
-          print(f"Normalized stale compatible_printers references in {changed} profile files")
-          PY
 
           while IFS=$'\t' read -r version asset expected_sha256; do
             fixture_zip="${fixtures_dir}/${asset}"
@@ -295,11 +225,9 @@ jobs:
 
             rm -rf "${profile_tree}"
             mkdir -p "${profile_tree}"
-            cp -a "${CUSTOM_VALIDATION_PROFILES}/." "${profile_tree}/"
+            cp -a "${{ github.workspace }}/resources/profiles/." "${profile_tree}/"
             rm -rf "${profile_tree}/user"
             unzip -q "${fixture_zip}" -d "${profile_tree}"
-
-            PROFILE_TREE="${profile_tree}" python3 "${normalizer}"
 
             set +e
             ./OrcaSlicer_profile_validator -p "${profile_tree}" -l 2 > "${log_path}" 2>&1
@@ -338,8 +266,33 @@ jobs:
           mkdir -p ${{ runner.temp }}/profile-check-results
           echo "${{ github.event.pull_request.number }}" > ${{ runner.temp }}/profile-check-results/pr_number.txt
 
+      # Builds a readable diff of the custom G-code the PR changes, which GitHub shows as
+      # one long line per setting, for check_profiles_comment.yml to post.
+      - name: Diff custom G-code
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git fetch --no-tags --depth=2 origin "$(git rev-parse HEAD)"
+          results=${{ runner.temp }}/profile-check-results
+          diff=${{ runner.temp }}/gcode_diff.md
+          # HEAD is the PR's merge commit, so HEAD^1 is the base it merges onto.
+          python3 ./scripts/orca_profile_tool.py gcode-diff --base HEAD^1 --head HEAD > "$diff"
+          if [ -s "$diff" ]; then
+            {
+              echo "<!-- profile-gcode-diff-comment -->"
+              cat "$diff"
+              echo ""
+              # The comment workflow finds this line as the only one starting with <sub>.
+              echo "<sub>For commit ${PR_HEAD_SHA} of this PR.</sub>"
+            } > "$results/gcode_diff.md"
+          fi
+          # Tells the comment workflow that a missing gcode_diff.md means no G-code changed.
+          touch "$results/gcode_diff_done.txt"
+
       - name: Prepare comment artifact
-        if: ${{ always() && github.event_name == 'pull_request' && (steps.extra_json_check.outcome == 'failure' || steps.validate_system.outcome == 'failure' || steps.validate_filament_subtypes.outcome == 'failure' || steps.validate_custom.outcome == 'failure') }}
+        if: ${{ always() && github.event_name == 'pull_request' && (steps.profile_tool.outcome == 'failure' || steps.version_bump.outcome == 'failure' || steps.legacy_compat.outcome == 'failure' || steps.validate_system.outcome == 'failure' || steps.validate_slice.outcome == 'failure' || steps.validate_filament_subtypes.outcome == 'failure' || steps.validate_custom.outcome == 'failure') }}
         run: |
           {
             # Marker matched by check_profiles_comment.yml to delete prior comments.
@@ -347,12 +300,34 @@ jobs:
             echo "## :x: Profile Validation Errors"
             echo ""
 
-            if [ "${{ steps.extra_json_check.outcome }}" = "failure" ]; then
-              echo "### Extra JSON Check Failed"
+            if [ "${{ steps.profile_tool.outcome }}" = "failure" ]; then
+              echo "### Profile Check Failed (orca_profile_tool.py)"
               echo ""
               echo '```'
-              head -c 30000 ${{ runner.temp }}/extra_json_check.log || echo "No output captured"
+              head -c 30000 ${{ runner.temp }}/profile_tool.log || echo "No output captured"
               echo '```'
+              echo ""
+            fi
+
+            if [ "${{ steps.version_bump.outcome }}" = "failure" ]; then
+              echo "### Profile Version Not Bumped"
+              echo ""
+              echo '```'
+              head -c 30000 ${{ runner.temp }}/version_bump.log || echo "No output captured"
+              echo '```'
+              echo ""
+              echo 'Every changed bundle needs a newer `version` in its `resources/profiles/<Vendor>.json`, or the app never installs the change.'
+              echo ""
+            fi
+
+            if [ "${{ steps.legacy_compat.outcome }}" = "failure" ]; then
+              echo "### Legacy Compatible Printers Map Out of Date"
+              echo ""
+              echo '```'
+              head -c 30000 ${{ runner.temp }}/legacy_compat.log || echo "No output captured"
+              echo '```'
+              echo ""
+              echo 'Regenerate it: `git archive v2.4.2 resources/profiles | tar -x -C /tmp/v2.4.2`, then `python3 scripts/orca_profile_tool.py legacy-compat --base /tmp/v2.4.2/resources/profiles`.'
               echo ""
             fi
 
@@ -365,8 +340,17 @@ jobs:
               echo ""
             fi
 
+            if [ "${{ steps.validate_slice.outcome }}" = "failure" ]; then
+              echo "### Slice Validation Failed (custom g-code expansion)"
+              echo ""
+              echo '```'
+              head -c 30000 ${{ runner.temp }}/validate_slice.log || echo "No output captured"
+              echo '```'
+              echo ""
+            fi
+
             if [ "${{ steps.validate_filament_subtypes.outcome }}" = "failure" ]; then
-              echo "### BBL Filament Subtype Validation Failed"
+              echo "### Filament Subtype Validation Failed"
               echo ""
               echo '```'
               head -c 30000 ${{ runner.temp }}/validate_filament_subtypes.log || echo "No output captured"
@@ -384,7 +368,7 @@ jobs:
             fi
 
             echo "---"
-            echo "*Please fix the above errors and push a new commit.*"
+            echo '*Fix the errors above and push a new commit. To reproduce this run locally: `scripts/check_profile.sh`, or `scripts\check_profile.bat` on Windows.*'
           } > ${{ runner.temp }}/profile-check-results/pr_comment.md
 
       - name: Upload comment artifact
@@ -396,7 +380,8 @@ jobs:
           retention-days: 1
 
       - name: Fail if any check failed
-        if: ${{ always() && (steps.extra_json_check.outcome == 'failure' || steps.validate_system.outcome == 'failure' || steps.validate_filament_subtypes.outcome == 'failure' || steps.validate_custom.outcome == 'failure') }}
+        if: ${{ always() && (steps.profile_tool.outcome == 'failure' || steps.version_bump.outcome == 'failure' || steps.legacy_compat.outcome == 'failure' || steps.validate_system.outcome == 'failure' || steps.validate_slice.outcome == 'failure' || steps.validate_filament_subtypes.outcome == 'failure' || steps.validate_custom.outcome == 'failure') }}
         run: |
-          echo "One or more profile checks failed. See above for details."
+          echo "One or more profile checks failed; see the step logs above."
+          echo 'Reproduce the whole run locally with scripts/check_profile.sh (scripts\check_profile.bat on Windows).'
           exit 1

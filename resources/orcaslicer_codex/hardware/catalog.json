@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "catalog_version": "2026.09.05.1",
+  "catalog_version": "2026.11.04.1",
   "nozzle_variants": ["0.4", "0.6", "0.8", "1.0"],
   "machines": [
     {
@@ -75,8 +75,8 @@
       "aliases": ["Prusa CORE One L HF", "Prusa CORE One L"],
       "tool_count": 1,
       "nozzle_capability": "cm2_standard",
-      "printer_agent": "moonraker",
-      "connection_mode": "moonraker",
+      "printer_agent": "orca",
+      "connection_mode": "prusalink",
       "source_profiles": {
         "0.4": "Prusa CORE One L HF 0.4 nozzle",
         "0.6": "Prusa CORE One L HF 0.6 nozzle",
@@ -206,7 +206,7 @@
       "tool_count": 2,
       "nozzle_capability": "cm2_standard",
       "printer_agent": "",
-      "connection_mode": "inherited",
+      "connection_mode": "fibreseek",
       "composite_second_nozzle": "0.7",
       "source_profiles": {
         "0.4": "FibreSeek Seeker 3 0.4+0.7 composite nozzle",

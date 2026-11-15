@@ -61,7 +61,7 @@ class TuningGuideLinks(unittest.TestCase):
 
     def test_native_help_entry_points_use_tinman_routes(self):
         files=['OptionsGroup.cpp','Preferences.cpp','MainFrame.cpp','calib_dlg.cpp',
-               'StepMeshDialog.cpp','ObjColorDialog.cpp','UnsavedChangesDialog.cpp']
+               'StepMeshDialog.cpp','UnsavedChangesDialog.cpp']  # ObjColorDialog.cpp: removed in 2.5 (#16122)
         for name in files:
             self.assertNotIn('https://www.orcaslicer.com/wiki/',(ROOT/'src/slic3r/GUI'/name).read_text(),name)
         self.assertNotIn('orcaslicer.com/wiki/',(ROOT/'resources/data/hints.ini').read_text())

@@ -1,18 +1,45 @@
 #include "MultiMachineManagerPage.hpp"
 #include "GUI_App.hpp"
+#include "I18N.hpp"
 #include "MainFrame.hpp"
 
 #include "DeviceCore/DevManager.h"
+#include "slic3r/GUI/MultiMachine.hpp"
+#include <wx/event.h>
+#include "slic3r/GUI/Monitor.hpp"
+#include <wx/gdicmn.h>
+#include <wx/dcclient.h>
+#include <wx/dc.h>
+#include <wx/string.h>
+#include "slic3r/GUI/Widgets/StateColor.hpp"
+#include "slic3r/GUI/Gizmos/GLGizmoBase.hpp"
+#include "slic3r/GUI/Widgets/Label.hpp"
+#include "slic3r/GUI/GUI.hpp"
+#include <string>
+#include "libslic3r/Utils.hpp"
+#include <wx/panel.h>
+#include <wx/sizer.h>
+#include <utility>
+#include "slic3r/GUI/Widgets/Button.hpp"
+#include "slic3r/GUI/MultiMachinePage.hpp"
+#include "slic3r/GUI/GUI_Utils.hpp"
+#include <wx/scrolwin.h>
+#include "slic3r/GUI/Widgets/TextInput.hpp"
+#include <wx/valtext.h>
+#include <wx/textctrl.h>
+#include <wx/timer.h>
+#include <map>
+#include <algorithm>
+#include <cmath>
+#include <vector>
+#include <wx/dcgraph.h>
 #include "libslic3r/PresetBundle.hpp"
 #include "../Utils/NetworkAgentFactory.hpp"
 #include "../Utils/Http.hpp"
-
 #include <nlohmann/json.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/log/trivial.hpp>
-#include <algorithm>
-#include <cmath>
 #include <set>
 
 namespace Slic3r {
@@ -520,8 +547,8 @@ MultiMachineItem::MultiMachineItem(wxWindow* parent, MachineObject* obj)
     Bind(wxEVT_LEFT_DOWN, &MultiMachineItem::OnLeftDown, this);
     Bind(wxEVT_MOTION, &MultiMachineItem::OnMove, this);
     Bind(EVT_MULTI_DEVICE_VIEW, [obj](auto& e) {
-        auto* mainframe = wxGetApp().mainframe;
-        mainframe->jump_to_monitor(obj->get_dev_id());
+        // Tinman: opening a printer from the multi-device list does not auto-start its camera stream.
+        wxGetApp().mainframe->jump_to_monitor(obj->get_dev_id());
     });
     wxGetApp().UpdateDarkUIWin(this);
 }
@@ -722,7 +749,7 @@ void MultiMachineItem::doRender(wxDC& dc)
         dc.DrawRoundedRectangle(left, (size.y - FromDIP(38)) / 2, FromDIP(90), FromDIP(38), 6);
         dc.SetFont(Label::Body_14);
         dc.SetTextForeground(*wxBLACK);
-        dc.DrawText(_L("View"),left + FromDIP(90) / 2 - dc.GetTextExtent(_L("View")).x / 2, (size.y -dc.GetTextExtent(_L("View")).y) / 2);
+        dc.DrawText(_L_CONTEXT("View", "Verb"),left + FromDIP(90) / 2 - dc.GetTextExtent(_L_CONTEXT("View", "Verb")).x / 2, (size.y -dc.GetTextExtent(_L_CONTEXT("View", "Verb")).y) / 2);
 
     }
 
@@ -896,7 +923,7 @@ MultiMachineManagerPage::MultiMachineManagerPage(wxWindow* parent)
 
     m_machine_list = new wxScrolledWindow(m_main_panel, wxID_ANY, wxDefaultPosition, wxDefaultSize);
     m_machine_list->SetBackgroundColour(*wxWHITE);
-    m_machine_list->SetScrollRate(0, 5);
+    m_machine_list->SetScrollRate(0, FromDIP(DEVICE_ITEM_MAX_HEIGHT));
     m_machine_list->SetMinSize(wxSize(FromDIP(DEVICE_ITEM_MAX_WIDTH), 10 * FromDIP(DEVICE_ITEM_MAX_HEIGHT)));
     m_machine_list->SetMaxSize(wxSize(FromDIP(DEVICE_ITEM_MAX_WIDTH), 10 * FromDIP(DEVICE_ITEM_MAX_HEIGHT)));
 
@@ -963,7 +990,8 @@ MultiMachineManagerPage::MultiMachineManagerPage(wxWindow* parent)
         page_num_enter_evt();
     });
 
-    m_page_num_enter = new Button(m_flipping_panel, _("Go"));
+    // TRN Button that jumps to the page number typed next to it
+    m_page_num_enter = new Button(m_flipping_panel, _L("Go"));
     m_page_num_enter->SetMinSize(wxSize(FromDIP(25), FromDIP(25)));
     m_page_num_enter->SetMaxSize(wxSize(FromDIP(25), FromDIP(25)));
     m_page_num_enter->SetBackgroundColor(ctrl_bg);

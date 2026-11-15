@@ -17,7 +17,8 @@ copying or signing an application.
 
 ## Intentional Upstream Names
 
-- `SoftFever_VERSION` remains 2.4.2: the actual compatibility baseline, not a claim
+- `SoftFever_VERSION` is 2.5.1: the actual compatibility baseline (Tinman merged
+  OrcaSlicer 2.5.1 in November 2026), not a claim
   that Tinman is an unmodified Orca release or a complete newer upstream rebase.
 - 3MF metadata, profile schema versions, G-code placeholders and upstream update
   queries retain that compatibility version.

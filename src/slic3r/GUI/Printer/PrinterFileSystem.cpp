@@ -8,12 +8,46 @@
 #include "../../Utils/NetworkAgent.hpp"
 #include "../BitmapCache.hpp"
 
+#include <algorithm>
 #include <boost/algorithm/hex.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/date_time/posix_time/posix_time_duration.hpp>
+#include <boost/date_time/posix_time/posix_time_types.hpp>
+#include <boost/date_time/posix_time/posix_time_config.hpp>
 #include <boost/endian/conversion.hpp>
+#include <boost/filesystem/fstream.hpp>
+#include <boost/filesystem/operations.hpp>
 #include <boost/log/trivial.hpp>
+#include <boost/thread/lock_types.hpp>
+#include <boost/smart_ptr/shared_ptr.hpp>
+#include <boost/smart_ptr/weak_ptr.hpp>
 #include <boost/uuid/detail/md5.hpp>
 #include <boost/regex.hpp>
 
+#include <string>
+#include <cerrno>
+#include <system_error>
+#include <wx/event.h>
+#include <map>
+#include "slic3r/GUI/Printer/BambuTunnel.h"
+#include <vector>
+#include <cassert>
+#include <utility>
+#include <ctime>
+#include <openssl/md5.h>
+#include <memory>
+#include <wx/log.h>
+#include <ios>
+#include <iterator>
+#include <filesystem>
+#include <functional>
+#include <wx/datetime.h>
+#include <sstream>
+#include <istream>
+#include "libslic3r/Semver.hpp"
+#include <cmath>
+#include <cstdio>
+#include <cctype>
 #include <wx/mstream.h>
 
 #include "nlohmann/json.hpp"
@@ -22,10 +56,13 @@
 #include <condition_variable>
 #include <mutex>
 #include <unordered_map>
+#include <wx/thread.h>
 
 #ifndef NDEBUG
 //#define PRINTER_FILE_SYSTEM_TEST
 #endif
+
+using json = nlohmann::json;
 
 std::string last_system_error() {
     return Slic3r::decode_path(std::error_code(
@@ -72,7 +109,9 @@ static std::map<int, std::string> error_messages = {
 
 namespace {
 
-struct StaticBambuLib : BambuLib {
+// Tinman: process-lifetime BambuSource table (renamed from StaticBambuLib so the 2.5.1
+// wxMediaCtrl3 accessor at the end of this file can keep that name).
+struct BambuSourceTable : BambuLib {
     static BambuLib snapshot();
     static BambuLib *shared();
     static int Fake_Bambu_Create(Bambu_Tunnel*, char const*) { return -2; }
@@ -80,7 +119,7 @@ struct StaticBambuLib : BambuLib {
     static void release();
 
 private:
-    static StaticBambuLib &storage();
+    static BambuSourceTable &storage();
     bool load_locked();
     void clear_locked();
     void *get_function_locked(const char *name) const;
@@ -125,7 +164,7 @@ void file_system_worker_finished()
 } // namespace
 
 PrinterFileSystem::PrinterFileSystem()
-    : m_bambu_lib(StaticBambuLib::snapshot())
+    : m_bambu_lib(BambuSourceTable::snapshot())
 {
     if (!default_thumbnail.IsOk()) {
         default_thumbnail = *Slic3r::GUI::BitmapCache().load_svg("printer_file", 0, 0);
@@ -216,7 +255,7 @@ void PrinterFileSystem::ListAllFiles()
         req["storage"] = m_file_storage;
     req["api_version"] = 2;
     req["notify"] = "DETAIL";
-    SendRequest<FileList>(LIST_INFO, req, [this, type = m_file_type](json const& resp, FileList & list, auto) -> int {
+    SendRequest<FileList>(LIST_INFO, req, [type = m_file_type](json const& resp, FileList & list, auto) -> int {
         json files = resp["file_lists"];
         for (auto& f : files) {
             std::string     name = f["name"];
@@ -1299,7 +1338,7 @@ boost::uint32_t PrinterFileSystem::RequestMediaAbility(int api_version)
     req["api_version"] = api_version;
 
     return SendRequest<MediaAbilityList>(
-        REQUEST_MEDIA_ABILITY, req, [this](const json &resp, MediaAbilityList &list, auto) -> int {
+        REQUEST_MEDIA_ABILITY, req, [](const json &resp, MediaAbilityList &list, auto) -> int {
             json abliity_list = resp["storage"];
             list              = abliity_list.get<MediaAbilityList>();
             return 0;
@@ -1344,9 +1383,9 @@ void PrinterFileSystem::RequestUploadFile()
             if (result != SUCCESS && result != CONTINUE && result != FILE_EXIST) {
                 std::string error_msg = "";
                 if (result == ERROR_CANCEL) {
-                    error_msg = _L("User cancels task.").ToStdString();
+                    error_msg = _u8L("User cancels task.");
                 } else if (result == FILE_READ_WRITE_ERR || result == FILE_OPEN_ERR) {
-                    error_msg = _L("Failed to read file, please try again.").ToStdString();
+                    error_msg = _u8L("Failed to read file, please try again.");
                 }
                 wxLogWarning("PrinterFileSystem::UploadFile error: %d\n", result);
                 SendChangedEvent(EVT_UPLOAD_CHANGED, FF_UPLOADCANCEL, error_msg, result);
@@ -1795,7 +1834,7 @@ void PrinterFileSystem::Reconnect(boost::unique_lock<boost::mutex> &l, int resul
             Bambu_Tunnel tunnel = nullptr;
             // Keep create/read/close/destroy bound to one source image for the
             // complete tunnel lifetime, even if networking is refreshed.
-            m_bambu_lib = StaticBambuLib::snapshot();
+            m_bambu_lib = BambuSourceTable::snapshot();
             int ret = m_bambu_lib.Bambu_Create(&tunnel, url.c_str());
             if (ret == 0) {
 
@@ -1856,28 +1895,29 @@ void PrinterFileSystem::Reconnect(boost::unique_lock<boost::mutex> &l, int resul
 
 
 #include <stdlib.h>
+#include "libslic3r/PrintConfig.hpp"
 #if defined(_MSC_VER) || defined(_WIN32)
 #include <Windows.h>
 #else
 #include <dlfcn.h>
 #endif
 
-StaticBambuLib &StaticBambuLib::storage()
+BambuSourceTable &BambuSourceTable::storage()
 {
     // The table is intentionally process-lifetime. BambuSource may still have
     // private worker state during CRT/static teardown, so destroying this
     // manager would recreate the same ordering problem it exists to prevent.
-    static auto *lib = new StaticBambuLib();
+    static auto *lib = new BambuSourceTable();
     return *lib;
 }
 
-void StaticBambuLib::clear_locked()
+void BambuSourceTable::clear_locked()
 {
     static_cast<BambuLib &>(*this) = BambuLib{};
     loaded_ = false;
 }
 
-void *StaticBambuLib::get_function_locked(const char *name) const
+void *BambuSourceTable::get_function_locked(const char *name) const
 {
     if (!module_)
         return nullptr;
@@ -1889,7 +1929,7 @@ void *StaticBambuLib::get_function_locked(const char *name) const
 #endif
 }
 
-bool StaticBambuLib::load_locked()
+bool BambuSourceTable::load_locked()
 {
     if (loaded_)
         return true;
@@ -1940,7 +1980,7 @@ bool StaticBambuLib::load_locked()
     return true;
 }
 
-BambuLib StaticBambuLib::snapshot()
+BambuLib BambuSourceTable::snapshot()
 {
     auto &lib = storage();
     std::lock_guard<std::mutex> lock(lib.mutex_);
@@ -1948,7 +1988,7 @@ BambuLib StaticBambuLib::snapshot()
     return static_cast<const BambuLib &>(lib);
 }
 
-BambuLib *StaticBambuLib::shared()
+BambuLib *BambuSourceTable::shared()
 {
     auto &lib = storage();
     std::lock_guard<std::mutex> lock(lib.mutex_);
@@ -1956,7 +1996,7 @@ BambuLib *StaticBambuLib::shared()
     return static_cast<BambuLib *>(&lib);
 }
 
-void StaticBambuLib::refresh()
+void BambuSourceTable::refresh()
 {
     auto &lib = storage();
     std::lock_guard<std::mutex> lock(lib.mutex_);
@@ -1969,7 +2009,7 @@ void StaticBambuLib::refresh()
     lib.load_locked();
 }
 
-void StaticBambuLib::release()
+void BambuSourceTable::release()
 {
     // BambuSource is also used by platform media objects outside
     // PrinterFileSystem. Its API has no global barrier proving those objects
@@ -1983,7 +2023,7 @@ namespace Slic3r::GUI {
 
 void refresh_bambu_source_library()
 {
-    StaticBambuLib::refresh();
+    BambuSourceTable::refresh();
 }
 
 void stop_bambu_file_systems()
@@ -2015,12 +2055,28 @@ bool wait_for_bambu_file_systems(std::chrono::milliseconds timeout)
 
 void release_bambu_source_library()
 {
-    StaticBambuLib::release();
+    BambuSourceTable::release();
 }
 
 } // namespace Slic3r::GUI
 
 extern "C" BambuLib *bambulib_get()
 {
-    return StaticBambuLib::shared();
+    return BambuSourceTable::shared();
+}
+
+// Tinman: 2.5.1's wxMediaCtrl3.cpp declares this class (keep the definition identical) and copies
+// the BambuSource table from get() when it is constructed. Copies are not tracked any more: each
+// call returns a snapshot of the shared, process-lifetime table, so a caller that may outlive a
+// late plug-in load should call get() again before it creates a tunnel.
+struct StaticBambuLib : BambuLib
+{
+    static StaticBambuLib &get(BambuLib *);
+};
+
+StaticBambuLib &StaticBambuLib::get(BambuLib *)
+{
+    thread_local StaticBambuLib lib;
+    static_cast<BambuLib &>(lib) = BambuSourceTable::snapshot();
+    return lib;
 }

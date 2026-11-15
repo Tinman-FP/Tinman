@@ -1,4 +1,5 @@
 #include <catch2/catch_all.hpp>
+#include <map>
 #include <nlohmann/json.hpp>
 #include <stdexcept>
 
@@ -42,6 +43,32 @@ TEST_CASE("Embedded hardware catalog preserves every curated machine contract", 
     CHECK(catalog.match("", "sNaPmAkEr U1")->tool_count == 4);
     CHECK(catalog.find_model("Prusa CORE One L")->high_flow_nozzles == false);
     CHECK(catalog.find_model("Bambu Lab X1 Carbon")->high_flow_nozzles == true);
+}
+
+TEST_CASE("Embedded hardware catalog routes each machine to its network transport", "[TinMan][HardwareCatalog]")
+{
+    const std::map<std::string, std::pair<std::string, TinManConnectionMode>> expected {
+        {"prusa-core-one-l", {"orca", TinManConnectionMode::PrusaLink}},
+        {"qidi-x-plus-4", {"qidi", TinManConnectionMode::QidiMoonraker}},
+        {"qidi-max-ez", {"qidi", TinManConnectionMode::QidiMoonraker}},
+        {"creality-k2-plus", {"crealityprint", TinManConnectionMode::Creality}},
+        {"snapmaker-u1", {"snapmaker", TinManConnectionMode::Snapmaker}},
+        {"ratrig-v-core-4-idex-500", {"moonraker", TinManConnectionMode::Moonraker}},
+        {"ratrig-v-core-4-idex-500-copy", {"moonraker", TinManConnectionMode::Moonraker}},
+        {"ratrig-v-core-4-idex-500-mirror", {"moonraker", TinManConnectionMode::Moonraker}},
+        {"sovol-sv08-max", {"moonraker", TinManConnectionMode::Moonraker}},
+    };
+    size_t checked = 0;
+    for (const auto &machine : tinmanx_hardware_catalog().machines) {
+        const auto found = expected.find(machine.id);
+        if (found == expected.end())
+            continue;
+        INFO(machine.id);
+        CHECK(machine.printer_agent == found->second.first);
+        CHECK(machine.connection_mode == found->second.second);
+        ++checked;
+    }
+    CHECK(checked == expected.size());
 }
 
 TEST_CASE("Hardware catalog rejects malformed definitions instead of silently defaulting", "[TinMan][HardwareCatalog]")

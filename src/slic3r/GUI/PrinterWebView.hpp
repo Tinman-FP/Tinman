@@ -6,6 +6,8 @@
 #include "wx/cmdline.h"
 #include "wx/notifmsg.h"
 #include "wx/settings.h"
+#include <wx/setup.h>
+#include <wx/event.h>
 #include <wx/webview.h>
 #include <wx/string.h>
 
@@ -28,9 +30,11 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include "Lazy.hpp"
+#include "libslic3r/PrintConfig.hpp"
 
 class Button;
-class wxMediaCtrl2;
+class wxMediaCtrl3;
 
 namespace Slic3r {
 namespace GUI {
@@ -39,7 +43,7 @@ class PrinterWebViewHandler;
 class MediaPlayCtrl;
 
 
-class PrinterWebView : public wxPanel {
+class PrinterWebView : public wxPanel, public LazyInstance<PrinterWebView> {
 public:
     PrinterWebView(wxWindow *parent);
     virtual ~PrinterWebView();
@@ -61,6 +65,8 @@ private:
     friend class PrinterWebViewHandler;
 
     void SendAPIKey();
+    void create_browser();
+    void reset_browser();
     void update_prusa_camera(const wxString& printer_url);
     void start_prusa_camera_discovery();
     void set_prusa_camera_url(const std::string& camera_url, bool persist);
@@ -68,20 +74,27 @@ private:
 
     wxWebView* m_browser;
     wxPanel* m_prusa_camera_panel;
-    wxMediaCtrl2* m_prusa_camera_media;
+    wxMediaCtrl3* m_prusa_camera_media;
     MediaPlayCtrl* m_prusa_camera_player;
     ::Button* m_prusa_camera_refresh;
     ::Button* m_prusa_camera_settings;
     long m_zoomFactor;
     wxString m_apikey;
     bool m_apikey_sent;
+    // Last url passed to load_url(), reloaded after reset_browser().
+    wxString m_url;
     wxString m_url_deferred;
     std::string m_requested_endpoint;
+    // Host type the page was loaded for; it selects the handler, so a change needs a reload.
+    PrintHostType m_host_type{htOctoPrint};
+    // True once the page for m_url has finished loading in m_browser.
+    bool m_url_loaded{false};
     std::unique_ptr<PrinterWebViewHandler> m_handler;
     std::shared_ptr<int> m_prusa_camera_token;
     std::string m_prusa_printer_host;
     std::string m_prusa_camera_url;
     std::uint64_t m_prusa_camera_generation;
+    bool m_reset_on_show{false};
 
     // DECLARE_EVENT_TABLE()
 };
