@@ -1,6 +1,7 @@
 #include "TinManMachineProfileContract.hpp"
 
 #include "AppConfig.hpp"
+#include "Config.hpp"
 #include "PrintConfig.hpp"
 #include "TinManHardwareCatalog.hpp"
 

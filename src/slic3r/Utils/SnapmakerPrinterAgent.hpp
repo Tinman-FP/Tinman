@@ -3,6 +3,7 @@
 #include "IPrinterAgent.hpp"
 #include "MoonrakerPrinterAgent.hpp"
 
+#include <functional>
 #include <mutex>
 #include <string>
 #include <vector>

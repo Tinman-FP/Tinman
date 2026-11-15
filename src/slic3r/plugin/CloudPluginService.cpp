@@ -11,6 +11,7 @@
 #include <boost/log/trivial.hpp>
 #include <boost/nowide/fstream.hpp>
 #include <cstddef>
+#include <functional>
 #include <future>
 #include <memory>
 #include <ios>

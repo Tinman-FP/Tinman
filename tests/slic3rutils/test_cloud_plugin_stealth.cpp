@@ -3,6 +3,7 @@
 // app installs at startup. These tests install it directly. No cloud agent is set, so an operation
 // that got past the check would fail on the missing agent with a different error.
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <slic3r/plugin/CloudPluginService.hpp>
