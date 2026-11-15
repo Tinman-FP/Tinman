@@ -4,6 +4,7 @@
 // writes the routes. The strand values here are throwaway test data. Nothing here talks to a printer.
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <cstddef>
@@ -16,6 +17,7 @@
 #include "libslic3r/Fibreseek/WriterAdapter.hpp"
 #include "libslic3r/Layer.hpp"
 #include "libslic3r/Model.hpp"
+#include "libslic3r/Point.hpp"
 #include "libslic3r/Polyline.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/PrintConfig.hpp"
