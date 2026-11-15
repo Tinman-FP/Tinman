@@ -125,8 +125,8 @@ later, after these pass.
 
 - Layer height 0.20 mm. One coupon per plate, in the middle of the bed.
 - Fiber manufacturing mode: **Plastic + fiber overlay** (the default). Leave
-  "Fiber-owned composite roads" alone for now: its route planner is being
-  replaced.
+  "Fiber-owned composite roads" for later: it now uses the new route planner,
+  which has never been printed.
 - PCTG temperatures, bed and chamber as in your earlier plastic prints.
 - In the preview, check before you send: the fibre summary (number of routes
   and fibre length), the first and last layer with fibre, and that no fibre
@@ -195,14 +195,38 @@ if one causes trouble:
   line at the start of the first fibre layer. It primes much more matrix than
   a route start does. Watch for a blob or overflow at the prime.
 - **Cut position.** Both modes cut Fiber cut distance (58 mm in the Seeker 3
-  test profiles) before a route's end, and the `;CUT DISTANCE` line prints
-  that value. Until the planner swap the default mode cut 54.8 mm before the
-  end. Check where the fibre ends against the preview.
+  test profiles) before a route's end. Check where the fibre ends against the
+  preview.
 - **Fixed values.** Standby temperatures (150 °C plastic, 180 °C fibre) and
   fan speeds in the default mode are fixed values with no documented source.
   Note what the printer does at each tool change.
 
 The full list is in `docs/fibreseek-constants-provenance.md`.
+
+### What changes in the G-code after the planner swap
+
+The planner swap (PR #25) changes what the printer receives. Old → new:
+
+**Default mode** (Plastic + fiber overlay, the Python planner; the first prints use this):
+
+- **Cut position:** L − 54.8 → L − 58. The cutter fires 3.2 mm earlier along each route and the prime line.
+- **`;CUT DISTANCE` line:** 54.8 → 58.
+- **`M1001 L`:** ceil(L + 54.8) → ceil(L + 58), about 3 mm more fibre loaded per route.
+- **Shortest standalone route:** 64.8 → 68 mm (cut distance + slow length). Routes from 64.8 to 68 mm long are now left out.
+- **Restart, start and slow lengths:** taken from the profile, with no stand-ins. The Seeker 3 test profiles set 55 / 15 / 10, so these numbers don't change. A profile that leaves Fiber cut distance or Fiber restart length at 0 now stops the slice; before, 58 / 55 were used silently.
+- **Old cut G-code line:** if a printer preset's Fiber cut G-code still has the line `;CUT DISTANCE 54.8`, slicing stops with an error naming it. Delete that line (Tinman adds it), or set Fiber cut distance to 54.8 if that is the real cutter-to-tip length.
+
+**Fibre-owned composite roads** (composite-only, the C++ writer):
+
+- **Routes:** the new planner lays wall loops and spirals plus linked ribs. Route count, lengths and positions differ (coupon table in PR #25).
+- **Plastic under the fibre:** plastic infill is no longer printed under the fibre bead. Before, they overlapped.
+- **`;CUT DISTANCE` line:** 54.8 → 58. The cut position (L − 58) and `M1001 L` are unchanged.
+- **Prime at each route start:** V0 → Fiber start length × P (15 mm × P, V0.589 for the test strand).
+- **Slow start:** none → the first Fiber slow length (10 mm) of each route at Fiber start speed (5 mm/s). Before, the whole route ran at print speed (30 mm/s).
+- **After the cut:** the tail runs at Fiber finish max speed, 3 → 15 mm/s. Its matrix V is multiplied by the after-cut multiplier, 1.0 → 0.72.
+- **Finish ironing:** skipped on every route → 8 mm of V-only ironing at 10 mm/s (the mean of finish max and min speed). It runs back along the route's end, or over a loop's start.
+- **Restart `U`:** unchanged (55, from the profile). A restart length of 0 now stops the slice; before, 60 was used.
+- **Comments only:** route comments name the real warnings instead of `native_route_warnings`, and `connector_threshold` is gone.
 
 ## What to report back
 
