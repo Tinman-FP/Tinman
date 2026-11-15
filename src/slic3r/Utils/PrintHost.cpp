@@ -1,14 +1,27 @@
 #include "PrintHost.hpp"
 
+#include "libslic3r/Config.hpp"
+#include <string>
+#include <boost/algorithm/string/predicate.hpp>
+#include "slic3r/GUI/Gizmos/GLGizmoBase.hpp"
+#include <cstddef>
+#include <boost/filesystem/path.hpp>
+#include <utility>
+#include <memory>
+#include <boost/filesystem/operations.hpp>
+#include "libslic3r/LifecycleEvents.hpp"
+#include "slic3r/GUI/GUI_App.hpp"
 #include <vector>
 #include <thread>
 #include <exception>
-#include <boost/optional.hpp>
-#include <boost/algorithm/string/predicate.hpp>
+#include <sstream>
 #include <boost/log/trivial.hpp>
 #include <boost/filesystem.hpp>
 #include <nlohmann/json.hpp>
+#include <boost/property_tree/ptree.hpp>
+#include <boost/property_tree/json_parser.hpp>
 
+#include <wx/event.h>
 #include <wx/string.h>
 #include <wx/app.h>
 #include <wx/arrstr.h>
@@ -17,6 +30,7 @@
 #include "libslic3r/Channel.hpp"
 #include "OctoPrint.hpp"
 #include "Duet.hpp"
+#include "UltiMaker.hpp"
 #include "FlashAir.hpp"
 #include "AstroBox.hpp"
 #include "Repetier.hpp"
@@ -25,15 +39,16 @@
 #include "CrealityPrint.hpp"
 #include "../GUI/PrintHostDialogs.hpp"
 #include "../GUI/MainFrame.hpp"
+#include "slic3r/plugin/PluginManager.hpp"
 #include "Obico.hpp"
 #include "Flashforge.hpp"
 #include "SimplyPrint.hpp"
 #include "ElegooLink.hpp"
 #include "3DPrinterOS.hpp"
 #include "Moonraker.hpp"
+#include "FibreSeek.hpp"
 
 namespace fs = boost::filesystem;
-using boost::optional;
 using Slic3r::GUI::PrintHostQueueDialog;
 
 namespace Slic3r {
@@ -58,6 +73,7 @@ PrintHost* PrintHost::get_print_host(DynamicPrintConfig *config)
         switch (host_type) {
             case htOctoPrint: return new OctoPrint(config);
             case htDuet:      return new Duet(config);
+            case htUltiMaker: return new UltiMaker(config);
             case htFlashAir:  return new FlashAir(config);
             case htAstroBox:  return new AstroBox(config);
             case htRepetier:  return new Repetier(config);
@@ -72,6 +88,7 @@ PrintHost* PrintHost::get_print_host(DynamicPrintConfig *config)
             case htElegooLink: return new ElegooLink(config);
             case ht3DPrinterOS: return new C3DPrinterOS(config);
             case htMoonraker: return new Moonraker(config);
+            case htFibreSeek: return new FibreSeek(config);
             default:          return nullptr;
         }
     } else {
@@ -172,6 +189,20 @@ std::string moonraker_error_reason(const std::string &body)
 
 } // namespace
 
+int PrintHost::get_err_code_from_body(const std::string &body)
+{
+    boost::property_tree::ptree root;
+    std::istringstream iss(body);
+    try {
+        boost::property_tree::read_json(iss, root);
+    } catch (const std::exception &ex) {
+        BOOST_LOG_TRIVIAL(error) << "PrintHost: response is not valid JSON: " << ex.what();
+        return -1;
+    }
+
+    return root.get<int>("err", 0);
+}
+
 wxString PrintHost::format_error(const std::string &body, const std::string &error, unsigned status) const
 {
     if (status != 0) {
@@ -180,7 +211,7 @@ wxString PrintHost::format_error(const std::string &body, const std::string &err
         return wxString::Format("HTTP %u: %s", status, wxbody);
     } else {
         if (error.find("curl:Timeout was reached") != std::string::npos) {
-            return _L("Connection timed out. Please check if the printer and computer network are functioning properly, and confirm that they are on the same network.");
+            return timed_out_message();
         }else if(error.find("curl:Couldn't resolve host name")!= std::string::npos){
             return _L("The Hostname/IP/URL could not be parsed, please check it and try again.");
         } else if (error.find("Connection was reset") != std::string::npos){
@@ -190,6 +221,11 @@ wxString PrintHost::format_error(const std::string &body, const std::string &err
             return wxString::FromUTF8(error.data());
         }
     }
+}
+
+wxString PrintHost::timed_out_message()
+{
+    return _L("Connection timed out. Please check if the printer and computer network are functioning properly, and confirm that they are on the same network.");
 }
 
 
@@ -208,7 +244,10 @@ struct PrintHostJobQueue::priv
     std::thread bg_thread;
     bool bg_exit = false;
 
-    PrintHostQueueDialog *queue_dialog;
+    PrintHostQueueDialog *queue_dialog = nullptr;
+    PrintHostJobQueue::Events events; // used when there is no dialog
+    // The running job's host sent DispatchedInfoTag: Cancel can no longer hide its outcome.
+    bool job_dispatched = false;
 
     priv(PrintHostJobQueue *q) : q(q) {}
 
@@ -233,6 +272,12 @@ PrintHostJobQueue::PrintHostJobQueue(PrintHostQueueDialog *queue_dialog)
     p->queue_dialog = queue_dialog;
 }
 
+PrintHostJobQueue::PrintHostJobQueue(Events events)
+    : p(new priv(this))
+{
+    p->events = std::move(events);
+}
+
 PrintHostJobQueue::~PrintHostJobQueue()
 {
     if (p) { p->stop_bg_thread(); }
@@ -240,24 +285,40 @@ PrintHostJobQueue::~PrintHostJobQueue()
 
 void PrintHostJobQueue::priv::emit_progress(int progress)
 {
+    if (!queue_dialog) {
+        if (events.progress) events.progress(job_id, progress);
+        return;
+    }
     auto evt = new PrintHostQueueDialog::Event(GUI::EVT_PRINTHOST_PROGRESS, queue_dialog->GetId(), job_id, progress);
     wxQueueEvent(queue_dialog, evt);
 }
 
 void PrintHostJobQueue::priv::emit_error(wxString error)
 {
+    if (!queue_dialog) {
+        if (events.error) events.error(job_id, std::move(error));
+        return;
+    }
     auto evt = new PrintHostQueueDialog::Event(GUI::EVT_PRINTHOST_ERROR, queue_dialog->GetId(), job_id, std::move(error));
     wxQueueEvent(queue_dialog, evt);
 }
 
 void PrintHostJobQueue::priv::emit_info(wxString tag, wxString status)
 {
+    if (!queue_dialog) {
+        if (events.info) events.info(job_id, std::move(tag), std::move(status));
+        return;
+    }
     auto evt = new PrintHostQueueDialog::Event(GUI::EVT_PRINTHOST_INFO, queue_dialog->GetId(), job_id, std::move(tag), std::move(status));
     wxQueueEvent(queue_dialog, evt);
 }
 
 void PrintHostJobQueue::priv::emit_cancel(size_t id)
 {
+    if (!queue_dialog) {
+        if (events.cancel) events.cancel(id);
+        return;
+    }
     auto evt = new PrintHostQueueDialog::Event(GUI::EVT_PRINTHOST_CANCEL, queue_dialog->GetId(), id);
     wxQueueEvent(queue_dialog, evt);
 }
@@ -324,8 +385,10 @@ void PrintHostJobQueue::priv::bg_thread_main()
 void PrintHostJobQueue::priv::progress_fn(Http::Progress progress, bool &cancel)
 {
     if (cancel) {
-        // When cancel is true from the start, Http indicates request has been cancelled
-        emit_cancel(job_id);
+        // When cancel is true from the start, Http indicates request has been cancelled.
+        // After dispatch the host reports the outcome itself; it is never "Canceled".
+        if (!job_dispatched)
+            emit_cancel(job_id);
         return;
     }
 
@@ -375,8 +438,11 @@ void PrintHostJobQueue::priv::error_fn(wxString error)
 
         for (size_t cancel_id : *cancels) {
             if (cancel_id == job_id) {
-                do_emit_err = false;
-                emit_cancel(job_id);
+                // A dispatched job's outcome (unknown, warning) must reach the user.
+                if (!job_dispatched) {
+                    do_emit_err = false;
+                    emit_cancel(job_id);
+                }
             }
             else if (cancel_id > job_id) {
                 const size_t idx = cancel_id - job_id - 1;
@@ -395,6 +461,8 @@ void PrintHostJobQueue::priv::error_fn(wxString error)
 
 void PrintHostJobQueue::priv::info_fn(wxString tag, wxString status)
 {
+    if (tag == PrintHostJobQueue::DispatchedInfoTag)
+        job_dispatched = true;
     emit_info(tag, status);
 }
 
@@ -415,11 +483,45 @@ void PrintHostJobQueue::priv::remove_source()
     source_to_remove.clear();
 }
 
+bool PrintHostJobQueue::upload_job(PrintHostJob &job, PrintHost::ProgressFn progress_fn, PrintHost::ErrorFn error_fn, PrintHost::InfoFn info_fn)
+{
+    // Captured before upload_data is moved into upload() below.
+    const std::string upload_filename = job.upload_data.source_path.filename().string();
+
+    {
+        LifecycleEventContext ctx;
+        ctx.name = upload_filename;
+        ctx.code = LifecycleEvtCode::Ok;
+        fire_lifecycle_event(LifecycleEvent::UploadStarted, ctx);
+    }
+
+    bool success = false;
+    std::string error;
+    // A throwing upload must not stop the worker, or later jobs would stay queued forever.
+    try {
+        success = job.printhost->upload(std::move(job.upload_data), std::move(progress_fn), error_fn, std::move(info_fn));
+    } catch (const std::exception &e) {
+        error = e.what();
+        error_fn(error);
+    }
+
+    {
+        LifecycleEventContext ctx;
+        ctx.name  = upload_filename;
+        ctx.code  = success ? LifecycleEvtCode::Ok : LifecycleEvtCode::Error;
+        ctx.msg   = error;
+        fire_lifecycle_event(LifecycleEvent::UploadFinished, ctx);
+    }
+
+    return success;
+}
+
 void PrintHostJobQueue::priv::perform_job(PrintHostJob the_job)
 {
+    job_dispatched = false;
     emit_progress(0);   // Indicate the upload is starting
 
-    bool success = the_job.printhost->upload(std::move(the_job.upload_data),
+    bool success = PrintHostJobQueue::upload_job(the_job,
         [this](Http::Progress progress, bool &cancel)   { this->progress_fn(std::move(progress), cancel); },
         [this](wxString error)                          { this->error_fn(std::move(error)); },
         [this](wxString tag, wxString host)             { this->info_fn(std::move(tag), std::move(host)); }
@@ -429,7 +531,7 @@ void PrintHostJobQueue::priv::perform_job(PrintHostJob the_job)
         emit_progress(100);
         if (the_job.switch_to_device_tab) {
             const auto mainframe = GUI::wxGetApp().mainframe;
-            mainframe->request_select_tab(MainFrame::TabPosition::tpMonitor);
+            mainframe->request_select_tab(TAB_ID_MONITOR);
         }
     }
 }
@@ -437,7 +539,8 @@ void PrintHostJobQueue::priv::perform_job(PrintHostJob the_job)
 void PrintHostJobQueue::enqueue(PrintHostJob job)
 {
     p->start_bg_thread();
-    p->queue_dialog->append_job(job);
+    if (p->queue_dialog)
+        p->queue_dialog->append_job(job);
     p->channel_jobs.push(std::move(job));
 }
 

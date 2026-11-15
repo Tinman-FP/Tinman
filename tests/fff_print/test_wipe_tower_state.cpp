@@ -6,8 +6,9 @@
 #include <new>
 
 #include "libslic3r/Print.hpp"
+#include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/GCode/ConflictChecker.hpp"
-#include "test_data.hpp"
+#include "test_helpers.hpp"
 
 using namespace Slic3r;
 
@@ -162,7 +163,7 @@ TEST_CASE("Reslicing between tower styles and no tower removes stale geometry", 
     Model model;
     for (int i = 0; i < 2; ++i) {
         auto *object = model.add_object();
-        object->add_volume(Test::mesh(Test::TestMesh::cube_20x20x20))->config.set("extruder", i + 1);
+        object->add_volume(make_cube(20., 20., 20.))->config.set("extruder", i + 1);
         object->add_instance()->set_offset(Vec3d(30 * i, 0, 0));
         object->ensure_on_bed();
     }
@@ -222,13 +223,17 @@ TEST_CASE("Adding a second material restores the requested prime tower", "[Print
         {"independent_support_layer_height", true},
         {"layer_height", 0.25},
         {"initial_layer_print_height", 0.25},
-        {"timelapse_type", "0"}
+        {"timelapse_type", "0"},
+        // OrcaSlicer 2.5 refuses a prime tower that leaves the bed; the default position is past
+        // the 200 mm test bed.
+        {"wipe_tower_x", "120"},
+        {"wipe_tower_y", "120"}
     });
     PrintWithOriginalConfig print;
     Model model;
     for (int i = 0; i < 2; ++i) {
         auto *object = model.add_object();
-        object->add_volume(Test::mesh(Test::TestMesh::cube_20x20x20))->config.set("extruder", 1);
+        object->add_volume(make_cube(20., 20., 20.))->config.set("extruder", 1);
         object->add_instance()->set_offset(Vec3d(30 * i, 0, 0));
         object->ensure_on_bed();
     }
@@ -294,7 +299,7 @@ TEST_CASE("Sequential tower normalization follows the current object count", "[P
     Model model;
     auto *object = model.add_object();
     for (int i = 0; i < 2; ++i) {
-        auto *volume = object->add_volume(Test::mesh(Test::TestMesh::cube_20x20x20));
+        auto *volume = object->add_volume(make_cube(20., 20., 20.));
         volume->config.set("extruder", i + 1);
         volume->set_offset(Vec3d(i * 30, 0, 0));
     }
@@ -308,7 +313,7 @@ TEST_CASE("Sequential tower normalization follows the current object count", "[P
     CHECK(print.apply(model, config) == Print::APPLY_STATUS_UNCHANGED);
 
     auto *second = model.add_object();
-    second->add_volume(Test::mesh(Test::TestMesh::cube_20x20x20))->config.set("extruder", 1);
+    second->add_volume(make_cube(20., 20., 20.))->config.set("extruder", 1);
     second->add_instance()->set_offset(Vec3d(80, 0, 0));
     second->ensure_on_bed();
     print.apply(model, config);
@@ -320,4 +325,35 @@ TEST_CASE("Sequential tower normalization follows the current object count", "[P
     CHECK(print.config().enable_prime_tower.value == requested);
     CHECK(print.apply(model, config) == Print::APPLY_STATUS_UNCHANGED);
     CHECK(config.opt_bool("enable_prime_tower") == requested);
+}
+
+// Tinman: deleting a material on a tool changer tops filament_presets back up to the tool count, and the
+// palette has to follow, or G-code export refuses the purge matrix ("Flush volumes matrix do not match").
+TEST_CASE("Deleting a material on a four-tool printer leaves a palette G-code export accepts", "[Print][TinMan][MaterialSlots]")
+{
+    PresetBundle bundle;
+    auto &printer = bundle.printers.get_edited_preset().config;
+    printer.set_key_value("nozzle_diameter", new ConfigOptionFloats(std::vector<double>(4, 0.4)));
+    printer.set_key_value("single_extruder_multi_material", new ConfigOptionBool(false));
+    bundle.set_num_filaments(4, std::string("#808080"));
+    bundle.update_num_filaments(1);
+    REQUIRE(bundle.filament_presets.size() == 4);
+    const auto &colours = bundle.project_config.option<ConfigOptionStrings>("filament_colour")->values;
+    REQUIRE(colours.size() == 4);
+
+    DynamicPrintConfig config = Test::multifilament_config(4, {{"enable_prime_tower", 0}});
+    config.set_deserialize_strict({{"nozzle_diameter", "0.4,0.4,0.4,0.4"}});
+    Test::size_flush_to_nozzles(config);
+    // The palette and purge layout the deletion left, as the sidebar hands them to slicing.
+    for (const char *key : {"flush_volumes_matrix", "flush_volumes_vector", "flush_multiplier"})
+        config.set_key_value(key, bundle.project_config.option(key)->clone());
+    // multifilament_config needs distinct colours (filament grouping merges equal ones).
+    config.set_key_value("filament_colour", new ConfigOptionStrings{"#FF0000", "#00FF00", "#0000FF", "#FFFF00"});
+    Print print;
+    Model model;
+    const std::vector<std::vector<ConfigBase::SetDeserializeItem>> overrides{{{"extruder", "1"}}, {{"extruder", "2"}}};
+    Test::init_print({Test::cube(10), Test::cube(10)}, print, model, config, &overrides);
+    std::string gcode;
+    REQUIRE_NOTHROW(gcode = Test::gcode(print));
+    CHECK_FALSE(gcode.empty());
 }

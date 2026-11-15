@@ -1,6 +1,7 @@
 #ifndef __CREALITY_PRINT_AGENT_HPP__
 #define __CREALITY_PRINT_AGENT_HPP__
 
+#include "IPrinterAgent.hpp"
 #include "MoonrakerPrinterAgent.hpp"
 
 #include <string>
@@ -41,7 +42,7 @@ public:
     static AgentInfo get_agent_info_static();
     AgentInfo        get_agent_info() override { return get_agent_info_static(); }
 
-    bool fetch_filament_info(std::string dev_id) override;
+    bool fetch_filament_info(std::string dev_id, FilamentSyncMode sync_mode = FilamentSyncMode::pull) override;
 
     // Parse the boxsInfo JSON returned by CrealityPrint::query_boxes_info() into
     // a flat list of loaded slots, plus the count of CFS boxes the printer reports.
@@ -66,11 +67,12 @@ public:
                                              const std::string&      base_type);
 
 protected:
-    bool init_device_info(std::string dev_id,
-                          std::string dev_ip,
-                          std::string username,
-                          std::string password,
-                          bool        use_ssl) override;
+    bool init_device_info(const std::string& dev_id,
+                          const std::string& dev_ip,
+                          const std::string& username,
+                          const std::string& password,
+                          bool               use_ssl,
+                          const std::string& port) override;
 };
 
 } // namespace Slic3r

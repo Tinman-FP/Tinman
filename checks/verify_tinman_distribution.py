@@ -84,9 +84,9 @@ def main() -> int:
         "setup and Add Printer do not route to the visual Orca guide",
     )
     require(
-        "ConfigWizard::SP_WELCOME ? GuideFrame::BBL_WELCOME" in run_wizard_body.group(0)
-        and "ConfigWizard::SP_FILAMENTS ? GuideFrame::BBL_FILAMENT_ONLY" in run_wizard_body.group(0)
-        and "ConfigWizard::SP_PRINTERS ? GuideFrame::BBL_MODELS_ONLY" in run_wizard_body.group(0),
+        "StartPage::SP_WELCOME ? GuideFrame::BBL_WELCOME" in run_wizard_body.group(0)
+        and "StartPage::SP_FILAMENTS ? GuideFrame::BBL_FILAMENT_ONLY" in run_wizard_body.group(0)
+        and "StartPage::SP_PRINTERS ? GuideFrame::BBL_MODELS_ONLY" in run_wizard_body.group(0),
         "visual setup guide does not preserve the requested start page",
     )
     require("SetAppName(SLIC3R_APP_NAME);" in gui_app, "Tinman does not use an independent data directory")
@@ -135,7 +135,13 @@ def main() -> int:
 
     main_frame = (ROOT / "src/slic3r/GUI/MainFrame.cpp").read_text(encoding="utf-8")
     require(
-        main_frame.count("if (wxGetApp().is_closing() || m_printer_view == nullptr)") >= 2
+        # OrcaSlicer 2.5 builds the printer web view lazily (PrinterWebView::if_built()), so the
+        # queued-event handler only needs the shutdown guard.
+        re.search(
+            r"Bind\(EVT_LOAD_PRINTER_URL, \[this\]\(LoadPrinterViewEvent &evt\) \{[^}]*?"
+            r"if \(wxGetApp\(\)\.is_closing\(\)\)\s*return;",
+            main_frame,
+        ) is not None
         and re.search(
             r"void MainFrame::load_printer_url\(wxString url, wxString apikey\)\s*\{\s*"
             r"if \(wxGetApp\(\)\.is_closing\(\)\)",
@@ -152,8 +158,16 @@ def main() -> int:
         "fresh configurations are still seeded with TinManX1's private machine catalog",
     )
 
-    guide_text = (ROOT / "resources/web/data/text.js").read_text(encoding="utf-8")
-    require("Welcome to Tinman" in guide_text, "first-run guide is not branded Tinman")
+    # OrcaSlicer 2.5 serves the setup guide's strings from guide_strings() in WebGuideDialog.cpp
+    # (translated through the .po catalogs); Tinman rebrands the translated text there.
+    guide_strings = re.search(r"static json guide_strings\(\)\n\{[\s\S]+?\n\}\n", web_guide)
+    require(guide_strings is not None, "could not locate guide_strings() in WebGuideDialog.cpp")
+    guide_text = guide_strings.group(0)
+    require(
+        'boost::replace_all(text, "Orca Slicer", "Tinman");' in guide_text
+        and '"welcome"' in guide_text and '"setup_intro"' in guide_text,
+        "first-run guide is not branded Tinman",
+    )
     require("TinManX1" not in guide_text, "first-run guide still contains TinManX1 branding")
 
     required_assets = (

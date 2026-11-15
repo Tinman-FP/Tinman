@@ -1,12 +1,14 @@
 #ifndef slic3r_PrintHost_hpp_
 #define slic3r_PrintHost_hpp_
 
+#include <cstddef>
 #include <memory>
 #include <set>
 #include <string>
 #include <functional>
 #include <boost/filesystem/path.hpp>
 
+#include <utility>
 #include <wx/string.h>
 
 #include <libslic3r/enum_bitmask.hpp>
@@ -87,6 +89,8 @@ public:
 
     static PrintHost* get_print_host(DynamicPrintConfig *config);
     static std::string get_print_host_webui(DynamicPrintConfig *config);
+    // Reads the "err" field of a JSON reply, 0 when absent. Returns -1 when the body is not valid JSON.
+    static int get_err_code_from_body(const std::string &body);
 
     //Support for cloud webui login
     virtual bool is_cloud() const { return false; }
@@ -96,6 +100,7 @@ public:
 
 protected:
     virtual wxString format_error(const std::string &body, const std::string &error, unsigned status) const;
+    static wxString timed_out_message();
 };
 
 
@@ -139,7 +144,23 @@ namespace GUI { class PrintHostQueueDialog; }
 class PrintHostJobQueue
 {
 public:
+    // Info tag a host sends right before an action it cannot take back (for
+    // example a print start). From then on the job's outcome, an error or a
+    // warning included, is always reported and never replaced by "Canceled",
+    // however many Cancels are pending or arrive later.
+    static constexpr const wchar_t *DispatchedInfoTag = L"dispatched";
+
+    // Where a queue without a dialog reports the job events (tests).
+    struct Events
+    {
+        std::function<void(size_t job, int progress)>                      progress;
+        std::function<void(size_t job, wxString error)>                    error;
+        std::function<void(size_t job)>                                    cancel;
+        std::function<void(size_t job, wxString tag, wxString status)>    info;
+    };
+
     PrintHostJobQueue(GUI::PrintHostQueueDialog *queue_dialog);
+    explicit PrintHostJobQueue(Events events);
     PrintHostJobQueue(const PrintHostJobQueue &) = delete;
     PrintHostJobQueue(PrintHostJobQueue &&other) = delete;
     ~PrintHostJobQueue();
@@ -149,6 +170,10 @@ public:
 
     void enqueue(PrintHostJob job);
     void cancel(size_t id);
+
+    // Uploads the job, firing UploadStarted and a matching UploadFinished. An exception thrown by
+    // the upload is reported through error_fn and makes the upload fail.
+    static bool upload_job(PrintHostJob &job, PrintHost::ProgressFn progress_fn, PrintHost::ErrorFn error_fn, PrintHost::InfoFn info_fn);
 
 private:
     struct priv;

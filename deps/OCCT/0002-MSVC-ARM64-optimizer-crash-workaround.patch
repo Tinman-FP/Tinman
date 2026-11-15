@@ -1,0 +1,18 @@
+diff --git a/src/ModelingData/TKBRep/BRepGraph/BRepGraph_LayerTopoSupplement.cxx b/src/ModelingData/TKBRep/BRepGraph/BRepGraph_LayerTopoSupplement.cxx
+index 44e59b0..675ce34 100644
+--- a/src/ModelingData/TKBRep/BRepGraph/BRepGraph_LayerTopoSupplement.cxx
++++ b/src/ModelingData/TKBRep/BRepGraph/BRepGraph_LayerTopoSupplement.cxx
+@@ -11,6 +11,13 @@
+ // Alternatively, this file may be used under the terms of Open CASCADE
+ // commercial license or contractual agreement.
+ 
++// Tinman: cl 14.52 for ARM64 (Visual Studio 2026, runner image 20261112) crashes compiling this
++// file with optimization on (C1001, an access violation in the code generator); 14.51 compiled
++// it. Only this file, and only with cl for ARM64, is built without optimization.
++#if defined(_MSC_VER) && !defined(__clang__) && defined(_M_ARM64)
++  #pragma optimize("", off)
++#endif
++
+ #include <BRepGraph_LayerTopoSupplement.hxx>
+ 
+ #include <BRepGraph_LayerRegistry.hxx>

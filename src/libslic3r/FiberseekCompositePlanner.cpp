@@ -3135,9 +3135,9 @@ static void append_residual_plastic_refill_fallbacks(
         const Polygons covered = offset(
             region.covered_segments,
             float(scale_(coverage_half_width_mm)),
-            ClipperLib::jtRound,
+            jtRound,
             DefaultLineMiterLimit,
-            ClipperLib::etOpenButt);
+            etOpenButt);
         if (covered.empty())
             continue;
 
@@ -3998,7 +3998,7 @@ CompositeLayerDiagnostic plan_perimeter_routes_from_expolygons(
     diagnostic.candidates.reserve(regions.size() * loop_count * 2);
 
     ExPolygons inset_regions = base_inset_mm > EPSILON ?
-        offset_ex(regions, -float(scale_(base_inset_mm)), ClipperLib::jtRound, DefaultMiterLimit) :
+        offset_ex(regions, -float(scale_(base_inset_mm)), jtRound, DefaultMiterLimit) :
         regions;
     for (std::size_t loop_index = 0; loop_index < loop_count; ++loop_index) {
         if (inset_regions.empty())
@@ -4051,7 +4051,7 @@ CompositeLayerDiagnostic plan_perimeter_routes_from_expolygons(
         }
 
         if (loop_index + 1 < loop_count)
-            inset_regions = offset_ex(inset_regions, -float(scale_(spacing_mm)), ClipperLib::jtRound, DefaultMiterLimit);
+            inset_regions = offset_ex(inset_regions, -float(scale_(spacing_mm)), jtRound, DefaultMiterLimit);
     }
 
     diagnostic.direct_candidate_count = diagnostic.candidates.size();

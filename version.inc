@@ -14,8 +14,8 @@ if(NOT DEFINED BBL_INTERNAL_TESTING)
 set(BBL_INTERNAL_TESTING "0")
 endif()
 # Upstream compatibility identity for profiles, 3MF files and updater protocols.
-# Never substitute Tinman's calendar version here.
-set(SoftFever_VERSION "2.4.2")
+# Never substitute Tinman's calendar version here. Tinman is merged with OrcaSlicer 2.5.1.
+set(SoftFever_VERSION "2.5.1")
 string(REGEX MATCH "^([0-9]+)\\.([0-9]+)\\.([0-9]+)"
        SoftFever_VERSION_MATCH ${SoftFever_VERSION})
 set(ORCA_VERSION_MAJOR ${CMAKE_MATCH_1})
@@ -33,7 +33,7 @@ set(TINMANX1_PACKAGE_VERSION_PATCH ${CMAKE_MATCH_3})
 set(TINMANX1_PACKAGE_VERSION_REVISION ${CMAKE_MATCH_4})
 string(REPLACE "." "," TINMANX1_PACKAGE_VERSION_RESOURCE ${TINMANX1_PACKAGE_VERSION})
 
-set(SLIC3R_VERSION "02.06.00.51")
+set(SLIC3R_VERSION "02.08.01.55")
 
 if (NOT DEFINED ORCA_UPDATER_SIG_KEY)
     set(ORCA_UPDATER_SIG_KEY "" CACHE STRING "Base64url encoded updater signature key")
