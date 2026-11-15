@@ -4,13 +4,33 @@
 
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/Color.hpp"
+#include "BuildCommit.hpp"
 #include "GUI.hpp"
 #include "GUI_App.hpp"
 #include "MainFrame.hpp"
 #include "format.hpp"
 #include "Widgets/Button.hpp"
+#include "libslic3r_version.h"
 
+#include "slic3r/GUI/GUI_Utils.hpp"
+#include "libslic3r/libslic3r.h"
+#include "slic3r/GUI/wxExtensions.hpp"
+#include "slic3r/GUI/Widgets/Label.hpp"
+#include <vector>
 #include <wx/clipbrd.h>
+#include <wx/panel.h>
+#include <wx/wx.h>
+#include <wx/gdicmn.h>
+#include <wx/event.h>
+#include <wx/dcclient.h>
+#include <wx/dialog.h>
+#include <wx/toplevel.h>
+#include <wx/sizer.h>
+#include <wx/html/htmlwin.h>
+#include <wx/string.h>
+#include <wx/colour.h>
+#include <wx/dataobj.h>
+#include <wx/statline.h>
 
 namespace Slic3r {
 namespace GUI {
@@ -179,6 +199,7 @@ wxString CopyrightsDialog::get_html_text()
     });
     append_credits(_L("Upstream Slicer Projects"), {
         { "OrcaSlicer / SoftFever and contributors", "Primary application and slicing baseline: OrcaSlicer " SoftFever_VERSION ".", "https://github.com/OrcaSlicer/OrcaSlicer" },
+        { "OrcaSlicer 2.5 contributors", "The 229 people who authored or co-authored OrcaSlicer 2.5.0 and 2.5.1, which Tinman is based on.", "https://github.com/Tinman-FP/Tinman/blob/main/docs/attribution/orcaslicer-2.5-contributors.md" },
         { "Bambu Studio / Bambu Lab and contributors", "Upstream application lineage and printer integration work.", "https://github.com/bambulab/BambuStudio" },
         { "PrusaSlicer / Prusa Research and contributors", "Upstream slicing lineage; selected profile-reliability improvements inspired by PrusaSlicer 3.0.0-alpha11. Not a full PrusaSlicer 3 rebase.", "https://github.com/prusa3d/PrusaSlicer" },
         { "Slic3r / Alessandro Ranellucci and the RepRap community", "Original slicer foundation and community contributions.", "https://github.com/slic3r/Slic3r" },
@@ -278,8 +299,9 @@ AboutDialog::AboutDialog()
     auto name = new wxStaticText(this, wxID_ANY, "Tinman");
     name->SetFont(GetFont().Scaled(1.85f).Bold());
     identity->Add(name, 0, wxBOTTOM, FromDIP(8));
+    // TRN %s is the commit the application was built from
     const wxString revision = wxString::FromUTF8(TINMAN_DISPLAY_VERSION) + "\n" +
-                              wxString::Format("Build %s", std::string(GIT_COMMIT_HASH));
+                              wxString::Format(_L("Build %s"), build_commit_label);
     auto version = new wxStaticText(this, wxID_ANY, revision);
     version->SetFont(Label::Body_12);
     identity->Add(version, 0, wxBOTTOM, FromDIP(8));
@@ -358,10 +380,12 @@ AboutDialog::AboutDialog()
           m_html->SetFonts(font.GetFaceName(), font.GetFaceName(), size);
           m_html->SetMinSize(wxSize(FromDIP(-1), FromDIP(16)));
           m_html->SetBorders(2);
+          wxColour   bgr_clr = GetBackgroundColour();
+          const auto bgr_clr_str = encode_color(ColorRGB(bgr_clr.Red(), bgr_clr.Green(), bgr_clr.Blue()));
           const auto text = from_u8(
               (boost::format(
               "<html>"
-              "<body>"
+              "<body bgcolor= \"" + bgr_clr_str + "\" >"
               "<p style=\"text-align:left\"><a style=\"color:#009789\" href=\"https://github.com/Tinman-FP/Tinman\">Tinman on GitHub</a></p>"
               "</body>"
               "</html>")

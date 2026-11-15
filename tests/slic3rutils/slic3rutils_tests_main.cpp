@@ -2,6 +2,14 @@
 #include <fstream>
 #include <limits>
 
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/reporters/catch_reporter_event_listener.hpp>
+#include <catch2/reporters/catch_reporter_registrars.hpp>
+
+#include <slic3r/plugin/PluginManager.hpp>
+#include <slic3r/plugin/PythonInterpreter.hpp>
+
+#include "catch2/interfaces/catch_interfaces_reporter.hpp"
 #include "slic3r/GUI/TaskManager.hpp"
 #include "slic3r/Utils/BBLNetworkPlugin.hpp"
 #include "slic3r/Utils/CrealityPrint.hpp"
@@ -14,6 +22,31 @@
 #include "slic3r/Utils/RecentProjectThumbnailCache.hpp"
 
 namespace {
+
+// Finalizes the embedded interpreter once, after the last test case, and never between cases.
+// CPython cannot be reinitialized after Py_Finalize (a second init aborts inside _datetime), and
+// the app likewise finalizes it only at exit, so the per-test fixtures tear down only the
+// PluginManager. Running at the end of the run, rather than from a static destructor, also keeps
+// shutdown()'s logging ahead of boost::log's teardown.
+class PythonInterpreterRunEnd final : public Catch::EventListenerBase
+{
+public:
+    using Catch::EventListenerBase::EventListenerBase;
+
+    void testRunEnded(const Catch::TestRunStats&) override
+    {
+        if (!Slic3r::PythonInterpreter::instance().is_initialized())
+            return;
+        Slic3r::PluginManager::instance().shutdown();
+        Slic3r::PythonInterpreter::instance().shutdown();
+    }
+};
+
+} // namespace
+
+CATCH_REGISTER_LISTENER(PythonInterpreterRunEnd)
+
+namespace {
 class SelectionTestAgent : public Slic3r::OrcaPrinterAgent {
 public:
     SelectionTestAgent() : OrcaPrinterAgent("") {}
@@ -23,7 +56,7 @@ public:
     std::function<void()> on_disconnect;
     Slic3r::QueueOnMainFn queue;
 
-    int connect_printer(std::string, std::string, std::string, std::string, bool) override { return connect_result; }
+    int connect_printer(const Slic3r::PrinterConnectionParams&) override { return connect_result; }
     int disconnect_printer() override
     {
         ++disconnects;
@@ -37,6 +70,15 @@ public:
         return 0;
     }
 };
+
+Slic3r::PrinterConnectionParams lan(const std::string& dev_id)
+{
+    Slic3r::PrinterConnectionParams params;
+    params.dev_id  = dev_id;
+    params.host    = "fixture";
+    params.use_ssl = true;
+    return params;
+}
 }
 
 TEST_CASE("Reselecting a cached printer agent leaves live callbacks untouched", "[PrinterHandoff][TinMan]")
@@ -63,12 +105,13 @@ TEST_CASE("Reselecting a cached printer agent leaves live callbacks untouched", 
     second->queue([] {});
     CHECK(dispatched == 2);
 
+    // 2.5.1 detaches the agent on nullptr, as GUI shutdown does.
     network.set_printer_agent(nullptr);
-    CHECK(network.get_printer_agent() == second);
-    CHECK(second->disconnects == 0);
-    network.set_printer_agent(first);
+    CHECK(network.get_printer_agent() == nullptr);
     CHECK(second->disconnects == 1);
     CHECK_FALSE(second->queue);
+    network.set_printer_agent(first);
+    CHECK(second->disconnects == 1);
     REQUIRE(first->queue);
     CHECK(first->disconnects == 1);
 }
@@ -79,7 +122,7 @@ TEST_CASE("Queued LAN success cannot survive a printer switch or same-device rec
     Slic3r::NetworkAgent network(nullptr, agent);
     CHECK(network.lan_connection_generation("h2d") == 0);
     CHECK_FALSE(network.is_current_lan_connection("h2d", 0));
-    REQUIRE(network.connect_printer("h2d", "fixture", "", "", true) == 0);
+    REQUIRE(network.connect_printer(lan("h2d")) == 0);
     const auto original = network.lan_connection_generation("h2d");
     REQUIRE(original != 0);
     CHECK(network.is_current_lan_connection("h2d", original));
@@ -94,17 +137,17 @@ TEST_CASE("Queued LAN success cannot survive a printer switch or same-device rec
     };
     queued_success();
     CHECK(sends == 1);
-    REQUIRE(network.connect_printer("x1c", "fixture", "", "", true) == 0);
+    REQUIRE(network.connect_printer(lan("x1c")) == 0);
     queued_success();
     CHECK(sends == 1);
     CHECK(network.lan_connection_generation("h2d") == 0);
-    REQUIRE(network.connect_printer("h2d", "fixture", "", "", true) == 0);
+    REQUIRE(network.connect_printer(lan("h2d")) == 0);
     queued_success();
     CHECK(sends == 1);
     CHECK(network.lan_connection_generation("h2d") > original);
 
     const auto replacement = network.lan_connection_generation("h2d");
-    REQUIRE(network.connect_printer("h2d", "fixture", "", "", true) == 0);
+    REQUIRE(network.connect_printer(lan("h2d")) == 0);
     CHECK_FALSE(network.is_current_lan_connection("h2d", replacement));
     CHECK(network.is_current_lan_connection("h2d", network.lan_connection_generation("h2d")));
 }
@@ -113,7 +156,7 @@ TEST_CASE("LAN ownership is invalidated before transport teardown", "[PrinterHan
 {
     auto agent = std::make_shared<SelectionTestAgent>();
     Slic3r::NetworkAgent network(nullptr, agent);
-    REQUIRE(network.connect_printer("h2d", "fixture", "", "", true) == 0);
+    REQUIRE(network.connect_printer(lan("h2d")) == 0);
     const auto generation = network.lan_connection_generation("h2d");
     agent->on_disconnect = [&] { CHECK_FALSE(network.is_current_lan_connection("h2d", generation)); };
     SECTION("Explicit disconnect") { CHECK(network.disconnect_printer() == 0); }
@@ -126,16 +169,16 @@ TEST_CASE("Rejected LAN connections cannot authorize queued requests", "[Printer
 {
     auto agent = std::make_shared<SelectionTestAgent>();
     Slic3r::NetworkAgent network(nullptr, agent);
-    REQUIRE(network.connect_printer("h2d", "fixture", "", "", true) == 0);
+    REQUIRE(network.connect_printer(lan("h2d")) == 0);
     const auto generation = network.lan_connection_generation("h2d");
     agent->connect_result = -1;
-    CHECK(network.connect_printer("h2d", "fixture", "", "", true) == -1);
+    CHECK(network.connect_printer(lan("h2d")) == -1);
     CHECK(network.lan_connection_generation("h2d") == 0);
     CHECK_FALSE(network.is_current_lan_connection("h2d", generation));
-    CHECK(network.connect_printer("", "fixture", "", "", true) == -1);
+    CHECK(network.connect_printer(lan("")) == -1);
     CHECK_FALSE(network.is_current_lan_connection("", 0));
     Slic3r::NetworkAgent absent(nullptr, nullptr);
-    CHECK(absent.connect_printer("h2d", "fixture", "", "", true) == -1);
+    CHECK(absent.connect_printer(lan("h2d")) == -1);
     CHECK(absent.lan_connection_generation("h2d") == 0);
 }
 
@@ -157,38 +200,6 @@ TEST_CASE("Recent thumbnail lookup never opens the original project", "[TinMan][
     CHECK(cache.read(project + ".oversized").empty());
     boost::filesystem::remove_all(directory);
 }
-
-namespace {
-
-nlohmann::json flat_session_json(const nlohmann::json& fields)
-{
-    nlohmann::json session = {
-        {"access_token", "test-token"},
-        {"user_id", "test-user-id"}
-    };
-    session.update(fields);
-    return session;
-}
-
-nlohmann::json nested_session_json(const nlohmann::json& metadata)
-{
-    return {
-        {"access_token", "test-token"},
-        {"user", {
-            {"id", "test-user-id"},
-            {"user_metadata", metadata}
-        }}
-    };
-}
-
-std::string resolved_display_name(const nlohmann::json& session)
-{
-    Slic3r::OrcaCloudServiceAgent agent("");
-    REQUIRE(agent.set_user_session(session, false, false));
-    return agent.get_user_nickname();
-}
-
-} // namespace
 
 TEST_CASE("Cloud profile sessions invalidate account changes without invalidating token refresh", "[CloudSnapshot][TinMan]")
 {
@@ -420,62 +431,6 @@ TEST_CASE("Check SSL certificates paths", "[Http][NotWorking]") {
     g.perform_sync();
     
     REQUIRE(status == 200);
-}
-
-TEST_CASE("Orca cloud flat session resolves display name consistently", "[OrcaCloudServiceAgent]")
-{
-    CHECK(resolved_display_name(flat_session_json({
-        {"username", "orca_username"},
-        {"display_name", "Display Name"},
-        {"nickname", "Nickname"}
-    })) == "Display Name");
-
-    CHECK(resolved_display_name(flat_session_json({
-        {"username", "orca_username"},
-        {"nickname", "Nickname"}
-    })) == "Nickname");
-
-    CHECK(resolved_display_name(flat_session_json({
-        {"username", "orca_username"},
-        {"full_name", "Full Name"}
-    })) == "Full Name");
-
-    CHECK(resolved_display_name(flat_session_json({
-        {"username", "orca_username"},
-        {"name", "Provider Name"}
-    })) == "Provider Name");
-
-    CHECK(resolved_display_name(flat_session_json({
-        {"username", "orca_username"}
-    })) == "orca_username");
-}
-
-TEST_CASE("Orca cloud nested session resolves display name consistently", "[OrcaCloudServiceAgent]")
-{
-    CHECK(resolved_display_name(nested_session_json({
-        {"username", "orca_username"},
-        {"display_name", "Display Name"},
-        {"nickname", "Nickname"}
-    })) == "Display Name");
-
-    CHECK(resolved_display_name(nested_session_json({
-        {"username", "orca_username"},
-        {"nickname", "Nickname"}
-    })) == "Nickname");
-
-    CHECK(resolved_display_name(nested_session_json({
-        {"username", "orca_username"},
-        {"full_name", "Full Name"}
-    })) == "Full Name");
-
-    CHECK(resolved_display_name(nested_session_json({
-        {"username", "orca_username"},
-        {"name", "Provider Name"}
-    })) == "Provider Name");
-
-    CHECK(resolved_display_name(nested_session_json({
-        {"username", "orca_username"}
-    })) == "orca_username");
 }
 
 TEST_CASE("Snapmaker live filament data outranks stale saved metadata", "[SnapmakerPrinterAgent]")

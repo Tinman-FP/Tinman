@@ -156,10 +156,31 @@ const TinManMachineDefinition *family_for_model(std::string_view model)
     return tinmanx_hardware_catalog().find_model(model);
 }
 
+// A machine profile that belongs to one physical printer keeps its own connection: the
+// model-wide overlay would copy one printer's address onto another printer of that model.
+bool has_physical_printer_identity(const DynamicPrintConfig &config)
+{
+    const auto *id = config.option<ConfigOptionString>("tinman_physical_printer_id");
+    return id && !id->value.empty();
+}
+
 bool is_qidi_moonraker_model(std::string_view model)
 {
     const auto *definition = family_for_model(model);
     return definition && definition->connection_mode == TinManConnectionMode::QidiMoonraker;
+}
+
+bool is_prusalink_model(std::string_view model)
+{
+    const auto *definition = family_for_model(model);
+    return definition && definition->connection_mode == TinManConnectionMode::PrusaLink;
+}
+
+// Prusa Buddy firmware is reached through PrusaLink on the LAN or PrusaConnect
+// in the cloud. It has no Moonraker API.
+bool is_prusa_buddy_host_type(std::string_view host_type)
+{
+    return host_type == "prusalink" || host_type == "prusaconnect";
 }
 
 std::string legacy_machine_address(const AppConfig &app_config,
@@ -242,6 +263,14 @@ bool tinmanx_enforce_machine_connection_contract(const std::string &preset_name,
         changed = true;
     }
 
+    // Repair the Moonraker host type that older connection-dialog saves wrote
+    // for PrusaLink printers, which made every upload fail with HTTP 404.
+    if (is_prusalink_model(model) && printer_config.has("host_type") &&
+        !is_prusa_buddy_host_type(printer_config.option("host_type")->serialize())) {
+        printer_config.set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(htPrusaLink));
+        changed = true;
+    }
+
     // K2 direct API and Moonraker are separate services. Keep the printable
     // profile on CrealityPrint's port 80 while Device/status uses the 4408
     // Moonraker proxy. This also repairs copies saved with :7125 as print_host.
@@ -272,6 +301,46 @@ bool tinmanx_enforce_machine_connection_contract(const std::string &preset_name,
         }
     }
 
+    return changed;
+}
+
+std::string tinmanx_infer_printer_agent(const std::string &identity)
+{
+    if (contains_ascii_case_insensitive(identity, "qidi"))
+        return "qidi";
+    if (contains_ascii_case_insensitive(identity, "snapmaker"))
+        return "snapmaker";
+    if (contains_ascii_case_insensitive(identity, "creality") || contains_ascii_case_insensitive(identity, "k2"))
+        return "crealityprint";
+    // Prusa printers are deliberately absent: Buddy firmware speaks PrusaLink.
+    if (contains_ascii_case_insensitive(identity, "v-core") || contains_ascii_case_insensitive(identity, "ratrig") ||
+        contains_ascii_case_insensitive(identity, "sovol"))
+        return "moonraker";
+    return {};
+}
+
+bool tinmanx_prepare_connection_for_save(const std::string &preset_name,
+                                         DynamicPrintConfig &printer_config)
+{
+    bool changed = tinmanx_enforce_machine_connection_contract(preset_name, printer_config);
+
+    const std::string agent = printer_config.has("printer_agent") ?
+        printer_config.opt_string("printer_agent") : std::string();
+    if (agent != "snapmaker" && agent != "moonraker")
+        return changed;
+
+    if (printer_config.has("host_type") &&
+        printer_config.opt_enum<PrintHostType>("host_type") != htMoonraker) {
+        printer_config.set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(htMoonraker));
+        changed = true;
+    }
+    const std::string print_host = printer_config.has("print_host") ?
+        printer_config.opt_string("print_host") : std::string();
+    if (!print_host.empty() && printer_config.has("print_host_webui") &&
+        printer_config.opt_string("print_host_webui").empty()) {
+        printer_config.set_key_value("print_host_webui", new ConfigOptionString(print_host));
+        changed = true;
+    }
     return changed;
 }
 
@@ -356,10 +425,20 @@ bool tinmanx_normalize_multitool_config(DynamicPrintConfig &config,
         changed = true;
     }
 
+    // One flush multiplier per block of flush_volumes_matrix. OrcaSlicer 2.5 also purges multi-tool
+    // printers from a single shared block, and G-code export rejects a multiplier count that doesn't
+    // match the matrix, so leave the multipliers alone when they already match such a matrix.
     if (auto *flush_multipliers = config.option<ConfigOptionFloats>("flush_multiplier", false);
         flush_multipliers != nullptr && flush_multipliers->values.size() != tool_count) {
-        flush_multipliers->values.resize(tool_count, 1.0);
-        changed = true;
+        const auto  *matrix  = config.option<ConfigOptionFloats>("flush_volumes_matrix");
+        const auto  *colours = config.option<ConfigOptionStrings>("filament_colour");
+        const size_t slots   = colours != nullptr && !colours->values.empty() ? colours->values.size() : filament_count;
+        const bool shared_block = matrix != nullptr && !matrix->values.empty() &&
+                                  matrix->values.size() == slots * slots * flush_multipliers->values.size();
+        if (!shared_block) {
+            flush_multipliers->values.resize(tool_count, 1.0);
+            changed = true;
+        }
     }
 
     if (auto *ams_counts = config.option<ConfigOptionStrings>("extruder_ams_count", false);
@@ -469,6 +548,8 @@ bool tinmanx_remember_machine_connection(AppConfig &app_config,
                                          const DynamicPrintConfig &printer_config,
                                          bool overwrite_existing)
 {
+    if (has_physical_printer_identity(printer_config))
+        return false;
     const std::string machine_hint = printer_config.has("printer_model") ?
         printer_config.opt_string("printer_model") : std::string();
     const std::string_view model = matched_model(preset_name, machine_hint);
@@ -517,6 +598,8 @@ bool tinmanx_remember_machine_connection(AppConfig &app_config,
                 value = "crealityprint";
             else if (is_qidi_moonraker_model(model))
                 value = "moonraker";
+            else if (is_prusalink_model(model) && !is_prusa_buddy_host_type(value))
+                value = "prusalink";
         } else if (option == "print_host" && !k2_host.empty()) {
             value = print_host;
         } else if (option == "print_host_webui" && !k2_host.empty()) {
@@ -554,6 +637,8 @@ bool tinmanx_restore_machine_connection(const AppConfig &app_config,
                                         const std::string &preset_name,
                                         DynamicPrintConfig &printer_config)
 {
+    if (has_physical_printer_identity(printer_config))
+        return tinmanx_enforce_machine_connection_contract(preset_name, printer_config);
     const std::string machine_hint = printer_config.has("printer_model") ?
         printer_config.opt_string("printer_model") : std::string();
     const std::string_view model = matched_model(preset_name, machine_hint);

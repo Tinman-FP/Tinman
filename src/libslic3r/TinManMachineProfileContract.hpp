@@ -33,6 +33,15 @@ std::string tinmanx_expected_printer_agent(const std::string &preset_name,
 bool tinmanx_enforce_machine_connection_contract(const std::string &preset_name,
                                                   DynamicPrintConfig &printer_config);
 
+// Name-based agent fallback for printers that neither the catalog nor their
+// configuration route explicitly. Empty means the generic Orca agent.
+std::string tinmanx_infer_printer_agent(const std::string &identity);
+
+// Values the Physical Printer dialog persists on OK: the machine contract,
+// then the Moonraker transport required by Klipper printer agents.
+bool tinmanx_prepare_connection_for_save(const std::string &preset_name,
+                                         DynamicPrintConfig &printer_config);
+
 // Apply the fixed nozzle-flow hardware declared by a canonical TinMan machine
 // to the project configuration. Returns true when the preset is managed and
 // the contract was applied, even if the project was already correct.
@@ -64,7 +73,8 @@ void tinmanx_apply_machine_catalog(AppConfig &config);
 
 // Keep local print-host credentials outside generated machine presets. The
 // overlay is keyed by physical machine family, so every supported nozzle uses
-// the same connection without creating a visible "Copy" preset.
+// the same connection without creating a visible "Copy" preset. A machine profile with a
+// tinman_physical_printer_id belongs to one printer and is neither recorded nor overlaid.
 bool tinmanx_remember_machine_connection(AppConfig &app_config,
                                          const std::string &preset_name,
                                          const DynamicPrintConfig &printer_config,

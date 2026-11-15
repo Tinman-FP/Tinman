@@ -16,9 +16,7 @@ PROFILES_ROOT = ROOT / "resources" / "profiles"
 HELPER = ROOT / "scripts" / "source-helpers" / "normalize_tinman_machine_catalog.py"
 APP_SUPPORT = Path.home() / "Library/Application Support/OrcaSlicer-Codex"
 CONTRACT_SOURCE = ROOT / "src" / "libslic3r" / "TinManMachineProfileContract.cpp"
-APP_CONFIG_SOURCE = ROOT / "src" / "libslic3r" / "AppConfig.cpp"
 PRESET_SOURCE = ROOT / "src" / "libslic3r" / "Preset.cpp"
-BUNDLE_SOURCE = ROOT / "src" / "libslic3r" / "PresetBundle.cpp"
 COMBO_SOURCE = ROOT / "src" / "slic3r" / "GUI" / "PresetComboBoxes.cpp"
 PLATER_SOURCE = ROOT / "src" / "slic3r" / "GUI" / "Plater.cpp"
 CONTRACT = runpy.run_path(str(HELPER))
@@ -33,6 +31,10 @@ process_name = CONTRACT["process_name"]
 mode_settings = CONTRACT["mode_settings"]
 prusa_core_one_l_source_process_name = CONTRACT["prusa_core_one_l_source_process_name"]
 nozzle_flow_types = CONTRACT["nozzle_flow_types"]
+
+
+# Vendors whose curated TinMan bundle is not shipped in this tree (see validate_repo).
+SKIPPED_VENDORS: list[str] = []
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -59,7 +61,8 @@ def validate_repo() -> list[str]:
         if model not in definition["aliases"]:
             errors.append(f"{model}: model is missing from hardware aliases")
         if definition["connection_mode"] not in {
-            "inherited", "bambu", "creality", "qidi_moonraker", "snapmaker", "moonraker"
+            "inherited", "bambu", "creality", "qidi_moonraker", "snapmaker", "moonraker",
+            "prusalink",
         }:
             errors.append(f"{model}: unknown hardware connection mode")
         for alias in definition["aliases"]:
@@ -93,11 +96,12 @@ def validate_repo() -> list[str]:
         ):
             errors.append("process infill strength does not progress from Tank to Draft")
 
+    # The public, profile-neutral distribution (e4db1b03d0) no longer applies the curated machine
+    # catalog when AppConfig is saved or presets are loaded, so AppConfig.cpp and PresetBundle.cpp
+    # are not required to call tinmanx_apply_machine_catalog.
     source_contracts = (
         (CONTRACT_SOURCE, "tinmanx_apply_machine_catalog", 1),
         (CONTRACT_SOURCE, "tinmanx_process_preset_allowed", 1),
-        (APP_CONFIG_SOURCE, "tinmanx_apply_machine_catalog(*this)", 2),
-        (BUNDLE_SOURCE, "tinmanx_apply_machine_catalog", 2),
         (COMBO_SOURCE, "tinmanx_machine_preset_allowed", 2),
         (PRESET_SOURCE, "tinmanx_process_preset_allowed", 1),
     )
@@ -130,9 +134,19 @@ def validate_repo() -> list[str]:
         families_by_vendor.setdefault(family.vendor, []).append(family)
 
     names: set[str] = set()
+    checked_families = 0
     for vendor, families in families_by_vendor.items():
         index_path = PROFILES_ROOT / f"{vendor}.json"
-        index = load_json(index_path)
+        # The four-nozzle TinMan vendor bundles ship only with the private TinManX1 distribution.
+        # Public Tinman has shipped the stock upstream profiles since e4db1b03d0, so its vendor
+        # indexes are missing (Tinman.json) or carry no machine contract. Skip those bundles; the
+        # hardware catalog and source contracts above are still checked. A bundle that declares a
+        # contract is a curated one and is checked in full.
+        index = load_json(index_path) if index_path.is_file() else {}
+        if "tinman_codex_machine_contract" not in index:
+            SKIPPED_VENDORS.append(vendor)
+            continue
+        checked_families += len(families)
         if index.get("tinman_codex_machine_contract") != CONTRACT_VERSION:
             errors.append(f"{vendor}.json does not declare machine contract {CONTRACT_VERSION}")
 
@@ -290,9 +304,9 @@ def validate_repo() -> list[str]:
                                     f"{expected_parent!r}, found {candidate.get('inherits')!r}"
                                 )
 
-    if len(names) != len(FAMILIES) * len(NOZZLES):
+    if len(names) != checked_families * len(NOZZLES):
         errors.append(
-            f"expected {len(FAMILIES) * len(NOZZLES)} canonical machine names, found {len(names)}"
+            f"expected {checked_families * len(NOZZLES)} canonical machine names, found {len(names)}"
         )
     return errors
 
@@ -363,6 +377,8 @@ def main() -> int:
         return 1
     scope = "repository and live catalog" if args.live else "repository catalog"
     print(f"TinMan Codex machine profile verification passed: {len(FAMILIES)} models, {len(NOZZLES)} nozzles, {scope}.")
+    if SKIPPED_VENDORS:
+        print("Vendor bundles not shipped here, so not checked: " + ", ".join(sorted(set(SKIPPED_VENDORS))))
     return 0
 
 

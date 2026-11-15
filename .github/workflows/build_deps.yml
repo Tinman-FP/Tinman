@@ -16,6 +16,10 @@ on:
       arch:
         required: false
         type: string
+      compiler:
+        required: false
+        type: string
+        default: msvc
       build-deps-only:
         required: false
         type: boolean
@@ -34,37 +38,21 @@ jobs:
 
       # Setup the environment
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           lfs: 'false'
 
       - name: load cached deps
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
-          path: ${{ inputs.cache-path }}
+          path: ${{ github.workspace }}/${{ inputs.cache-path }}
           key: ${{ inputs.cache-key }}
 
       - uses: lukka/get-cmake@latest
-        # Install the native ARM64 tool explicitly in the next step.
-        if: ${{ !(runner.os == 'Windows' && inputs.arch == 'arm64') }}
         with:
           cmakeVersion: "~4.3.0"  # use most recent 4.3.x version
           useLocalCache: true         # <--= Use the local cache (default is 'false').
           useCloudCache: true
-
-      - name: Install CMake 4.3.4 (Windows ARM64)
-        # VS 2026 requires CMake >= 4.2. Legacy dependency policies and the
-        # Boost.Context winfib workaround are already handled by deps/.
-        if: runner.os == 'Windows' && inputs.arch == 'arm64'
-        shell: pwsh
-        run: |
-          $ver = "4.3.4"
-          $url = "https://github.com/Kitware/CMake/releases/download/v$ver/cmake-$ver-windows-arm64.zip"
-          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\cmake.zip"
-          Expand-Archive -Path "$env:RUNNER_TEMP\cmake.zip" -DestinationPath "$env:RUNNER_TEMP\cmake" -Force
-          $cmakeBin = "$env:RUNNER_TEMP\cmake\cmake-$ver-windows-arm64\bin"
-          if (-not (Test-Path "$cmakeBin\cmake.exe")) { throw "cmake.exe not found at $cmakeBin" }
-          Add-Content -Path $env:GITHUB_PATH -Value $cmakeBin
 
       - name: setup dev on Windows
         if: runner.os == 'Windows'
@@ -129,22 +117,27 @@ jobs:
       - name: Build on Windows
         if: runner.os == 'Windows'
         working-directory: ${{ github.workspace }}
+        env:
+          # Tinman: the deps and the app build on different runners, which can carry different
+          # MSVC releases while GitHub rolls out a runner image. Objects built with a newer STL
+          # call vectorised helpers (e.g. __std_replace_2 in 14.52) that an older STL's import
+          # library lacks, so the app link fails. With the STL's documented switch off, the deps
+          # link with either release. cl and clang-cl prepend CL to every command line (_CL_
+          # would be appended after CMake's "--", where clang-cl reads it as a file name).
+          CL: /D_USE_STD_VECTOR_ALGORITHMS=0
+          # OpenVDB wraps its compiles in any ccache on PATH (Strawberry Perl ships one on the
+          # x64 image). With CL set, that ccache returned success without writing the objects.
+          # Nothing keeps a ccache store between deps runs, so it only runs the compiler here.
+          CCACHE_DISABLE: 1
         run: |
             if (-not "${{ vars.SELF_HOSTED }}") {
               choco install strawberryperl
             }
-            $arch = "${{ inputs.arch }}"
-            if ($arch -eq "arm64") {
-              .\build_release_vs.bat deps arm64
-              if ($LASTEXITCODE -ne 0) { throw "ARM64 dependency build failed: $LASTEXITCODE" }
-              .\build_release_vs.bat pack arm64
-              if ($LASTEXITCODE -ne 0) { throw "ARM64 dependency packaging failed: $LASTEXITCODE" }
-            } else {
-              .\build_release_vs.bat deps
-              if ($LASTEXITCODE -ne 0) { throw "Dependency build failed: $LASTEXITCODE" }
-              .\build_release_vs.bat pack
-              if ($LASTEXITCODE -ne 0) { throw "Dependency packaging failed: $LASTEXITCODE" }
-            }
+            # cache-path is the install directory inside the deps build directory.
+            $deps = (Split-Path "${{ github.workspace }}/${{ inputs.cache-path }}").Replace('\', '/')
+            # -l compiles with Visual Studio's clang-cl and -x builds with Ninja; --msvc --msbuild is cl under the Visual Studio generator.
+            $flags = if ("${{ inputs.compiler }}" -eq "clang") { "-l", "-x" } else { "--msvc", "--msbuild" }
+            .\build_win.bat -d --arch ${{ inputs.arch }} --deps-dir $deps @flags
         shell: pwsh
 
       - name: Build on Mac ${{ inputs.arch }}
@@ -152,9 +145,9 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
             if [ -z "${{ vars.SELF_HOSTED }}" ]; then
-              brew install automake texinfo libtool
+              brew install automake texinfo libtool pkgconf yasm nasm
             fi
-            ./build_release_macos.sh -dx ${{ !vars.SELF_HOSTED && '-1' || '' }} -a ${{ inputs.arch }} -t 10.15
+            ./build_release_macos.sh -dx ${{ !vars.SELF_HOSTED && '-j 3' || '' }} -a ${{ inputs.arch }} -t 10.15
             (cd "${{ github.workspace }}/deps/build/${{ inputs.arch }}" && \
             find . -mindepth 1 -maxdepth 1 ! -name 'OrcaSlicer_dep' -exec rm -rf {} +)
 
@@ -207,4 +200,5 @@ jobs:
       cache-path: ${{ inputs.cache-path }}
       os: ${{ inputs.os }}
       arch: ${{ inputs.arch }}
+      compiler: ${{ inputs.compiler }}
     secrets: inherit

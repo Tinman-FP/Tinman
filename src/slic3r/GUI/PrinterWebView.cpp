@@ -1,36 +1,55 @@
 #include "PrinterWebView.hpp"
 
+#include "PrinterWebViewHandler.hpp"
 #include "I18N.hpp"
+#include "GUI.hpp"
 #include "DeviceManager.hpp"
 #include "DeviceCore/DevManager.h"
 #include "MediaPlayCtrl.h"
-#include "PrinterWebViewHandler.hpp"
+
 #include "slic3r/GUI/PrinterWebView.hpp"
 #include "slic3r/GUI/Widgets/Button.hpp"
-#include "slic3r/GUI/wxExtensions.hpp"
-#include "slic3r/GUI/wxMediaCtrl2.h"
+#include "slic3r/GUI/wxMediaCtrl3.h"
 #include "slic3r/GUI/GUI_App.hpp"
 #include "slic3r/GUI/MainFrame.hpp"
-#include "libslic3r/Preset.hpp"
+#include <slic3r/GUI/Widgets/WebView.hpp>
+#include <slic3r/GUI/Widgets/WebViewHostDialog.hpp>
+
 #include "libslic3r_version.h"
+#include <libslic3r/PrintConfig.hpp>
+#include "libslic3r/Utils.hpp"
+#include "libslic3r/Config.hpp"
+#include "libslic3r/PresetBundle.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/asio.hpp>
+#include <boost/log/trivial.hpp>
 #include <boost/filesystem/path.hpp>
-#include <algorithm>
-#include <chrono>
-#include <mutex>
-#include <thread>
-#include <vector>
+
+#include <nlohmann/json.hpp>
+
+#include <wx/event.h>
+#include <wx/panel.h>
+#include <wx/gdicmn.h>
+#include <wx/log.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/string.h>
 #include <wx/textdlg.h>
 #include <wx/toolbar.h>
 #include <wx/uri.h>
-
-#include <slic3r/GUI/Widgets/WebView.hpp>
+#include <wx/utils.h>
 #include <wx/webview.h>
+
+#include <algorithm>
+#include <chrono>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <utility>
+#include <vector>
+
+class wxWindow;
 
 #ifdef __linux__
 #include <webkit2/webkit2.h>
@@ -267,6 +286,17 @@ static void inject_vue_resize_workaround(wxWebView *webView)
 }
 #endif
 
+// The strings of the page shown when the printer has no connection set up
+// (resources/web/orca/missing_connection.html), keyed by its data-i18n ids.
+static void add_page_strings(wxWebView *webView)
+{
+    const nlohmann::json strings = {
+        {"printer_connection", _u8L("Printer Connection")},
+        {"printer_connection_setup", _u8L("Please set up your printer connection to view the device.")},
+    };
+    webView->AddUserScript(wxString::FromUTF8(WebViewHostDialog::localized_strings_script(strings)));
+}
+
 PrinterWebView::PrinterWebView(wxWindow *parent)
         : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize)
     , m_browser(nullptr)
@@ -305,7 +335,7 @@ PrinterWebView::PrinterWebView(wxWindow *parent)
     camera_header_sizer->Add(m_prusa_camera_settings, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
     camera_header->SetSizer(camera_header_sizer);
 
-    m_prusa_camera_media = new wxMediaCtrl2(m_prusa_camera_panel);
+    m_prusa_camera_media = new wxMediaCtrl3(m_prusa_camera_panel);
     m_prusa_camera_media->SetMinSize(wxSize(-1, FromDIP(260)));
     m_prusa_camera_player = new MediaPlayCtrl(m_prusa_camera_panel, m_prusa_camera_media,
                                                wxDefaultPosition, wxSize(-1, FromDIP(40)));
@@ -323,34 +353,13 @@ PrinterWebView::PrinterWebView(wxWindow *parent)
     });
 
       // Create the webview
-    m_browser = WebView::CreateWebView(this, "");
-    if (m_browser == nullptr) {
-        wxLogError("Could not init m_browser");
-        return;
-    }
-
-#ifdef __linux__
-    inject_vue_resize_workaround(m_browser);
-
-    auto cookiesPath = boost::filesystem::path(data_dir() + "/cache/cookies.db");
-    auto wv = static_cast<WebKitWebView*>(m_browser->GetNativeBackend());
-    auto wv_ctx = webkit_web_view_get_context(wv);
-    auto cookieManager = webkit_web_context_get_cookie_manager(wv_ctx);
-    webkit_cookie_manager_set_persistent_storage(cookieManager, cookiesPath.c_str(), WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE);
-#endif
-
-    m_browser->Bind(wxEVT_WEBVIEW_ERROR, &PrinterWebView::OnError, this);
-    m_browser->Bind(wxEVT_WEBVIEW_NAVIGATING, &PrinterWebView::OnNavigating, this);
-    m_browser->Bind(wxEVT_WEBVIEW_LOADED, &PrinterWebView::OnLoaded, this);
-    m_browser->Bind(wxEVT_WEBVIEW_NEWWINDOW, &PrinterWebView::OnNewWindow, this);
-    m_browser->Bind(wxEVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, &PrinterWebView::OnScriptMessage, this);
+    create_browser();
+    m_reset_on_show = WebView::NeedsRecreateOnShow();
 
     SetSizer(topsizer);
 
     topsizer->Add(m_prusa_camera_panel, 0, wxEXPAND);
     topsizer->Add(m_browser, wxSizerFlags().Expand().Proportion(1));
-
-    update_mode();
 
     // Log backend information
     /* m_browser->GetUserAgent() may lead crash
@@ -372,6 +381,10 @@ PrinterWebView::~PrinterWebView()
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << " Start";
     SetEvtHandlerEnabled(false);
     m_prusa_camera_token.reset();
+    // Tinman: like StatusBasePanel, delete the player before its wxMediaCtrl3 sibling; child
+    // destruction would destroy the media control first and the player's destructor uses it.
+    delete m_prusa_camera_player;
+    m_prusa_camera_player = nullptr;
     m_handler.reset();
 
     // Destroy the webview
@@ -384,19 +397,67 @@ PrinterWebView::~PrinterWebView()
     BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << " End";
 }
 
+void PrinterWebView::create_browser()
+{
+    m_browser = WebView::CreateWebView(this, "");
+    add_page_strings(m_browser);
+
+#ifdef __linux__
+    inject_vue_resize_workaround(m_browser);
+
+    auto cookiesPath = boost::filesystem::path(data_dir() + "/cache/cookies.db");
+    auto wv = static_cast<WebKitWebView*>(m_browser->GetNativeBackend());
+    auto wv_ctx = webkit_web_view_get_context(wv);
+    auto cookieManager = webkit_web_context_get_cookie_manager(wv_ctx);
+    webkit_cookie_manager_set_persistent_storage(cookieManager, cookiesPath.c_str(), WEBKIT_COOKIE_PERSISTENT_STORAGE_SQLITE);
+#endif
+
+    m_browser->Bind(wxEVT_WEBVIEW_ERROR, &PrinterWebView::OnError, this);
+    m_browser->Bind(wxEVT_WEBVIEW_NAVIGATING, &PrinterWebView::OnNavigating, this);
+    m_browser->Bind(wxEVT_WEBVIEW_LOADED, &PrinterWebView::OnLoaded, this);
+    m_browser->Bind(wxEVT_WEBVIEW_NEWWINDOW, &PrinterWebView::OnNewWindow, this);
+    m_browser->Bind(wxEVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, &PrinterWebView::OnScriptMessage, this);
+    update_mode();
+}
+
+void PrinterWebView::reset_browser()
+{
+    m_browser->Destroy(); // also removes it from the sizer
+    create_browser();
+    GetSizer()->Add(m_browser, wxSizerFlags().Expand().Proportion(1));
+    Layout();
+
+    // OnLoaded may have cleared m_url_deferred already, so requeue the last url for Show().
+    m_apikey_sent  = false;
+    m_url_loaded   = false;
+    m_url_deferred = m_url;
+    // Tinman: SendAPIKey() no longer reloads, so install the scripts on the new view before
+    // Show() navigates it.
+    SendAPIKey();
+}
+
+// Same lookup as create_printer_webview_handler().
+static PrintHostType active_host_type()
+{
+    if (wxGetApp().preset_bundle == nullptr)
+        return htOctoPrint;
+    return wxGetApp().preset_bundle->printers.get_edited_preset().config.option<ConfigOptionEnum<PrintHostType>>("host_type")->value;
+}
+
 void PrinterWebView::load_url(wxString& url, wxString apikey)
 {
 //    this->Show();
 //    this->Raise();
-    if (m_browser == nullptr)
-        return;
+    const PrintHostType host_type = active_host_type();
 
     // Separate machine and status event paths may express the same address
     // with a scheme, trailing slash, or API key. Reloading for those duplicate
     // requests creates overlapping WebKit/Moonraker WebSockets and makes the
-    // Device tab appear to reconnect continuously.
+    // Device tab appear to reconnect continuously. Selecting the tab requests
+    // the same page again too. A host type change selects another handler, so
+    // it still reloads.
     const std::string endpoint = normalized_printer_endpoint(into_u8(url));
-    if (!endpoint.empty() && endpoint == m_requested_endpoint) {
+    if (!endpoint.empty() && endpoint == m_requested_endpoint && host_type == m_host_type) {
         // An empty credential on a duplicate event must not erase one already
         // installed. If a real credential arrives later, install it once and
         // perform the single reload required for WebView user scripts.
@@ -417,8 +478,11 @@ void PrinterWebView::load_url(wxString& url, wxString apikey)
                             << " (credential present=" << !apikey.IsEmpty() << ")";
 
     m_requested_endpoint = endpoint;
+    m_url = url;
     m_apikey = apikey;
+    m_host_type = host_type;
     m_apikey_sent = false;
+    m_url_loaded = false;
     m_handler = create_printer_webview_handler(*this);
     m_url_deferred = url;
     update_prusa_camera(url);
@@ -527,6 +591,8 @@ bool PrinterWebView::Show(bool show)
     BOOST_LOG_TRIVIAL(info) << "PrinterWebView::Show(" << show << ")"
                             << " deferred=" << !m_url_deferred.empty()
                             << " previously_shown=" << IsShown();
+    if (show && std::exchange(m_reset_on_show, false))
+        reset_browser();
     if (show && !m_url_deferred.empty()) {
         wxString url = m_url_deferred;
         m_url_deferred.clear();
@@ -585,15 +651,17 @@ void PrinterWebView::SendAPIKey()
     // RemoveAllUserScripts causes WebView to forget about our script message handler, 
     // so re-add it here.
     m_browser->RemoveScriptMessageHandler("wx");
-    if (m_browser->AddScriptMessageHandler("wx"))
-        WebView::MarkScriptMessageHandlerAdded(m_browser);
-    else
+    // Mark before adding: on WKWebView the add yields in RunScript() after registering "wx",
+    // and CreateWebView()'s deferred add, if it runs in that yield, would register it again.
+    WebView::MarkScriptMessageHandlerAdded(m_browser);
+    if (!m_browser->AddScriptMessageHandler("wx"))
         wxLogError("Could not add script message handler");
 
 #ifdef __linux__
     // Re-inject the vue-resize/WebKitGTK workaround that RemoveAllUserScripts just cleared.
     inject_vue_resize_workaround(m_browser);
 #endif
+    add_page_strings(m_browser);
 
     if (!script.IsEmpty())
         m_browser->AddUserScript(script);
@@ -645,11 +713,13 @@ void PrinterWebView::OnNavigating(wxWebViewEvent& evt)
 
 void PrinterWebView::OnLoaded(wxWebViewEvent& evt)
 {
-    if (evt.GetURL().IsEmpty())
+    // The web view's initial empty document (about:blank on WebKit) is not the requested page.
+    if (evt.GetURL().IsEmpty() || evt.GetURL() == "about:blank")
         return;
     BOOST_LOG_TRIVIAL(info) << "PrinterWebView::OnLoaded " << into_u8(evt.GetURL());
     //ORCA: url loaded successfully, safe to clear
     m_url_deferred.clear();
+    m_url_loaded = true;
     SendAPIKey();
   
     if (m_handler != nullptr) {

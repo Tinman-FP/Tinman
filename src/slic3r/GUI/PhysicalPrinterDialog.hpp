@@ -1,9 +1,12 @@
 #ifndef slic3r_PhysicalPrinterDialog_hpp_
 #define slic3r_PhysicalPrinterDialog_hpp_
 
+#include "libslic3r/PrintConfig.hpp"
+#include <string>
 #include <vector>
 #include <memory>
 
+#include <wx/event.h>
 #include <wx/gdicmn.h>
 
 #include "libslic3r/Preset.hpp"
@@ -34,18 +37,25 @@ class PhysicalPrinterDialog : public DPIDialog
 
     Button*     m_printhost_browse_btn              {nullptr};
     Button*     m_printhost_test_btn                {nullptr};
+    Button*     m_printhost_generate_creds_btn      {nullptr};
     Button*     m_printhost_logout_btn              {nullptr};
     Button*     m_printhost_cafile_browse_btn       {nullptr};
-    Button*     m_printhost_client_cert_browse_btn  {nullptr};
     Button*     m_printhost_port_browse_btn         {nullptr};
 
     RoundedRectangle*   m_input_area                        {nullptr};
     wxStaticText*       m_valid_label                       {nullptr};
     wxTextCtrl*         m_input_ctrl                        {nullptr};
     Button*             btnOK                               {nullptr};
+    Button*             m_add_unit_btn                      {nullptr};
+    Button*             m_move_profiles_btn                 {nullptr};
+    Button*             m_import_profiles_btn               {nullptr};
 
     void build_printhost_settings(ConfigOptionsGroup* optgroup);
     void OnOK(wxEvent& event);
+    // Create a separate physical printer of this model with its own machine profile.
+    void add_physical_unit();
+    // Copy existing profiles (from the library, or from a folder of files) onto this physical printer.
+    void move_profiles(bool from_folder);
 
 public:
     PhysicalPrinterDialog(wxWindow* parent);
@@ -63,7 +73,6 @@ public:
 
     void        update(bool printer_change = false);
     void        update_host_type(bool printer_change);
-    void        update_printer_agent_type();
     void        update_preset_input();
     void        update_printhost_buttons();
     void        update_printers();

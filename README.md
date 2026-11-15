@@ -1,7 +1,7 @@
 # Tinman
 
 Tinman is a profile-neutral desktop slicer derived from TinManX1 and OrcaSlicer
-2.4.2. It is intended for people who want Tinman's application improvements
+2.5.1. It is intended for people who want Tinman's application improvements
 without William Tinney's lab printer, filament, or process profiles.
 
 ## Tinman vs. TinManX1

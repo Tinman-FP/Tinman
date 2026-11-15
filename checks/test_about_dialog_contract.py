@@ -21,7 +21,7 @@ class AboutDialogContract(unittest.TestCase):
         self.assertContains('"Tinman"', ABOUT)
         self.assertContains("wxStaticText", ABOUT)
         self.assertContains("wxString::FromUTF8(TINMAN_DISPLAY_VERSION)", ABOUT)
-        self.assertContains("GIT_COMMIT_HASH", ABOUT)
+        self.assertContains("build_commit_label", ABOUT)
         self.assertFalse('"TinManX1_about' in ABOUT, "About identity must not rely on SVG text")
 
     def test_project_link_and_credit_entry_point(self):
