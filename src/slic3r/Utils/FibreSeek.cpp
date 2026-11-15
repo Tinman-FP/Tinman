@@ -1,18 +1,27 @@
 #include "FibreSeek.hpp"
 
 #include <chrono>
+#include <cstddef>
+#include <exception>
+#include <functional>
+#include <string>
 #include <thread>
+#include <utility>
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/date_time/posix_time/posix_time_types.hpp>
+#include <boost/date_time/posix_time/time_formatters.hpp>
 #include <boost/format.hpp>
 #include <boost/log/trivial.hpp>
 #include <nlohmann/json.hpp>
+#include <wx/string.h>
 
 #include "slic3r/GUI/I18N.hpp"
 #include "slic3r/GUI/format.hpp"
 #include "FibreSeekSendChecks.hpp"
 #include "Http.hpp"
+#include "PrintHost.hpp"
 
 namespace Slic3r {
 
