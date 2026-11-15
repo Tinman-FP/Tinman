@@ -1726,9 +1726,12 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
         // plastic infill under the fibre (PrintObject::plan_fibreseek_routes). Most fibre settings
         // live outside PrintConfig and so never reach invalidate_state_by_config_options(); redo the
         // infill when one of them changes in that mode, so the routes and the trimmed infill match.
+        // Either side counts, so turning the fibre or the mode off redoes the infill too.
         auto composite_only = [](const DynamicPrintConfig &config) {
-            const ConfigOption *mode = config.option("fiber_manufacturing_mode");
-            return mode != nullptr && mode->getInt() == int(FiberManufacturingMode::CompositeOnly);
+            const ConfigOption *mode    = config.option("fiber_manufacturing_mode");
+            const ConfigOption *enabled = config.option("fiber_enabled");
+            return mode != nullptr && mode->getInt() == int(FiberManufacturingMode::CompositeOnly) &&
+                   enabled != nullptr && enabled->getBool();
         };
         if ((composite_only(m_full_print_config) || composite_only(new_full_config)) &&
             std::any_of(full_config_diff.begin(), full_config_diff.end(),

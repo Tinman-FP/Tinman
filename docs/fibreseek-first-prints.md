@@ -219,10 +219,10 @@ The planner swap (PR #25) changes what the printer receives. Old → new:
 **Fibre-owned composite roads** (composite-only, the C++ writer):
 
 - **Routes:** the new planner lays wall loops and spirals plus linked ribs. Route count, lengths and positions differ (coupon table in PR #25).
-- **Plastic under the fibre:** plastic infill is no longer printed under the fibre bead. Before, they overlapped.
+- **Plastic under the fibre:** plastic infill is no longer printed under the fibre bead. Before, they overlapped. A route the writer skips (one that would leave the part, logged as `TINMANX1_SKIPPED_UNSAFE_FIBER_ROUTE`) keeps its plastic.
 - **`;CUT DISTANCE` line:** 54.8 → 58. The cut position (L − 58) and `M1001 L` are unchanged.
 - **Prime at each route start:** V0 → Fiber start length × P (15 mm × P, V0.589 for the test strand).
-- **Slow start:** none → the first Fiber slow length (10 mm) of each route at Fiber start speed (5 mm/s). Before, the whole route ran at print speed (30 mm/s).
+- **Slow start:** none → the first Fiber slow length (10 mm) of each route at Fiber start speed (5 mm/s), split mid-move where needed so it is exactly that length. Before, the whole route ran at print speed (30 mm/s).
 - **After the cut:** the tail runs at Fiber finish max speed, 3 → 15 mm/s. Its matrix V is multiplied by the after-cut multiplier, 1.0 → 0.72.
 - **Finish ironing:** skipped on every route → 8 mm of V-only ironing at 10 mm/s (the mean of finish max and min speed). It runs back along the route's end, or over a loop's start.
 - **Restart `U`:** unchanged (55, from the profile). A restart length of 0 now stops the slice; before, 60 was used.

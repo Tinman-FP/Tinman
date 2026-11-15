@@ -1,5 +1,9 @@
 #include "WriterAdapter.hpp"
 
+#include "../ClipperUtils.hpp"
+#include "../ExPolygon.hpp"
+#include "../Polyline.hpp"
+
 #include <algorithm>
 #include <cmath>
 
@@ -90,6 +94,19 @@ WriterLayerRoutes to_writer_routes(const LayerPlan &plan, size_t region_id, doub
         out.routes.push_back(std::move(wr));
     }
     return out;
+}
+
+ExPolygons laid_fibre_footprint(const WriterLayerRoutes &routes, double fibre_width_mm)
+{
+    Polylines laid;
+    for (const WriterRoute &route : routes.routes)
+        if (route.is_release_safe())
+            for (const WriterRouteSegment &seg : route.planned_segments)
+                laid.push_back(seg.polyline);
+    if (laid.empty())
+        return {};
+    // Round ends and joins at 0.01 mm, as the planner offsets LayerPlan::fibre_footprint.
+    return union_ex(offset(laid, float(scale_(0.5 * fibre_width_mm)), jtRound, scale_(0.01), etOpenRound));
 }
 
 const char *to_string(WriterRouteShape shape)

@@ -4,11 +4,16 @@
 // writes the routes. The strand values here are throwaway test data. Nothing here talks to a printer.
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <cmath>
 #include <cstddef>
+#include <regex>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/ExPolygon.hpp"
@@ -210,4 +215,53 @@ TEST_CASE("An old CUT DISTANCE line in the cut G-code is dropped with a warning"
     for (const auto &warning : print.step_state_with_warnings(psGCodeExport).warnings)
         warnings += warning.message + "\n";
     CHECK_THAT(warnings, ContainsSubstring("CUT DISTANCE 54.8") && ContainsSubstring("Fiber cut distance (58 mm)"));
+}
+
+TEST_CASE("Each fibre route runs at the start speed for exactly Fiber slow length", "[Fibreseek][FibreseekSlicing]")
+{
+    // 3 mm is shorter than the planner's 7 mm anchor, so the slow zone ends inside the Start phase.
+    DynamicPrintConfig config = composite_only_config();
+    config.set_deserialize_strict({ { "fiber_slow_length", "3" }, { "fiber_start_speed", "5" } });
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    const std::string gcode = Test::gcode(print);
+
+    // Fibre-feeding moves while the feed rate is 5 mm/s (F300; F is modal). U is the move's fibre.
+    static const std::regex fibre_move(R"(^G1 X\S+ Y\S+ V\S+ U(\S+) P\S+)");
+    static const std::regex feed_word(R"( F(\d+))");
+    std::vector<double> slow_fibre_mm;
+    double              feed = 0.;
+    std::istringstream  stream(gcode);
+    for (std::string line; std::getline(stream, line);) {
+        if (line.rfind("; ORCA_CODEX_FIBER_ROUTE_START", 0) == 0)
+            slow_fibre_mm.push_back(0.);
+        if (line.rfind("G1 ", 0) != 0)
+            continue;
+        const std::string move = line.substr(0, line.find(';'));
+        std::smatch       match;
+        if (std::regex_search(move, match, feed_word))
+            feed = std::stod(match[1].str());
+        if (!slow_fibre_mm.empty() && feed == 300. && std::regex_search(move, match, fibre_move))
+            slow_fibre_mm.back() += std::stod(match[1].str());
+    }
+    REQUIRE(!slow_fibre_mm.empty());
+    for (const double mm : slow_fibre_mm)
+        CHECK(std::abs(mm - 3.) < 0.01);
+}
+
+TEST_CASE("A fibre setting change redoes the infill only while composite-only fibre is on", "[Fibreseek][FibreseekSlicing]")
+{
+    const bool fibre_on = GENERATE(false, true);
+    DynamicPrintConfig config = composite_only_config();
+    config.set_deserialize_strict({ { "fiber_enabled", fibre_on ? "1" : "0" }, { "gcode_comments", "1" } }); // init_print sets gcode_comments
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    print.process();
+    REQUIRE(print.objects().front()->is_step_done(posInfill));
+
+    config.set_deserialize_strict("fiber_restart_length", "60");
+    print.apply(model, config);
+    CHECK(print.objects().front()->is_step_done(posInfill) == !fibre_on);
 }

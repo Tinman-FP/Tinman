@@ -4,6 +4,7 @@
 #include <catch2/catch_all.hpp>
 
 #include "libslic3r/ClipperUtils.hpp"
+#include "libslic3r/ExPolygon.hpp"
 #include "libslic3r/Fibreseek/RouteGeometry.hpp"
 #include "libslic3r/Fibreseek/RoutePlanner.hpp"
 #include "libslic3r/Fibreseek/WriterAdapter.hpp"
@@ -502,4 +503,40 @@ TEST_CASE("Writer adapter output fits the writer's route contract", "[Fibreseek]
             CHECK((end - wr.routes[i].tail_segments.front().points.front()).cast<double>().norm() * SCALING_FACTOR < 0.05);
         }
     }
+}
+
+TEST_CASE("Plastic is trimmed only under the routes the writer lays", "[Fibreseek][Writer]")
+{
+    // Three straight routes. The writer skips one that leaves the part and one shorter than the
+    // hardware minimum, so the trim footprint must leave their plastic alone.
+    const auto line_route = [](double y, double length_mm) {
+        WriterRouteSegment seg;
+        seg.polyline.points = { pt(0., y), pt(length_mm, y) };
+        seg.length_mm       = length_mm;
+        WriterRoute route;
+        route.planned_segments.push_back(seg);
+        route.length_mm              = length_mm;
+        route.hardware_min_length_mm = 68.;
+        return route;
+    };
+    WriterLayerRoutes routes;
+    routes.routes.push_back(line_route(0., 100.));
+    routes.routes.push_back(line_route(10., 100.));
+    routes.routes.back().unsupported_void_crossing_count = 1;
+    routes.routes.push_back(line_route(20., 50.));
+    REQUIRE(routes.routes[0].is_release_safe());
+
+    const ExPolygons footprint = laid_fibre_footprint(routes, 0.8);
+    const auto covered = [&footprint](double x, double y) {
+        for (const ExPolygon &e : footprint)
+            if (e.contains(pt(x, y)))
+                return true;
+        return false;
+    };
+    CHECK(covered(50., 0.));
+    CHECK(covered(50., 0.35));      // inside the 0.8 mm bead
+    CHECK_FALSE(covered(50., 0.45)); // outside it
+    CHECK_FALSE(covered(50., 10.));  // leaves the part: skipped
+    CHECK_FALSE(covered(25., 20.));  // too short: skipped
+    CHECK(laid_fibre_footprint(WriterLayerRoutes{}, 0.8).empty());
 }

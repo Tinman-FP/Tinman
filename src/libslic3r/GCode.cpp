@@ -9771,9 +9771,9 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
                 return;
 
             for (std::size_t point_index = 1; point_index < polyline.points.size(); ++point_index) {
-                const Point start = polyline.points[point_index - 1];
+                Point start = polyline.points[point_index - 1];
                 const Point end = polyline.points[point_index];
-                const double segment_length_mm = start.distance_to(end) * SCALING_FACTOR;
+                double segment_length_mm = start.distance_to(end) * SCALING_FACTOR;
                 if (segment_length_mm <= EPSILON)
                     continue;
 
@@ -9793,10 +9793,23 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
                     continue;
                 }
 
+                // The slow start covers the first Fiber slow length of fibre and no more: a move that
+                // runs past it is split there when the cut comes later. The planner's Start phase can
+                // be longer (it also spans the anchor), so the speed follows the distance, not the phase.
+                const auto in_slow_zone = [&walked_fiber_mm, slow_length_mm]() { return walked_fiber_mm + EPSILON < slow_length_mm; };
+                if (!cut_emitted && slow_length_mm < cut_at_mm && in_slow_zone() && slow_length_mm < walked_fiber_mm + segment_length_mm - EPSILON) {
+                    const double slow_part_mm = slow_length_mm - walked_fiber_mm;
+                    const Point slow_point = point_at_fraction(start, end, slow_part_mm / segment_length_mm);
+                    emit_fiber_move(gcode, slow_point, layer_z, slow_part_mm, slow_feedrate, true);
+                    walked_fiber_mm = slow_length_mm;
+                    start = slow_point;
+                    segment_length_mm -= slow_part_mm;
+                }
+
                 if (!cut_emitted && cut_at_mm > walked_fiber_mm + EPSILON && cut_at_mm < walked_fiber_mm + segment_length_mm - EPSILON) {
                     const double first_length_mm = cut_at_mm - walked_fiber_mm;
                     const Point cut_point = point_at_fraction(start, end, first_length_mm / segment_length_mm);
-                    emit_fiber_move(gcode, cut_point, layer_z, first_length_mm, walked_fiber_mm < slow_length_mm ? slow_feedrate : print_feedrate, true);
+                    emit_fiber_move(gcode, cut_point, layer_z, first_length_mm, in_slow_zone() ? slow_feedrate : print_feedrate, true);
                     walked_fiber_mm += first_length_mm;
                     emit_fiber_cut(gcode);
                     cut_emitted = true;
@@ -9821,7 +9834,7 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
                     end,
                     layer_z,
                     segment_length_mm,
-                    cut_emitted ? cut_tail_feedrate : (walked_fiber_mm < slow_length_mm ? slow_feedrate : print_feedrate),
+                    cut_emitted ? cut_tail_feedrate : (in_slow_zone() ? slow_feedrate : print_feedrate),
                     !cut_emitted);
                 walked_fiber_mm += segment_length_mm;
             }

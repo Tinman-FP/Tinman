@@ -1014,8 +1014,9 @@ void PrintObject::plan_fibreseek_routes()
                 const Fibreseek::LayerPlan plan = Fibreseek::RoutePlanner(settings).plan_layer(input);
                 if (plan.routes.empty())
                     continue;
-                tinman_trim_fills_under_fibre(*layerm, plan.fibre_footprint);
                 layerm->fibreseek_routes = Fibreseek::to_writer_routes(plan, region_id, settings.hardware_min_length_mm);
+                // Only under the routes the writer will lay: a skipped route keeps its plastic.
+                tinman_trim_fills_under_fibre(*layerm, Fibreseek::laid_fibre_footprint(layerm->fibreseek_routes, settings.fibre_width_mm));
             }
         }
     });
