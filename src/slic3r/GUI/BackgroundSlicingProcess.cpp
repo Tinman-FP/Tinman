@@ -796,7 +796,7 @@ Print::ApplyStatus BackgroundSlicingProcess::apply(const Model& model, const Dyn
     new_config.apply(*m_current_plate->config());
     // A plate set up for another printer may still ask for automatic mapping;
     // the FibreSeek role map applies after the plate settings.
-    if (const PresetBundle *bundle = wxGetApp().preset_bundle)
+    if (const PresetBundle *bundle = GUI::wxGetApp().preset_bundle)
         apply_fibreseek_material_tool_map(*bundle, new_config);
     Print::ApplyStatus invalidated = m_print->apply(model, new_config);
 
