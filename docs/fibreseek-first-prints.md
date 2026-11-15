@@ -21,6 +21,8 @@ own. Check that it has:
 - Two nozzles. Nozzle 1 is the 0.4 mm polymer nozzle (T1 on the printer) and
   takes material 1. Nozzle 2 is the 0.7 mm matrix and fibre nozzle (T0) and
   takes material 2.
+- Single Extruder Multi Material turned off, since each material has its own
+  nozzle. With it on, a new project starts with only one material.
 - Plastic nozzle diameter 0.4 and composite nozzle diameter 0.7.
 - Fiber enabled turned on, with your fibre cut G-code and cut distance.
 - Material 1: an ordinary PCTG profile. Material 2: a composite profile whose
