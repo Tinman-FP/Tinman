@@ -21,8 +21,10 @@ part of the public release tree.
 - Closed fiber loops preserve source starts by default, or may use fiber-only
   seam placement (`source`, `nearest`, `aligned`, `rear`, `random`) without
   changing plastic seam behavior.
-- Cut/restart routing uses a 55 mm mechanical minimum route length, 58 mm
-  configured cut distance, and 54.8 mm emitted cut command distance.
+- Cut/restart routing uses a 55 mm mechanical minimum route length and the
+  printer profile's cut distance (58 mm on the Seeker 3 profiles). The
+  emitted `;CUT DISTANCE` marker carries that same value; it used to print
+  the cut distance minus 3.2 mm (54.8), a value with no recorded source.
 - Bend radius is treated as a user-selected quality target. Routes below that
   target are advisory warnings, not automatic hard failures.
 - TinManX1 must emit managed FibreSeek tool commands instead of bare `T0` or

@@ -37,7 +37,7 @@
 #include "LifecycleEvents.hpp"
 #include "ExtrusionEntity.hpp"
 #include "EdgeGrid.hpp"
-#include "FiberseekCompositePlanner.hpp"
+#include "Fibreseek/WriterAdapter.hpp"
 #include "FibreSeekMaterials.hpp"
 #include "BeltTransform.hpp"
 #include "Geometry.hpp"
@@ -274,41 +274,6 @@ static bool tinman_native_composite_only_export_requested(const DynamicPrintConf
             tinman_dynamic_bool_option_for_gcode(config, "fiber_generate_perimeters"));
 }
 
-static const char *tinman_composite_route_shape_name(FiberseekComposite::CompositeRouteShape shape)
-{
-    using FiberseekComposite::CompositeRouteShape;
-    switch (shape) {
-    case CompositeRouteShape::NoXYMotion:     return "no_xy_motion";
-    case CompositeRouteShape::OpenPath:       return "open_path";
-    case CompositeRouteShape::ShortOpenPath:  return "short_open_path";
-    case CompositeRouteShape::NearClosedLoop: return "near_closed_loop";
-    case CompositeRouteShape::ClosedLoop:     return "closed_loop";
-    case CompositeRouteShape::LineOrTail:     return "line_or_tail";
-    case CompositeRouteShape::Unknown:
-    default:                                  return "unknown";
-    }
-}
-
-static const char *tinman_composite_route_phase_name(FiberseekComposite::CompositeRoutePhase phase)
-{
-    using FiberseekComposite::CompositeRoutePhase;
-    switch (phase) {
-    case CompositeRoutePhase::Start:          return "start";
-    case CompositeRoutePhase::Normal:         return "normal";
-    case CompositeRoutePhase::SlowTurn:       return "slow_turn";
-    case CompositeRoutePhase::TensionLead:    return "tension_lead";
-    case CompositeRoutePhase::TensionRelease: return "tension_release";
-    case CompositeRoutePhase::PostCutTail:    return "post_cut_tail";
-    case CompositeRoutePhase::Unknown:
-    default:                                  return "unknown";
-    }
-}
-
-static double tinman_polyline_length_mm(const Polyline &polyline)
-{
-    return polyline.length() * SCALING_FACTOR;
-}
-
 static void tinman_append_raw_multiline_gcode(std::string &gcode, const std::string &raw)
 {
     std::stringstream stream(raw);
@@ -321,6 +286,35 @@ static void tinman_append_raw_multiline_gcode(std::string &gcode, const std::str
         gcode += line;
         gcode += '\n';
     }
+}
+
+// The cutter commands written for every route: Fiber cut G-code (M2800, M400 when empty), then the
+// ;CUT DISTANCE marker. The marker always carries Fiber cut distance, the same value that places the
+// cut and sizes M1001 L, and the one the Python planner and the contract audit read back. Older
+// generated profiles put their own ";CUT DISTANCE 54.8" line into the cut G-code; such a line is
+// dropped, so there is only ever one marker. When it named a different distance, that number is
+// returned in `ignored_distance` so the caller can warn (see GCode::_do_export).
+static std::string tinman_fiber_cut_gcode(const std::string &custom_gcode, double cut_distance_mm, std::string *ignored_distance = nullptr)
+{
+    static const std::regex marker(R"(^\s*;\s*CUT\s+DISTANCE\s+([-+]?(?:\d+(?:\.\d*)?|\.\d+))\s*$)", std::regex::icase);
+    std::string lines;
+    tinman_append_raw_multiline_gcode(lines, custom_gcode);
+    std::string out;
+    std::istringstream stream(lines);
+    for (std::string line; std::getline(stream, line);) {
+        std::smatch match;
+        if (std::regex_match(line, match, marker)) {
+            if (ignored_distance != nullptr && ignored_distance->empty() && std::abs(std::stod(match[1].str()) - cut_distance_mm) > 1e-3)
+                *ignored_distance = match[1].str();
+            continue;
+        }
+        out += line;
+        out += '\n';
+    }
+    if (out.empty())
+        out = "M2800\nM400\n";
+    out += Slic3r::format(";CUT DISTANCE %.3f\n", cut_distance_mm);
+    return out;
 }
 
 static std::string tinman_axis_value(char axis, double value, unsigned precision = 3)
@@ -378,32 +372,24 @@ struct TinmanNativeFiberGCodeSummary {
     double matrix_path_mm { 0.0 };
 };
 
-static double tinman_route_positive_fiber_length_mm(const FiberseekComposite::CompositeRoute &route)
+// Every route the writer emits is release safe, which means it has planned segments
+// (Fibreseek::WriterRoute::is_release_safe), so these sums are over those segments only.
+static double tinman_route_positive_fiber_length_mm(const Fibreseek::WriterRoute &route)
 {
-    if (!route.planned_segments.empty()) {
-        double length_mm = 0.0;
-        for (const FiberseekComposite::CompositeRouteSegment &segment : route.planned_segments)
-            if (segment.emits_fiber && segment.fiber_mm_per_mm > 0.0)
-                length_mm += segment.length_mm;
-        return length_mm;
-    }
-    if (route.fiber_positive_length_mm > EPSILON)
-        return route.fiber_positive_length_mm;
-    return route.length_mm;
+    double length_mm = 0.0;
+    for (const Fibreseek::WriterRouteSegment &segment : route.planned_segments)
+        if (segment.emits_fiber && segment.fiber_mm_per_mm > 0.0)
+            length_mm += segment.length_mm;
+    return length_mm;
 }
 
-static double tinman_route_positive_matrix_path_mm(const FiberseekComposite::CompositeRoute &route)
+static double tinman_route_positive_matrix_path_mm(const Fibreseek::WriterRoute &route)
 {
-    if (!route.planned_segments.empty()) {
-        double length_mm = 0.0;
-        for (const FiberseekComposite::CompositeRouteSegment &segment : route.planned_segments)
-            if (segment.emits_plastic && segment.plastic_mm_per_mm > 0.0)
-                length_mm += segment.length_mm;
-        return length_mm;
-    }
-    if (route.matrix_positive_length_mm > EPSILON)
-        return route.matrix_positive_length_mm;
-    return route.length_mm + route.tail_length_mm;
+    double length_mm = 0.0;
+    for (const Fibreseek::WriterRouteSegment &segment : route.planned_segments)
+        if (segment.emits_plastic && segment.plastic_mm_per_mm > 0.0)
+            length_mm += segment.length_mm;
+    return length_mm;
 }
 
 static TinmanNativeFiberGCodeSummary tinman_native_fiber_gcode_summary(const Print &print)
@@ -420,8 +406,9 @@ static TinmanNativeFiberGCodeSummary tinman_native_fiber_gcode_summary(const Pri
             for (const LayerRegion *region : layer->regions()) {
                 if (region == nullptr)
                     continue;
-                for (const FiberseekComposite::CompositeRoute &route : region->fiberseek_composite_diagnostic.routes) {
-                    const double fiber_length_mm = tinman_route_positive_fiber_length_mm(route);
+                for (const Fibreseek::WriterRoute &route : region->fibreseek_routes.routes) {
+                    // Count what the writer emits: it skips routes that aren't release safe.
+                    const double fiber_length_mm = route.is_release_safe() ? tinman_route_positive_fiber_length_mm(route) : 0.0;
                     if (fiber_length_mm <= EPSILON)
                         continue;
                     ++summary.route_count;
@@ -3879,14 +3866,21 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     this->apply_print_config(print.config());
     m_config.apply(print.default_object_config());
     m_config.apply(print.default_region_config());
-
+    // The composite fibre writer reads its process settings (FiberReinforcementConfig: lengths,
+    // speeds, line width) from m_config. They are not part of PrintConfig, so the calls above
+    // leave them at their defaults; take them from the full config so the profile's values apply.
+    m_config.apply_only(print.full_print_config(), FiberReinforcementConfig().keys(), true);
     const bool tinman_native_composite_export = tinman_native_composite_only_export_requested(print.full_print_config());
-    if (tinman_native_composite_export) {
-        BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek native composite export: ensuring route diagnostics before G-code export.";
-        for (PrintObject *object : print.objects()) {
-            if (object != nullptr)
-                object->ensure_fiberseek_composite_diagnostics_for_export();
-        }
+    if (tinman_dynamic_bool_option_for_gcode(print.full_print_config(), "fiber_enabled")) {
+        // Both fibre writers drop a CUT DISTANCE line of the cut G-code's own and print Fiber cut
+        // distance instead (tinman_fiber_cut_gcode here, cut_gcode_from_value() in Python). Say so once
+        // when that line named another value, so the profile can be tidied up.
+        std::string ignored_distance;
+        tinman_fiber_cut_gcode(m_config.fiber_cut_gcode.value, m_config.fiber_cut_distance.value, &ignored_distance);
+        if (!ignored_distance.empty())
+            print.active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
+                Slic3r::format(_(L("Fiber cut G-code has ;CUT DISTANCE %1%. Tinman uses Fiber cut distance (%2% mm) and ignores that line.")),
+                               ignored_distance, Slic3r::float_to_string_decimal_point(m_config.fiber_cut_distance.value)));
     }
 
     //m_volumetric_speed = DoExport::autospeed_volumetric_limit(print);
@@ -8605,7 +8599,7 @@ LayerResult GCode::process_layer(
                     return;
                 bool has_native_fiber_routes = false;
                 for (const LayerRegion *region : layer_to_print.object_layer->regions()) {
-                    if (region != nullptr && region->has_fiberseek_composite_routes()) {
+                    if (region != nullptr && region->has_fibreseek_routes()) {
                         has_native_fiber_routes = true;
                         break;
                     }
@@ -9521,17 +9515,18 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
     if (m_print == nullptr || !tinman_native_composite_only_export_requested(m_print->full_print_config()))
         return gcode;
 
-    std::vector<const FiberseekComposite::CompositeRoute *> routes;
+    // Routes come from PrintObject::plan_fibreseek_routes(), one Fibreseek::WriterLayerRoutes
+    // per region of this layer.
+    std::vector<const Fibreseek::WriterRoute *> routes;
     std::vector<std::size_t> route_region_ids;
     for (const LayerRegion *layerm : layer_to_print.object_layer->regions()) {
         if (layerm == nullptr)
             continue;
-        const FiberseekComposite::CompositeLayerDiagnostic &diagnostic = layerm->fiberseek_composite_diagnostic;
-        for (const FiberseekComposite::CompositeRoute &route : diagnostic.routes) {
+        for (const Fibreseek::WriterRoute &route : layerm->fibreseek_routes.routes) {
             if (route.ordered_segments.empty())
                 continue;
             routes.push_back(&route);
-            route_region_ids.push_back(diagnostic.region_id);
+            route_region_ids.push_back(layerm->fibreseek_routes.region_id);
         }
     }
     if (routes.empty())
@@ -9540,10 +9535,16 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
     const double layer_z = layer_to_print.object_layer->print_z;
     const double height_mm = std::max(0.001f, m_last_height);
     const double line_width_mm = tinman_positive_or_default(m_config.fiber_line_width.value, 0.8);
-    const double cut_distance_mm = tinman_positive_or_default(m_config.fiber_cut_distance.value, 58.0);
-    const double restart_length_fallback_mm = tinman_positive_or_default(cut_distance_mm, 40.0) + 2.0;
-    const double restart_length_mm = tinman_positive_or_default(m_config.fiber_restart_length.value, restart_length_fallback_mm);
-    const double start_length_mm = tinman_positive_or_default(m_config.fiber_start_length.value, 0.0);
+    // Cut and restart come from the printer profile with no stand-in values: the route planner
+    // already sized every route for this cut distance (PrintObject::plan_fibreseek_routes).
+    const double cut_distance_mm = m_config.fiber_cut_distance.value;
+    if (!(cut_distance_mm > 0.))
+        throw Slic3r::SlicingError(_(L("Continuous fiber needs the distance from the fiber cutter to the nozzle tip. Enter Fiber cut distance in the printer profile.")));
+    const double restart_length_mm = m_config.fiber_restart_length.value;
+    if (!(restart_length_mm > 0.))
+        throw Slic3r::SlicingError(_(L("Continuous fiber needs the length of fiber fed after a cut to bring the strand back to the nozzle. Enter Fiber restart length in the printer profile.")));
+    // The matrix prime at the start of a route and the slow zone may be off (0).
+    const double start_length_mm = std::max(0.0, m_config.fiber_start_length.value);
     const double print_feedrate = tinman_positive_or_default(
         m_config.fiber_normal_max_speed.value,
         tinman_positive_or_default(m_config.fiber_print_speed.value, 30.0)) * 60.0;
@@ -9569,7 +9570,7 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
     const double fiber_v_per_mm = fiber_p_value * (tinman_positive_or_default(m_config.fiber_feedrate_percent.value, 100.0) / 100.0);
     const double after_cut_v_multiplier = tinman_positive_or_default(m_config.fiber_after_cut_plastic_extrusion_multiplier.value, 1.0);
     const double slow_length_mm = std::max(0.0, m_config.fiber_slow_length.value);
-    const double transition_threshold_mm = FiberseekComposite::rocket_style_transition_limit_mm(line_width_mm);
+    const std::string fiber_cut_gcode = tinman_fiber_cut_gcode(m_config.fiber_cut_gcode.value, cut_distance_mm);
     const int composite_fan_index = std::max(0, m_config.fiber_composite_extruder_fan_index.value);
     const int plastic_fan_index = std::max(0, m_config.fiber_plastic_extruder_fan_index.value);
     const size_t fiber_filament_id = m_config.fiber_nozzle_temperature_preheat.values.size() > 1 ? 1 :
@@ -9645,15 +9646,7 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
             coord_t(std::llround(double(start.y()) + double(end.y() - start.y()) * fraction)));
     };
 
-    auto emit_fiber_cut = [this, cut_distance_mm](std::string &out) {
-        if (!m_config.fiber_cut_gcode.value.empty()) {
-            tinman_append_raw_multiline_gcode(out, m_config.fiber_cut_gcode.value);
-        } else {
-            out += "M2800\n";
-            out += "M400\n";
-            out += Slic3r::format(";CUT DISTANCE %.3f\n", std::max(0.0, cut_distance_mm - 3.2));
-        }
-    };
+    auto emit_fiber_cut = [&fiber_cut_gcode](std::string &out) { out += fiber_cut_gcode; };
 
     if (!m_tinman_native_fiber_planner_started) {
         gcode += "; ORCA_CODEX_NATIVE_FIBER_PLANNER_START\n";
@@ -9681,7 +9674,7 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
         layer_to_print.object_layer->id(), layer_z, routes.size());
 
     for (std::size_t route_index = 0; route_index < routes.size(); ++route_index) {
-        const FiberseekComposite::CompositeRoute &route = *routes[route_index];
+        const Fibreseek::WriterRoute &route = *routes[route_index];
         if (!route.is_release_safe()) {
             gcode += Slic3r::format(
                 "; TINMANX1_SKIPPED_UNSAFE_FIBER_ROUTE layer=%zu region=%zu route=%zu length=%.3f unsupported_void_crossings=%zu\n",
@@ -9693,40 +9686,25 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
             continue;
         }
 
-        double fiber_length_mm = 0.0;
-        if (!route.planned_segments.empty()) {
-            for (const FiberseekComposite::CompositeRouteSegment &segment : route.planned_segments) {
-                if (segment.emits_fiber && segment.fiber_mm_per_mm > 0.0)
-                    fiber_length_mm += segment.length_mm;
-            }
-        } else {
-            for (const Polyline &polyline : route.ordered_segments) {
-                const double polyline_length = tinman_polyline_length_mm(polyline);
-                if (polyline_length > transition_threshold_mm + EPSILON)
-                    fiber_length_mm += polyline_length;
-            }
-        }
+        // A release-safe route always has planned segments, split at the planner's phase
+        // boundaries; every one of them carries fibre (docs/fibreseek-route-planner-spec.md sec. 7).
+        const double fiber_length_mm = tinman_route_positive_fiber_length_mm(route);
         if (fiber_length_mm <= EPSILON)
             continue;
 
         const Polyline *first_polyline = nullptr;
-        if (!route.planned_segments.empty()) {
-            for (const FiberseekComposite::CompositeRouteSegment &segment : route.planned_segments) {
-                if (segment.polyline.points.size() >= 2) {
-                    first_polyline = &segment.polyline;
-                    break;
-                }
-            }
-        } else {
-            for (const Polyline &polyline : route.ordered_segments) {
-                if (polyline.points.size() >= 2) {
-                    first_polyline = &polyline;
-                    break;
-                }
+        for (const Fibreseek::WriterRouteSegment &segment : route.planned_segments) {
+            if (segment.polyline.points.size() >= 2) {
+                first_polyline = &segment.polyline;
+                break;
             }
         }
         if (first_polyline == nullptr)
             continue;
+
+        std::string warnings;
+        for (const std::string &warning : route.warnings)
+            warnings += (warnings.empty() ? "" : ",") + warning;
 
         const Point route_start = first_polyline->points.front();
         const int estimated_load = int(std::ceil(fiber_length_mm + cut_distance_mm));
@@ -9734,19 +9712,19 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
             "; ORCA_CODEX_FIBER_ROUTE_START layer=%zu z=%.3f kind=%s fiber_length=%.3f route_length=%.3f tail_length=%.3f warnings=%s\n",
             route.layer_id,
             layer_z,
-            tinman_composite_route_shape_name(route.shape),
+            Fibreseek::to_string(route.shape),
             fiber_length_mm,
             route.length_mm,
             route.tail_length_mm,
-            route.warnings.empty() ? "none" : "native_route_warnings");
+            warnings.empty() ? "none" : warnings.c_str());
+        // coalesce_threshold: the step length of a wall spiral's transitions, 0 for infill.
         gcode += Slic3r::format(
-            "; TINMANX1_FIBER_ROUTE region=%zu route=%zu candidate_count=%zu route_total_length=%.3f connector_threshold=%.3f coalesce_threshold=%.3f\n",
+            "; TINMANX1_FIBER_ROUTE region=%zu route=%zu candidate_count=%zu route_total_length=%.3f coalesce_threshold=%.3f\n",
             route_region_ids[route_index],
             route.id,
             route.candidate_ids.size(),
             route.length_mm,
-            transition_threshold_mm,
-            std::max(route.coalesce_transition_length_mm, transition_threshold_mm));
+            route.coalesce_transition_length_mm);
         gcode += Slic3r::format("; planned_segment_count=%zu\n", route.planned_segments.size());
         gcode += ";TYPE:Continuous fiber\n";
         gcode += Slic3r::format(";WIDTH:%.3f\n", line_width_mm);
@@ -9793,9 +9771,9 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
                 return;
 
             for (std::size_t point_index = 1; point_index < polyline.points.size(); ++point_index) {
-                const Point start = polyline.points[point_index - 1];
+                Point start = polyline.points[point_index - 1];
                 const Point end = polyline.points[point_index];
-                const double segment_length_mm = start.distance_to(end) * SCALING_FACTOR;
+                double segment_length_mm = start.distance_to(end) * SCALING_FACTOR;
                 if (segment_length_mm <= EPSILON)
                     continue;
 
@@ -9815,10 +9793,23 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
                     continue;
                 }
 
+                // The slow start covers the first Fiber slow length of fibre and no more: a move that
+                // runs past it is split there when the cut comes later. The planner's Start phase can
+                // be longer (it also spans the anchor), so the speed follows the distance, not the phase.
+                const auto in_slow_zone = [&walked_fiber_mm, slow_length_mm]() { return walked_fiber_mm + EPSILON < slow_length_mm; };
+                if (!cut_emitted && slow_length_mm < cut_at_mm && in_slow_zone() && slow_length_mm < walked_fiber_mm + segment_length_mm - EPSILON) {
+                    const double slow_part_mm = slow_length_mm - walked_fiber_mm;
+                    const Point slow_point = point_at_fraction(start, end, slow_part_mm / segment_length_mm);
+                    emit_fiber_move(gcode, slow_point, layer_z, slow_part_mm, slow_feedrate, true);
+                    walked_fiber_mm = slow_length_mm;
+                    start = slow_point;
+                    segment_length_mm -= slow_part_mm;
+                }
+
                 if (!cut_emitted && cut_at_mm > walked_fiber_mm + EPSILON && cut_at_mm < walked_fiber_mm + segment_length_mm - EPSILON) {
                     const double first_length_mm = cut_at_mm - walked_fiber_mm;
                     const Point cut_point = point_at_fraction(start, end, first_length_mm / segment_length_mm);
-                    emit_fiber_move(gcode, cut_point, layer_z, first_length_mm, walked_fiber_mm < slow_length_mm ? slow_feedrate : print_feedrate, true);
+                    emit_fiber_move(gcode, cut_point, layer_z, first_length_mm, in_slow_zone() ? slow_feedrate : print_feedrate, true);
                     walked_fiber_mm += first_length_mm;
                     emit_fiber_cut(gcode);
                     cut_emitted = true;
@@ -9843,35 +9834,25 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
                     end,
                     layer_z,
                     segment_length_mm,
-                    cut_emitted ? cut_tail_feedrate : (walked_fiber_mm < slow_length_mm ? slow_feedrate : print_feedrate),
+                    cut_emitted ? cut_tail_feedrate : (in_slow_zone() ? slow_feedrate : print_feedrate),
                     !cut_emitted);
                 walked_fiber_mm += segment_length_mm;
             }
         };
 
-        if (!route.planned_segments.empty()) {
-            std::size_t segment_index = 0;
-            for (const FiberseekComposite::CompositeRouteSegment &segment : route.planned_segments) {
-                gcode += Slic3r::format(
-                    "; TINMANX1_FIBER_SEGMENT index=%zu phase=%s length=%.3f plastic=%d fiber=%d\n",
-                    segment_index++,
-                    tinman_composite_route_phase_name(segment.phase),
-                    segment.length_mm,
-                    segment.emits_plastic && segment.plastic_mm_per_mm > 0.0 ? 1 : 0,
-                    segment.emits_fiber && segment.fiber_mm_per_mm > 0.0 ? 1 : 0);
-                emit_composite_polyline(
-                    segment.polyline,
-                    segment.emits_plastic && segment.plastic_mm_per_mm > 0.0,
-                    segment.emits_fiber && segment.fiber_mm_per_mm > 0.0);
-            }
-        } else {
-            for (const Polyline &polyline : route.ordered_segments) {
-                const double polyline_length = tinman_polyline_length_mm(polyline);
-                emit_composite_polyline(
-                    polyline,
-                    true,
-                    polyline_length > transition_threshold_mm + EPSILON);
-            }
+        std::size_t segment_index = 0;
+        for (const Fibreseek::WriterRouteSegment &segment : route.planned_segments) {
+            gcode += Slic3r::format(
+                "; TINMANX1_FIBER_SEGMENT index=%zu phase=%s length=%.3f plastic=%d fiber=%d\n",
+                segment_index++,
+                Fibreseek::to_string(segment.phase),
+                segment.length_mm,
+                segment.emits_plastic && segment.plastic_mm_per_mm > 0.0 ? 1 : 0,
+                segment.emits_fiber && segment.fiber_mm_per_mm > 0.0 ? 1 : 0);
+            emit_composite_polyline(
+                segment.polyline,
+                segment.emits_plastic && segment.plastic_mm_per_mm > 0.0,
+                segment.emits_fiber && segment.fiber_mm_per_mm > 0.0);
         }
 
         if (!cut_emitted) {

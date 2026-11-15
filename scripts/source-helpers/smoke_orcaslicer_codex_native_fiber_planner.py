@@ -42,6 +42,11 @@ G1 X35 Y35 E8
 ; fiber_generate_infill = 1
 ; fiber_reinforcement_mode = heavy
 ; fiber_infill_pattern = grid
+; fiber_cut_distance = 58
+; fiber_restart_length = 55
+; fiber_start_length = 15
+; fiber_slow_length = 10
+; fiber_slow_length = 10
 ; fiber_diameter = 0.25
 ; fiber_feed_factor = 0.8
 ; fiber_linear_density = 102
@@ -77,7 +82,9 @@ G1 X39 Y20 E12
 ; fiber_reinforcement_mode = heavy
 ; fiber_minimum_perimeter_length = 55
 ; fiber_cut_distance = 58
+; fiber_restart_length = 55
 ; fiber_start_length = 15
+; fiber_slow_length = 10
 ; fiber_diameter = 0.25
 ; fiber_feed_factor = 0.8
 ; fiber_linear_density = 102
@@ -107,7 +114,9 @@ G1 X20 Y20 E8
 ; fiber_reinforcement_mode = heavy
 ; fiber_minimum_perimeter_length = 55
 ; fiber_cut_distance = 58
+; fiber_restart_length = 55
 ; fiber_start_length = 15
+; fiber_slow_length = 10
 ; fiber_diameter = 0.25
 ; fiber_feed_factor = 0.8
 ; fiber_linear_density = 102
@@ -169,7 +178,9 @@ def synthetic_close_hole_cluster_gcode() -> str:
             "; fiber_generate_infill = 0",
             "; fiber_reinforcement_mode = heavy",
             "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
             "; fiber_start_length = 15",
+            "; fiber_slow_length = 10",
             "; fiber_min_radius = 12",
             "; fiber_diameter = 0.25",
             "; fiber_feed_factor = 0.8",
@@ -199,7 +210,9 @@ def synthetic_legal_small_hole_gcode() -> str:
             "; fiber_generate_infill = 0",
             "; fiber_reinforcement_mode = heavy",
             "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
             "; fiber_start_length = 15",
+            "; fiber_slow_length = 10",
             "; fiber_min_radius = 12",
             "; fiber_diameter = 0.25",
             "; fiber_feed_factor = 0.8",
@@ -229,7 +242,9 @@ def synthetic_isolated_tiny_hole_gcode() -> str:
             "; fiber_generate_infill = 0",
             "; fiber_reinforcement_mode = heavy",
             "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
             "; fiber_start_length = 15",
+            "; fiber_slow_length = 10",
             "; fiber_min_radius = 12",
             "; fiber_diameter = 0.25",
             "; fiber_feed_factor = 0.8",
@@ -274,7 +289,9 @@ def synthetic_local_hole_cluster_gcode() -> str:
             "; fiber_generate_infill = 0",
             "; fiber_reinforcement_mode = heavy",
             "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
             "; fiber_start_length = 15",
+            "; fiber_slow_length = 10",
             "; fiber_min_radius = 12",
             "; fiber_diameter = 0.25",
             "; fiber_feed_factor = 0.8",
@@ -326,7 +343,9 @@ def synthetic_internal_void_stitch_gear_gcode() -> str:
                     "; fiber_generate_infill = 0",
                     "; fiber_reinforcement_mode = heavy",
                     "; fiber_cut_distance = 58",
+                    "; fiber_restart_length = 55",
                     "; fiber_start_length = 15",
+                    "; fiber_slow_length = 10",
                     "; fiber_min_radius = 12",
                     "; fiber_diameter = 0.25",
                     "; fiber_feed_factor = 0.8",
@@ -374,7 +393,9 @@ def synthetic_alternating_hole_family_gcode() -> str:
                     "; fiber_generate_infill = 0",
                     "; fiber_reinforcement_mode = medium",
                     "; fiber_cut_distance = 58",
+                    "; fiber_restart_length = 55",
                     "; fiber_start_length = 15",
+                    "; fiber_slow_length = 10",
                     "; fiber_min_radius = 12",
                     "; fiber_diameter = 0.25",
                     "; fiber_feed_factor = 0.8",
@@ -424,7 +445,9 @@ def synthetic_radial_small_gear_hole_gcode() -> str:
                     "; fiber_generate_infill = 0",
                     "; fiber_reinforcement_mode = medium",
                     "; fiber_cut_distance = 58",
+                    "; fiber_restart_length = 55",
                     "; fiber_start_length = 15",
+                    "; fiber_slow_length = 10",
                     "; fiber_min_radius = 12",
                     "; fiber_diameter = 0.25",
                     "; fiber_feed_factor = 0.8",
@@ -473,7 +496,9 @@ def synthetic_fiberseek_contract_gcode() -> str:
             "; fiber_generate_infill = 0",
             "; fiber_reinforcement_mode = heavy",
             "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
             "; fiber_start_length = 15",
+            "; fiber_slow_length = 10",
             "; fiber_min_radius = 12",
             "; fiber_diameter = 0.25",
             "; fiber_feed_factor = 0.8",
@@ -560,6 +585,10 @@ def synthetic_layup_payload_gcode() -> str:
             "; fiber_diameter = 0.3",
             "; fiber_feed_factor = 0.8",
             "; fiber_linear_density = 90",
+            "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
+            "; fiber_start_length = 15",
+            "; fiber_slow_length = 10",
             "; fiber_infill_source_policy = generated_ribs",
             "; fiber_min_route_length = 55",
             "; fiber_mechanical_min_route_length = 55",
@@ -620,6 +649,10 @@ def synthetic_layup_ui_gcode() -> str:
             "; fiber_diameter = 0.3",
             "; fiber_feed_factor = 0.8",
             "; fiber_linear_density = 90",
+            "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
+            "; fiber_start_length = 15",
+            "; fiber_slow_length = 10",
             "; fiber_infill_source_policy = generated_ribs",
             "; fiber_min_route_length = 55",
             "; fiber_mechanical_min_route_length = 55",
@@ -651,7 +684,9 @@ def synthetic_fan_schedule_gcode() -> str:
             "; fiber_generate_infill = 0",
             "; fiber_reinforcement_mode = heavy",
             "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
             "; fiber_start_length = 15",
+            "; fiber_slow_length = 10",
             "; fiber_diameter = 0.25",
             "; fiber_feed_factor = 0.8",
             "; fiber_linear_density = 102",
@@ -1368,9 +1403,11 @@ def main() -> int:
         raise SystemExit("Minimum pocket fixture no longer proves the old 90 mm floor was removed.")
     if short_pocket_skipped.get("short_perimeter_stitched_routes") != 0:
         raise SystemExit(f"Minimum pocket routes should not require stitching at the 55 mm floor: {short_pocket_skipped}")
-    if abs(short_pocket_cfg.cut_distance - 54.8) > 1e-6:
-        raise SystemExit(f"Effective cut distance should follow the emitted cut macro: {short_pocket_cfg.cut_distance}")
-    if abs(planner.standalone_cuttable_min_route_length(short_pocket_cfg) - 64.8) > 1e-6:
+    # One cut distance: the profile's fiber_cut_distance (58), which the ;CUT DISTANCE marker
+    # now prints too. Before, the planner read 54.8 back from a marker that said cut - 3.2.
+    if abs(short_pocket_cfg.cut_distance - 58.0) > 1e-6:
+        raise SystemExit(f"Cut distance should be the profile's fiber_cut_distance: {short_pocket_cfg.cut_distance}")
+    if abs(planner.standalone_cuttable_min_route_length(short_pocket_cfg) - 68.0) > 1e-6:
         raise SystemExit(
             f"Unexpected standalone cut-window route floor: "
             f"{planner.standalone_cuttable_min_route_length(short_pocket_cfg)}"
@@ -1658,7 +1695,7 @@ def main() -> int:
             "; ORCA_CODEX_FIBER_PRIME_START",
             "M1001 L90",
             "M2800",
-            ";CUT DISTANCE 54.8",
+            ";CUT DISTANCE 58",
             "M1002",
             "; ORCA_CODEX_FIBER_PRIME_END",
             "; ORCA_CODEX_FIBER_LAYER",

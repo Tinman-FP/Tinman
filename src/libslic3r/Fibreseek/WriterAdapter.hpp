@@ -8,6 +8,7 @@
 // docs/fibreseek-route-planner-spec.md sec. 7. This header deliberately does not include
 // the old planner's header: these types are defined here from the writer's usage alone.
 
+#include "../ExPolygon.hpp"
 #include "../Polyline.hpp"
 #include "RoutePlanner.hpp"
 
@@ -65,6 +66,11 @@ struct WriterLayerRoutes
 WriterRouteShape   writer_shape(const Route &route);
 WriterRoutePhase   writer_phase(Phase phase);
 WriterLayerRoutes  to_writer_routes(const LayerPlan &plan, size_t region_id, double hardware_min_length_mm);
+
+// The bead (half a fibre width each side) along the release-safe routes only, the ones the writer
+// lays. Plastic is trimmed under this rather than LayerPlan::fibre_footprint, which also covers
+// routes the writer skips, so a skipped route keeps its plastic.
+ExPolygons laid_fibre_footprint(const WriterLayerRoutes &routes, double fibre_width_mm);
 
 const char *to_string(WriterRouteShape shape);
 const char *to_string(WriterRoutePhase phase);

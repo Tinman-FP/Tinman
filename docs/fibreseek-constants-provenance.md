@@ -75,7 +75,8 @@ kept.
 - `rocket_style_transition_limit_mm` (6 × line width). This is the longest
   connector treated as a transition rather than as fibre (§1c). It belongs to
   the C++ composite route planner, which a separate clean-room planner is
-  replacing; it should go with that replacement.
+  replacing; it should go with that replacement. **[removed with that planner
+  in the planner swap; the writer now prints the spiral step length `T`]**
 - The `max_arc_segment_length` special case for the developer-only
   `ROCKET_COMPARE_*` comparison lanes (§3a). Those lanes are kept for
   comparison only, and keeping them is the user's decision.
@@ -509,11 +510,11 @@ Proposal: four groups, at most two new keys. All of them live in the composite f
 
 These are not classifications, but the owner should see them.
 
-1. **Cut position differs by 3.2 mm.**
+1. **[fixed in the planner swap: both writers cut at L − `fiber_cut_distance` and print that value]** **Cut position differs by 3.2 mm.**
    - C++ cuts at L − `fiber_cut_distance` (58) and only *prints* `;CUT DISTANCE 54.8`.
    - Python parses that number back into `cut_distance` (py:1322-1324), so it cuts at L − 54.8 and its M1001 estimate is 3.2 mm shorter. The generator's profiles set `fiber_cut_gcode` to `;CUT DISTANCE 54.8` literally.
-2. **Restart length.** C++ uses cut + 2 (60). Python uses 55, and the prime line caps it at 55.
-3. **Start and slow lengths.** C++ uses 0 and 0. Python uses 15 and 10.
+2. **[fixed in the planner swap: both use `fiber_restart_length`, required; Python's prime line still caps it at 55]** **Restart length.** C++ uses cut + 2 (60). Python uses 55, and the prime line caps it at 55.
+3. **[fixed in the planner swap: both use `fiber_start_length` and `fiber_slow_length`, 0 = off. C++ showed 0/0 because the writer never received the process's fibre settings]** **Start and slow lengths.** C++ uses 0 and 0. Python uses 15 and 10.
 4. **Post-cut tail speed.**
    - C++ uses `fiber_finish_max_speed` (fallback 3).
    - Python uses `fiber_start_min_speed` (fallback 3). Its 15 mm/s finish feed never reaches a move.
@@ -528,7 +529,7 @@ These are not classifications, but the owner should see them.
    - Python hard-codes P1 (plastic) and P2 (composite), adds an auxiliary P3/P5 schedule at layers 1 and 5, and uses PWM 38/63/255.
 10. **Toolchange Z lift.** Python lifts 5 mm on each change. The C++ change blocks emit no Z move of their own; the brush macros may move Z.
 11. **`or` chains on config strings** (py:1243, 1247, 1267-1269, 1229). A present key holding "0" is truthy. The fallbacks `fiber_print_speed`, `fiber_start_speed`, `fiber_start_min_limit_speed`, `fiber_finish_min_limit_speed` and `fiber_hardware_min_route_length` are therefore never read from the config block. The CLI covers the two speeds.
-12. **Route planner vs writer cut distance.** PrintObject.cpp:1299 passes the raw `fiber_cut_distance`, which is 0 by default, plus a hidden 5.0 mm safety margin (1300). The writer substitutes 58, so the planner's cut-safety check and the emitted cut disagree on default profiles. PrintObject.cpp was not audited further.
+12. **[fixed in the planner swap: the old planner and its 5 mm margin are gone; the new planner and the writer read the same `fiber_cut_distance`]** **Route planner vs writer cut distance.** PrintObject.cpp:1299 passes the raw `fiber_cut_distance`, which is 0 by default, plus a hidden 5.0 mm safety margin (1300). The writer substitutes 58, so the planner's cut-safety check and the emitted cut disagree on default profiles. PrintObject.cpp was not audited further.
 13. **Prime line.** Only Python emits one: X 152.5, Y 119, 90 mm long, Z 0.2, travel Z 1.2, 1000 ms dwell, F720. It primes `V = start_length` (15 mm of matrix) where routes prime `start_length x V/mm` (≈ 0.6 for a 0.25 mm strand).
 14. **[fixed in #21]** **Preview mass vs header.** The commit message of 9fd0d379 says the preview shows no fibre mass without strand data. That holds only when the diameter is also missing. With a diameter set and no linear density, `orcaslicer_codex_continuous_fiber_density` returns 1.245 and the preview shows grams, while the G-code header says 0 g.
 15. **Default strand identity.** The planner selects `material_tuning` payload entries by `continuous_fiber_source_material_id`. Its default `tinmanx1-carbon-025` can match tuning for a strand the user never chose.

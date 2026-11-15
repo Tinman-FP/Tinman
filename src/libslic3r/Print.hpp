@@ -551,7 +551,6 @@ public:
     // SoftFever
     size_t get_id() const { return m_id; }
     void set_id(size_t id) { m_id = id; }
-    void ensure_fiberseek_composite_diagnostics_for_export();
 
   private:
     // to be called from Print only.
@@ -580,7 +579,9 @@ private:
     void make_perimeters();
     void prepare_infill();
     void infill();
-    void generate_fiberseek_composite_diagnostics();
+    // Composite-only FibreSeek mode: plans the continuous-fibre routes of every fibre layer
+    // and trims the plastic infill under them. The last part of infill().
+    void plan_fibreseek_routes();
     void ironing();
     bool need_z_contouring() const;
     void contour_z();

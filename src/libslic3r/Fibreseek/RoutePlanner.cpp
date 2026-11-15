@@ -1106,8 +1106,10 @@ bool PlannerSettings::valid(std::string *why) const
         return fail("fibre width must be > 0");
     if (matrix_width_mm < 0.)
         return fail("matrix width must be >= 0");
-    if (cut_distance_mm < 0. || hardware_min_length_mm < 0. || anchor_length_mm < 0.)
-        return fail("cut distance and minimum lengths must be >= 0");
+    if (!(cut_distance_mm > 0.))
+        return fail("cut distance must be > 0");
+    if (hardware_min_length_mm < 0. || anchor_length_mm < 0.)
+        return fail("minimum lengths must be >= 0");
     if (bend_radius_mm < 0.)
         return fail("bend radius must be >= 0");
     if (!(chord_mm > 0.))
@@ -1129,7 +1131,7 @@ PlannerSettings settings_from_config(const DynamicPrintConfig &c, double matrix_
     s.infill                 = int_option(c, "fiber_generate_infill", 1) != 0;
     s.outer_loops            = int_option(c, "fiber_outer_perimeter_loops", s.outer_loops);
     s.hole_loops             = int_option(c, "fiber_inner_perimeter_loops", s.hole_loops);
-    s.cut_distance_mm        = positive(float_option(c, "fiber_cut_distance", 0.), 58.); // the writer's fallback
+    s.cut_distance_mm        = float_option(c, "fiber_cut_distance", 0.); // the printer profile's; 0 = not set, invalid
     s.hardware_min_length_mm = float_option(c, "fiber_mechanical_min_route_length", s.hardware_min_length_mm);
     s.wall_min_length_mm     = float_option(c, "fiber_perimeter_min_route_length", s.wall_min_length_mm);
     s.user_min_length_mm     = float_option(c, "fiber_min_route_length", 0.);

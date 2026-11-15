@@ -50,7 +50,7 @@ std::string strf(const char *f, ...)
 struct MachineValues
 {
     double cut_distance { 58. };
-    double restart_length { 60. }; // writer fallback: cut distance + 2
+    double restart_length { 55. }; // fiber_restart_length in the generator's Seeker 3 printer profile
     double start_length { 0. };
     double print_feed { 30. * 60. };
     double slow_feed { 5. * 60. };
@@ -130,7 +130,8 @@ void emit_layer(std::string &g, const MachineValues &m, const EmittedLayer &laye
             g += strf(" F%.0f\n", feed);
             last = to;
         };
-        auto emit_cut = [&]() { g += strf("M2800\nM400\n;CUT DISTANCE %.3f\n", std::max(0., m.cut_distance - 3.2)); };
+        // The writer's marker carries Fiber cut distance itself (tinman_fiber_cut_gcode in GCode.cpp).
+        auto emit_cut = [&]() { g += strf("M2800\nM400\n;CUT DISTANCE %.3f\n", m.cut_distance); };
         for (size_t si = 0; si < route.planned_segments.size(); ++si) {
             const WriterRouteSegment &seg = route.planned_segments[si];
             g += strf("; TINMANX1_FIBER_SEGMENT index=%zu phase=%s length=%.3f plastic=1 fiber=1\n", si, to_string(seg.phase), seg.length_mm);
@@ -414,7 +415,7 @@ TEST_CASE("Coupon harness: plan coupons, emit contract G-code and route SVGs", "
             layers_with_routes += !l.routes.routes.empty();
         std::ofstream(gpath.string() + ".native_fiber.summary.json")
             << strf("{\n  \"routes\": {\"count\": %zu, \"layers_with_routes\": %zu, \"total_length_mm\": %.3f},\n", routes, layers_with_routes, fibre)
-            << strf("  \"config\": {\"cut_distance\": %.3f},\n", machine.cut_distance - 3.2)
+            << strf("  \"config\": {\"cut_distance\": %.3f},\n", machine.cut_distance)
             << strf("  \"command_counts\": {\"M1001\": %zu, \"M1002\": %zu, \"M2800\": %zu, \"T0\": %zu, \"T1\": %zu},\n", count("M1001"),
                    count("M1002"), count("M2800"), count("T0"), count("T1"))
             << strf("  \"skipped\": {\"routes_skipped_by_cut_window_min_length\": %zu, \"routes_skipped_by_hardware_min_length\": %zu}\n}\n",

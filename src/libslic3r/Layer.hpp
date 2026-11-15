@@ -9,7 +9,7 @@
 #include "Flow.hpp"
 #include "SurfaceCollection.hpp"
 #include "ExtrusionEntityCollection.hpp"
-#include "FiberseekCompositePlanner.hpp"
+#include "Fibreseek/WriterAdapter.hpp"
 #include <vector>
 #include <cstddef>
 #include <algorithm>
@@ -90,9 +90,10 @@ public:
     // (this collection contains only ExtrusionEntityCollection objects)
     ExtrusionEntityCollection   fills;
 
-    // Tinman FibreSeek native composite-route diagnostics. This is populated
-    // before G-code emission once the composite-only planner is enabled.
-    FiberseekComposite::CompositeLayerDiagnostic fiberseek_composite_diagnostic;
+    // FibreSeek continuous-fibre routes for this layer and region, in the layout the G-code
+    // writer reads. Filled at the end of PrintObject::infill() in composite-only mode
+    // (PrintObject::plan_fibreseek_routes), empty otherwise.
+    Fibreseek::WriterLayerRoutes fibreseek_routes;
 
     Flow    flow(FlowRole role) const;
     Flow    flow(FlowRole role, double layer_height) const;
@@ -118,7 +119,7 @@ public:
 
     // Is there any valid extrusion assigned to this LayerRegion?
     bool    has_extrusions() const { return ! this->perimeters.entities.empty() || ! this->fills.entities.empty(); }
-    bool    has_fiberseek_composite_routes() const { return !this->fiberseek_composite_diagnostic.routes.empty(); }
+    bool    has_fibreseek_routes() const { return !this->fibreseek_routes.routes.empty(); }
     //BBS
     void    simplify_infill_extrusion_entity() { simplify_entity_collection(&fills); }
     void    simplify_wall_extrusion_entity() { simplify_entity_collection(&perimeters); }
