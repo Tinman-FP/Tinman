@@ -80,12 +80,12 @@ double end_heading(const Path2d &p)
 
 ExPolygons inset(const ExPolygons &area, double mm)
 {
-    return offset_ex(area, float(-scale_(mm)), ClipperLib::jtRound, scale_(kArcToleranceMm));
+    return offset_ex(area, float(-scale_(mm)), jtRound, scale_(kArcToleranceMm));
 }
 
 ExPolygons open_by(const ExPolygons &area, double radius_mm)
 {
-    return opening_ex(area, float(scale_(radius_mm)), ClipperLib::jtRound, scale_(kArcToleranceMm));
+    return opening_ex(area, float(scale_(radius_mm)), jtRound, scale_(kArcToleranceMm));
 }
 
 double area_of(const ExPolygons &a)
@@ -619,7 +619,7 @@ void LayerPlanner::plan_infill(size_t island)
         if (d.island == island)
             wall_lines.push_back(to_polyline(d.path()));
     if (!wall_lines.empty())
-        F = diff_ex(F, offset(wall_lines, float(scale_(s.rib_clearance_mm())), ClipperLib::jtRound, scale_(kArcToleranceMm), ClipperLib::etOpenRound));
+        F = diff_ex(F, offset(wall_lines, float(scale_(s.rib_clearance_mm())), jtRound, scale_(kArcToleranceMm), etOpenRound));
     if (s.nozzle_contact_radius_mm > 0.5 * w)
         F = open_by(F, s.nozzle_contact_radius_mm - 0.5 * w);
     const ExPolygons R = inset(F, h);
@@ -988,8 +988,8 @@ void LayerPlanner::run()
         footprint_lines.push_back(to_polyline(plan.routes.back().path()));
     }
     if (!footprint_lines.empty())
-        plan.fibre_footprint = union_ex(offset(footprint_lines, float(scale_(0.5 * s.fibre_width_mm)), ClipperLib::jtRound,
-                                               scale_(kArcToleranceMm), ClipperLib::etOpenRound));
+        plan.fibre_footprint = union_ex(offset(footprint_lines, float(scale_(0.5 * s.fibre_width_mm)), jtRound,
+                                               scale_(kArcToleranceMm), etOpenRound));
 }
 
 // --- Config access by key (sec. 1) ----------------------------------------------------

@@ -1,14 +1,19 @@
 #include <catch2/catch_all.hpp>
 
 #include <algorithm>
+#include "libslic3r/CustomGCode.hpp"
 #include <sstream>
 #include <string>
 #include <limits>
 
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers.hpp>
+#include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include "libslic3r/calib.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/Point.hpp"
 #include "libslic3r/Flow.hpp"
 #include "libslic3r/GCode.hpp"
 #include "libslic3r/Print.hpp"
@@ -34,6 +39,22 @@ TEST_CASE("Calibration steps stay within the requested range", "[Calib][Regressi
     CHECK(calibration_value_for_layer(20, 200, 10, 0, 1) == 20);
     CHECK(calibration_value_for_layer(20, 200, 10, -1, 0) == 20);
     CHECK(calibration_value_for_layer(20, 200, 0, 99, 100) == 200);
+}
+
+TEST_CASE("Belt calibration bands stop at the last whole step", "[Calib][Regression]")
+{
+    // A range that isn't a whole number of steps: the tower holds floor(range / step) + 1 bands.
+    CHECK(calibration_value_for_ratio(0.02f, 0.036f, 0.01f, 0.f) == Catch::Approx(0.02f));
+    CHECK(calibration_value_for_ratio(0.02f, 0.036f, 0.01f, 1.f) == Catch::Approx(0.03f));
+    CHECK(calibration_value_for_ratio(30.f, 46.f, 10.f, 0.99f) == Catch::Approx(40.f));
+    CHECK(calibration_value_for_ratio(30.f, 46.f, 10.f, 1.f) == Catch::Approx(40.f));
+    for (float ratio = 0.f; ratio <= 1.f; ratio += 0.05f) {
+        CHECK(calibration_value_for_ratio(0.02f, 0.036f, 0.01f, ratio) <= 0.036f);
+        CHECK(calibration_value_for_ratio(270.f, 230.f, 15.f, ratio) >= 230.f);
+    }
+    // Whole steps still reach the end value, and step 0 ramps continuously.
+    CHECK(calibration_value_for_ratio(0.f, 0.08f, 0.02f, 1.f) == Catch::Approx(0.08f));
+    CHECK(calibration_value_for_ratio(20.f, 200.f, 0.f, 0.5f) == Catch::Approx(110.f));
 }
 
 TEST_CASE("VFA speed changes align with every 25-layer block", "[Calib][Regression]")
@@ -140,12 +161,15 @@ TEST_CASE("PA line preview reports thickness independently of Z offset", "[Calib
 
 TEST_CASE("Adaptive PA accepts complete numeric measurements and rejects malformed values", "[Calib][Regression]")
 {
+    // Tinman: any complete, finite number, each value within its own range; PA, flow and acceleration
+    // are different units and are not compared with each other.
     for (const auto* valid : {"", "\n", "0.02,10,1000", " 0.02, 10, 1000\r\n0.03,20,2000\n", "2e-2,1e1,1e3", "0.1,0.05,0.01"}) {
         CAPTURE(valid);
         CHECK(AdaptivePAProcessor::validate_adaptive_pa_model(valid).empty());
     }
     for (const auto* invalid : {"0.02.3,10,1000", "0.02,10.2.3,1000", "0.02,10,1000x", "nan,10,1000", "0.02,inf,1000",
-         "0.02,10,1e999", "-0.02,10,1000", "2,10,1000", "0.02,0,1000", "0.02,10,0", "0.02,10", "0.02,10,", "0.02,10,1000,3"}) {
+         "0.02,10,1e999", "-0.02,10,1000", "2,10,1000", "0.02,0,1000", "0.02,10,0", "0.02,10", "0.02,10,", "0.02,10,1000,3",
+         "0.02,10,1000,", ",0.02,10,1000", "0.02,-10,1000", "0.02,10,-1000"}) {
         CAPTURE(invalid);
         CHECK_FALSE(AdaptivePAProcessor::validate_adaptive_pa_model(invalid).empty());
     }
@@ -155,6 +179,11 @@ TEST_CASE("Adaptive PA accepts complete numeric measurements and rejects malform
 
 TEST_CASE("Invalid enabled Adaptive PA blocks print validation without a warning sink", "[Calib][Regression]")
 {
+    // A malformed model, and well-formed numbers outside their ranges.
+    // Malformed text (including text that holds no non-zero number) and numbers outside their ranges.
+    const std::string model_str = GENERATE(as<std::string>{}, "0.02,10,1000oops", "-0.02,10,1000", "0.02,0,1000", "0.02,10,1000,",
+                                           "garbage", "0,0,", "0,0,0\n0,0");
+    CAPTURE(model_str);
     Model model;
     auto* object = model.add_object("cube", "", make_cube(20, 20, 20));
     object->add_instance();
@@ -162,13 +191,50 @@ TEST_CASE("Invalid enabled Adaptive PA blocks print validation without a warning
     auto config = DynamicPrintConfig::full_print_config();
     config.set_key_value("enable_pressure_advance", new ConfigOptionBools{true});
     config.set_key_value("adaptive_pressure_advance", new ConfigOptionBools{true});
-    config.set_key_value("adaptive_pressure_advance_model", new ConfigOptionStrings{"0.02,10,1000oops"});
+    config.set_key_value("adaptive_pressure_advance_model", new ConfigOptionStrings{model_str});
     Print print;
     print.auto_assign_extruders(object);
     print.apply(model, config);
     CHECK_THAT(print.validate().string, Catch::Matchers::ContainsSubstring("Invalid Adaptive Pressure Advance"));
-    StringObjectException warning;
-    CHECK_THAT(print.validate(&warning).string, Catch::Matchers::ContainsSubstring("Invalid Adaptive Pressure Advance"));
+    std::vector<StringObjectException> warnings;
+    CHECK_THAT(print.validate(&warnings).string, Catch::Matchers::ContainsSubstring("Invalid Adaptive Pressure Advance"));
+}
+
+TEST_CASE("An unfilled Adaptive PA model only warns about missing measurements", "[Calib][Regression]")
+{
+    // Blank, or the all-zero placeholder the option ships with.
+    const std::string default_model = DynamicPrintConfig::full_print_config().opt_string("adaptive_pressure_advance_model", 0u);
+    const std::string model_str     = GENERATE_COPY(default_model, std::string(), std::string("\n"), std::string("0, 0, 0"));
+    CAPTURE(model_str);
+    CHECK(AdaptivePAProcessor::adaptive_pa_model_is_unset(model_str));
+    Model model;
+    auto* object = model.add_object("cube", "", make_cube(20, 20, 20));
+    object->add_instance();
+    object->ensure_on_bed();
+    auto config = DynamicPrintConfig::full_print_config();
+    config.set_key_value("enable_pressure_advance", new ConfigOptionBools{true});
+    config.set_key_value("adaptive_pressure_advance", new ConfigOptionBools{true});
+    config.set_key_value("adaptive_pressure_advance_model", new ConfigOptionStrings{model_str});
+    // The default config fails validation on relative extrusion without a G92 E0 at each layer.
+    config.set_key_value("use_relative_e_distances", new ConfigOptionBool(false));
+    Print print;
+    print.auto_assign_extruders(object);
+    print.apply(model, config);
+    CHECK_THAT(print.validate().string, !Catch::Matchers::ContainsSubstring("Adaptive Pressure Advance"));
+    std::vector<StringObjectException> warnings;
+    CHECK_THAT(print.validate(&warnings).string, !Catch::Matchers::ContainsSubstring("Adaptive Pressure Advance"));
+    bool warned = false;
+    for (const StringObjectException& warning : warnings)
+        warned = warned || warning.opt_key == "adaptive_pressure_advance_model";
+    CHECK(warned);
+}
+
+TEST_CASE("Only a blank or all-zero Adaptive PA model counts as unfilled", "[Calib][Regression]")
+{
+    for (const auto* filled : {"garbage", "0,0,", "0,0", "0,0,0,0", "0,0,0x", "0.02,10,1000", "0,0,0\n0.02,10,1000"}) {
+        CAPTURE(filled);
+        CHECK_FALSE(AdaptivePAProcessor::adaptive_pa_model_is_unset(filled));
+    }
 }
 
 namespace {

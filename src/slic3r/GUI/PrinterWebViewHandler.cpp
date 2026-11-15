@@ -1,5 +1,6 @@
 #include "PrinterWebViewHandler.hpp"
 
+#include "Http.hpp"
 #include "I18N.hpp"
 #include "PrinterWebView.hpp"
 #include "DeviceManager.hpp"
@@ -10,14 +11,22 @@
 #include "slic3r/Utils/PrintHost.hpp"
 #include "libslic3r/Preset.hpp"
 
+#include <memory>
+#include <cstdint>
+#include "libslic3r/Config.hpp"
+#include "libslic3r/PrintConfig.hpp"
 #include <nlohmann/json.hpp>
 #include <atomic>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/filesystem/path.hpp>
 #include <string>
 #include <thread>
+#include <utility>
 #include <wx/filedlg.h>
 #include <wx/string.h>
+#include <wx/webview.h>
+#include <wx/utils.h>
+#include <wx/buffer.h>
 
 using json = nlohmann::json;
 
@@ -399,7 +408,7 @@ private:
         if (params.is_discarded())
             params = json::object();
 
-        const std::string filter = json_string(params, "filter").empty() ? "All files (*.*)|*.*" : json_string(params, "filter");
+        const std::string filter = json_string(params, "filter").empty() ? _u8L("All files (*.*)|*.*") : json_string(params, "filter");
 
         wxWindow* parent = owner().GetParent();
         if (parent == nullptr)

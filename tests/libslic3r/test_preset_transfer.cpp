@@ -96,13 +96,14 @@ TEST_CASE("Preparing a replacement cache drops unselected old values", "[TinMan]
     stage_height(cache, 0.2);
     cache.extruder_count = 4;
     DynamicPrintConfig source;
-    source.set_key_value("outer_wall_speed", new ConfigOptionFloat(40.0));
+    // OrcaSlicer 2.5 keeps wall speeds per extruder variant.
+    source.set_key_value("outer_wall_speed", new ConfigOptionFloatsNullable({40.0}));
     cache.stage_options(source, {"outer_wall_speed"});
     CHECK(cache.config.keys() == std::vector<std::string>{"outer_wall_speed"});
     CHECK(cache.options == std::vector<std::string>{"outer_wall_speed"});
     CHECK(cache.extruder_count == 4);
-    source.set_key_value("outer_wall_speed", new ConfigOptionFloat(80.0));
-    CHECK(cache.config.opt_float("outer_wall_speed") == 40.0);
+    source.set_key_value("outer_wall_speed", new ConfigOptionFloatsNullable({80.0}));
+    CHECK(cache.config.option<ConfigOptionFloatsNullable>("outer_wall_speed")->get_at(0) == 40.0);
     cache.stage_options(source, {});
     CHECK(cache.config.empty());
     CHECK(cache.options.empty());
@@ -306,11 +307,11 @@ TEST_CASE("A comparison transfer captures its source and preserves unrelated des
         [&](const std::string &name) {
             bundle.prints.find_preset("Source", false, true)->config.set_key_value("layer_height", new ConfigOptionFloat(0.3));
             bundle.prints.select_preset_by_name(name, false);
-            bundle.prints.get_edited_preset().config.set_key_value("outer_wall_speed", new ConfigOptionFloat(42));
+            bundle.prints.get_edited_preset().config.set_key_value("outer_wall_speed", new ConfigOptionFloatsNullable({42}));
             return true;
         }, reason));
     CHECK(bundle.prints.get_edited_preset().config.opt_float("layer_height") == 0.24);
-    CHECK(bundle.prints.get_edited_preset().config.opt_float("outer_wall_speed") == 42);
+    CHECK(bundle.prints.get_edited_preset().config.option<ConfigOptionFloatsNullable>("outer_wall_speed")->get_at(0) == 42);
     CHECK(bundle.prints.find_preset("Source", false, true)->config.opt_float("layer_height") == 0.3);
 }
 
