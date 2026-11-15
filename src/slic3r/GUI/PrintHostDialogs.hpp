@@ -55,6 +55,8 @@ public:
     virtual void EndModal(int ret) override;
     virtual void init();
     virtual std::map<std::string, std::string> extendedInfo() const { return {}; }
+    // A line shown above the file name, e.g. the materials a job needs. Call before init().
+    void set_note(const wxString &note) { m_note = note; }
 
 protected:
     wxTextCtrl *txt_filename;
@@ -69,6 +71,7 @@ protected:
     boost::filesystem::path m_path;
     PrintHostPostUploadActions m_post_actions;
     wxArrayString m_storage_names;
+    wxString      m_note;
 };
 
 

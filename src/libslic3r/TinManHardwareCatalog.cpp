@@ -36,6 +36,7 @@ TinManConnectionMode parse_connection_mode(const std::string &value)
     if (value == "snapmaker") return TinManConnectionMode::Snapmaker;
     if (value == "moonraker") return TinManConnectionMode::Moonraker;
     if (value == "prusalink") return TinManConnectionMode::PrusaLink;
+    if (value == "fibreseek") return TinManConnectionMode::FibreSeek;
     throw std::invalid_argument("unknown connection_mode: " + value);
 }
 

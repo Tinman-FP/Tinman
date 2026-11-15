@@ -176,6 +176,14 @@ bool is_prusalink_model(std::string_view model)
     return definition && definition->connection_mode == TinManConnectionMode::PrusaLink;
 }
 
+// The Seeker 3 is a Moonraker printer, but it must use the FibreSeek host so
+// every send runs its pre-send checks (src/slic3r/Utils/FibreSeek.hpp).
+bool is_fibreseek_model(std::string_view model)
+{
+    const auto *definition = family_for_model(model);
+    return definition && definition->connection_mode == TinManConnectionMode::FibreSeek;
+}
+
 // Prusa Buddy firmware is reached through PrusaLink on the LAN or PrusaConnect
 // in the cloud. It has no Moonraker API.
 bool is_prusa_buddy_host_type(std::string_view host_type)
@@ -271,6 +279,14 @@ bool tinmanx_enforce_machine_connection_contract(const std::string &preset_name,
         changed = true;
     }
 
+    // A Seeker 3 saved or restored with plain Moonraker (or Orca's OctoPrint
+    // default) would skip the FibreSeek checks.
+    if (is_fibreseek_model(model) && printer_config.has("host_type") &&
+        printer_config.opt_enum<PrintHostType>("host_type") != htFibreSeek) {
+        printer_config.set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(htFibreSeek));
+        changed = true;
+    }
+
     // K2 direct API and Moonraker are separate services. Keep the printable
     // profile on CrealityPrint's port 80 while Device/status uses the 4408
     // Moonraker proxy. This also repairs copies saved with :7125 as print_host.
@@ -329,8 +345,10 @@ bool tinmanx_prepare_connection_for_save(const std::string &preset_name,
     if (agent != "snapmaker" && agent != "moonraker")
         return changed;
 
+    // FibreSeek is Moonraker plus pre-send checks; keep it.
     if (printer_config.has("host_type") &&
-        printer_config.opt_enum<PrintHostType>("host_type") != htMoonraker) {
+        printer_config.opt_enum<PrintHostType>("host_type") != htMoonraker &&
+        printer_config.opt_enum<PrintHostType>("host_type") != htFibreSeek) {
         printer_config.set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(htMoonraker));
         changed = true;
     }
@@ -600,6 +618,8 @@ bool tinmanx_remember_machine_connection(AppConfig &app_config,
                 value = "moonraker";
             else if (is_prusalink_model(model) && !is_prusa_buddy_host_type(value))
                 value = "prusalink";
+            else if (is_fibreseek_model(model))
+                value = "fibreseek";
         } else if (option == "print_host" && !k2_host.empty()) {
             value = print_host;
         } else if (option == "print_host_webui" && !k2_host.empty()) {

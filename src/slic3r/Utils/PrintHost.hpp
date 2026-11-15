@@ -144,7 +144,23 @@ namespace GUI { class PrintHostQueueDialog; }
 class PrintHostJobQueue
 {
 public:
+    // Info tag a host sends right before an action it cannot take back (for
+    // example a print start). From then on the job's outcome, an error or a
+    // warning included, is always reported and never replaced by "Canceled",
+    // however many Cancels are pending or arrive later.
+    static constexpr const wchar_t *DispatchedInfoTag = L"dispatched";
+
+    // Where a queue without a dialog reports the job events (tests).
+    struct Events
+    {
+        std::function<void(size_t job, int progress)>                      progress;
+        std::function<void(size_t job, wxString error)>                    error;
+        std::function<void(size_t job)>                                    cancel;
+        std::function<void(size_t job, wxString tag, wxString status)>    info;
+    };
+
     PrintHostJobQueue(GUI::PrintHostQueueDialog *queue_dialog);
+    explicit PrintHostJobQueue(Events events);
     PrintHostJobQueue(const PrintHostJobQueue &) = delete;
     PrintHostJobQueue(PrintHostJobQueue &&other) = delete;
     ~PrintHostJobQueue();

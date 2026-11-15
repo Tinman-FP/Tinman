@@ -1,0 +1,90 @@
+#ifndef slic3r_FibreSeek_hpp_
+#define slic3r_FibreSeek_hpp_
+
+#include <functional>
+#include <string>
+
+#include <wx/string.h>
+
+#include "Moonraker.hpp"
+#include "PrintHost.hpp"
+
+namespace Slic3r {
+
+// Print host for the FibreSeek Seeker 3 continuous-fibre printer.
+//
+// The Seeker 3 runs Klipper behind Moonraker, so this reuses the Moonraker
+// host's address and API-key handling and adds the checks a continuous-fibre
+// job needs before it reaches the printer (see FibreSeekSendChecks.hpp):
+//
+//   1. the G-code is plain text sliced with a Seeker 3 profile;
+//   2. the printer answers (GET /server/info) and reports its host name
+//      (GET /printer/info); without one the send stops;
+//   3. Klipper is ready and idle by the admission rules in
+//      FibreSeekSendChecks.hpp (GET /printer/objects/query?webhooks&
+//      print_stats&virtual_sdcard&pause_resume, GET /server/files/roots);
+//   4. T0 and T1 carry the nozzles the job was sliced for
+//      (GET /printer/objects/query?configfile=config);
+//   5. the job goes up under a name unique to this send
+//      (POST /server/files/upload with print=false and Moonraker's SHA-256
+//      checksum), and the printer must report exactly that name, unstarted;
+//   6. the stored copy is downloaded and compared byte for byte
+//      (GET /server/files/gcodes/<name>);
+//   7. for "Upload and print": idle and the host name are checked again, one
+//      start request is sent (POST /printer/print/start, never retried) and
+//      print_stats is watched until it reports "printing" for that file.
+//      Only Moonraker's own 400/401/403/404 counts as "not started"; a 5xx, a
+//      proxy error, no reply or no confirmation is "outcome unknown, check
+//      the printer".
+//
+// Every request has a bounded timeout, follows no redirects (an API key or a
+// start must not move to another host) and verifies TLS for https addresses.
+// The upload queue's Cancel is honoured between all phases until the start
+// request is dispatched; after that, Cancel only stops the watching, with a
+// warning that the printer may be printing. Progress stays below 100% until
+// the outcome is known. Only standard Moonraker endpoints are used.
+class FibreSeek : public Moonraker
+{
+public:
+    // Request timeouts in seconds, and how long to watch for the start.
+    struct Timeouts
+    {
+        long connect     = 10;
+        long query       = 30;
+        long upload      = 30 * 60;
+        long download    = 10 * 60;
+        long start       = 30;
+        int  start_watch = 10 * 60; // preparing a fibre job (heating, levelling) takes minutes
+        int  poll_ms     = 2000;
+    };
+
+    explicit FibreSeek(DynamicPrintConfig *config) : Moonraker(config) {}
+    ~FibreSeek() override = default;
+
+    const char *get_name() const override;
+    bool        test(wxString &msg) const override;
+    wxString    get_test_ok_msg() const override;
+    wxString    get_test_failed_msg(wxString &msg) const override;
+    bool upload(PrintHostUpload upload_data, ProgressFn progress_fn, ErrorFn error_fn, InfoFn info_fn) const override;
+    // The Seeker 3 only prints from its G-code root.
+    bool get_storage(wxArrayString &, wxArrayString &) const override { return false; }
+
+    // Tests shorten these; the printer itself is not affected.
+    void set_timeouts(const Timeouts &timeouts) { m_timeouts = timeouts; }
+
+private:
+    Timeouts m_timeouts;
+
+    // Auth, CA file, TLS verification for https, no redirects, and timeouts.
+    void prepare(Http &http, long timeout) const;
+    // GET a Moonraker path. True only for HTTP 200; http_status is 0 when the
+    // request got no HTTP answer. stop() is polled to cancel the request.
+    bool get(const std::string &path, std::string &body, unsigned &http_status, wxString &error,
+             const std::function<bool()> &stop) const;
+    // GET /server/info answers like Moonraker. test() is this without a cancel.
+    bool probe(wxString &msg, const std::function<bool()> &stop) const;
+};
+
+} // namespace Slic3r
+
+#endif

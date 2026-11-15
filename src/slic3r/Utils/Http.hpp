@@ -126,6 +126,9 @@ public:
 	// Enables TLS certificate verification (peer + hostname). Off by default in the
 	// shared client for compatibility with self-signed print hosts; opt in for any
 	// request carrying authentication credentials or sensitive user data.
+	// Follow HTTP redirects (the default). When off, a 3xx reply calls neither
+	// on_complete nor on_error.
+	Http& follow_redirects(bool enable);
 	Http& tls_verify(bool enable);
 
 	Http& form_clear();

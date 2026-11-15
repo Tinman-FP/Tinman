@@ -22535,6 +22535,17 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn)
                                                          storage_paths, storage_names, config->get_bool("open_device_tab_post_upload"));
         }
 
+        if (host_type == htFibreSeek) {
+            // Klipper does not report loaded materials, so the send cannot check them; say what the job needs.
+            const auto &materials = wxGetApp().preset_bundle->filament_presets;
+            wxString    note;
+            if (materials.size() >= 2)
+                note = GUI::format_wxstr(_L("This job needs %1% on T1 and %2% on T0."), from_u8(materials[0]), from_u8(materials[1]));
+            else if (!materials.empty())
+                note = GUI::format_wxstr(_L("This job needs %1% on T1."), from_u8(materials[0]));
+            if (!note.empty())
+                pDlg->set_note(note + " " + _L("Tinman cannot see which materials are loaded: check them on the printer before printing."));
+        }
         pDlg->init();
         if (pDlg->ShowModal() != wxID_OK) {
             return;
