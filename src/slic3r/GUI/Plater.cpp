@@ -136,6 +136,7 @@
 #include <wx/spinctrl.h>
 #include <wx/stattext.h>
 #include <wx/button.h>
+#include <wx/choice.h>
 #include <wx/bmpcbox.h>
 #include <wx/display.h>
 #include <wx/statbox.h>
@@ -145,6 +146,7 @@
 #include <wx/progdlg.h>
 #include <wx/strconv.h>
 #include <wx/string.h>
+#include <wx/translation.h>
 #include <wx/types.h>
 #include <wx/utils.h>
 #include <wx/toplevel.h>
@@ -184,6 +186,7 @@
 #include "libslic3r/SLAPrint.hpp"
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r/FibreSeekMaterials.hpp"
 #include "libslic3r/TinManMachineProfileContract.hpp"
 #include "libslic3r/IMEXHelpers.hpp"
 #include "libslic3r/PublishSettings.hpp"
@@ -1121,6 +1124,8 @@ struct ExtruderGroup : StaticBox
 
 struct Sidebar::priv
 {
+    // The composite and missing fibre settings last named in a notification.
+    std::string continuous_fiber_missing_notice;
     Plater *plater;
 
     wxPanel *scrolled = nullptr;
@@ -1219,7 +1224,7 @@ struct Sidebar::priv
     wxPanel* m_continuous_fiber_swatch = nullptr;
     wxStaticText* m_staticText_continuous_fiber_title = nullptr;
     wxStaticText* m_staticText_continuous_fiber_detail = nullptr;
-    ComboBox* m_combo_continuous_fiber = nullptr;
+    wxChoice* m_combo_continuous_fiber = nullptr;
     wxStaticLine* m_staticline2;
     wxPanel* m_panel_project_title;
     ScalableButton* m_filament_icon = nullptr;
@@ -1676,26 +1681,26 @@ std::vector<int> get_min_flush_volumes(const DynamicPrintConfig &full_config, si
 
 // Sidebar / public
 
+// Fibre products the panel offers, by identity only. Diameter and linear density
+// are material data: they come from the matched composite filament profile
+// (fiber_diameter, fiber_linear_density), never from this table.
 struct SidebarContinuousFiberMaterial
 {
     const char *label;
     const char *name;
-    const char *profile_suffix;
     const char *type;
     const char *material_kind;
     const char *source_material_id;
     const char *color;
-    double      diameter_mm;
-    double      linear_density_g_per_km;
 };
 
 static const std::vector<SidebarContinuousFiberMaterial>& sidebar_continuous_fiber_materials()
 {
     static const std::vector<SidebarContinuousFiberMaterial> materials = {
-        { "X-CCF Carbon fiber 0.25 mm", "X-CCF Carbon fiber 0.25 mm", "X-CCF", "carbon_fiber", "continuous_fiber", "tinmanx1-x-ccf-025", "#111111", 0.25, 102.0 },
-        { "CGF Glass fiber 0.35 mm",    "CGF Glass fiber 0.35 mm",    "CGF",   "glass_fiber",  "continuous_fiber", "tinmanx1-cgf-035",   "#E8F4FF", 0.35, 170.0 },
-        { "CKF Kevlar fiber 0.25 mm",   "CKF Kevlar fiber 0.25 mm",   "CKF",   "aramid_fiber", "continuous_fiber", "tinmanx1-ckf-025",   "#D8A300", 0.25, 72.0 },
-        { "CBF Basalt fiber 0.25 mm",   "CBF Basalt fiber 0.25 mm",   "CBF",   "basalt_fiber", "continuous_fiber", "tinmanx1-cbf-025",   "#3F3530", 0.25, 95.0 }
+        { "X-CCF Carbon fiber 0.25 mm", "X-CCF Carbon fiber 0.25 mm", "carbon_fiber", "continuous_fiber", "tinmanx1-x-ccf-025", "#111111" },
+        { "CGF Glass fiber 0.35 mm",    "CGF Glass fiber 0.35 mm",    "glass_fiber",  "continuous_fiber", "tinmanx1-cgf-035",   "#E8F4FF" },
+        { "CKF Kevlar fiber 0.25 mm",   "CKF Kevlar fiber 0.25 mm",   "aramid_fiber", "continuous_fiber", "tinmanx1-ckf-025",   "#D8A300" },
+        { "CBF Basalt fiber 0.25 mm",   "CBF Basalt fiber 0.25 mm",   "basalt_fiber", "continuous_fiber", "tinmanx1-cbf-025",   "#3F3530" }
     };
     return materials;
 }
@@ -1747,16 +1752,6 @@ static std::string sidebar_material_from_filament_preset(const Preset* preset)
     return sidebar_material_from_tinmanx1_preset_name(preset->name);
 }
 
-static std::string sidebar_composite_filament_name(const std::string& matrix_material, const SidebarContinuousFiberMaterial& fiber)
-{
-    return (boost::format("CFC %1% + %2% @FibreSeek Seeker 3") % matrix_material % fiber.profile_suffix).str();
-}
-
-static std::string sidebar_composite_filament_alias(const std::string& matrix_material, const SidebarContinuousFiberMaterial& fiber)
-{
-    return (boost::format("CFC %1% + %2%") % matrix_material % fiber.profile_suffix).str();
-}
-
 static std::string sidebar_lower_string(std::string value);
 
 static std::string sidebar_first_string_option(const DynamicConfig& config, const char* key)
@@ -1783,9 +1778,11 @@ static Preset* sidebar_find_filament_preset_by_name_or_alias(PresetBundle *prese
                (!candidate_alias.empty() && candidate_alias == clean_name);
     };
 
+    // Return the effective preset (the edited copy when it is open in the
+    // editor): slicing uses that copy, so the sidebar must read it too.
     for (const Preset& preset : preset_bundle->filaments.get_presets()) {
         if (matches_loaded_preset(preset, preset_name))
-            return const_cast<Preset*>(&preset);
+            return preset_bundle->filaments.find_preset(preset.name, false);
     }
 
     if (Preset *preset = preset_bundle->filaments.find_preset(preset_name, false))
@@ -1801,7 +1798,7 @@ static Preset* sidebar_find_filament_preset_by_name_or_alias(PresetBundle *prese
     if (!resolved_name.empty() && resolved_name != clean_name) {
         for (const Preset& preset : preset_bundle->filaments.get_presets()) {
             if (matches_loaded_preset(preset, resolved_name))
-                return const_cast<Preset*>(&preset);
+                return preset_bundle->filaments.find_preset(preset.name, false);
         }
         if (Preset *preset = preset_bundle->filaments.find_preset(resolved_name, false))
             return preset;
@@ -1810,17 +1807,19 @@ static Preset* sidebar_find_filament_preset_by_name_or_alias(PresetBundle *prese
     return nullptr;
 }
 
-static int sidebar_continuous_fiber_material_index_for_filament_preset(const Preset* preset, const std::string& preset_name)
+static int sidebar_continuous_fiber_material_index_for_filament_preset(const Preset* preset)
 {
-    if (!preset)
+    if (!preset || !filament_is_cfc_slot_profile(*preset))
         return -1;
 
     const std::string source_id = sidebar_lower_string(sidebar_first_string_option(preset->config, "fiber_source_material_id"));
     const std::string fiber_name = sidebar_lower_string(sidebar_first_string_option(preset->config, "fiber_name"));
     const std::string fiber_type = sidebar_lower_string(sidebar_first_string_option(preset->config, "fiber_type"));
-    const std::string searchable = sidebar_lower_string(Preset::remove_suffix_modified(preset_name) + " " +
-        Preset::remove_suffix_modified(preset->name) + " " +
-        Preset::remove_suffix_modified(preset->alias));
+    const std::string material_kind = sidebar_lower_string(sidebar_first_string_option(preset->config, "fiber_material_kind"));
+    // A composite_matrix profile's source ID names its recipe, not the strand.
+    const bool recipe = material_kind == "composite_matrix";
+    if (!recipe && !material_kind.empty() && material_kind != "continuous_fiber")
+        return -1;
 
     const auto& materials = sidebar_continuous_fiber_materials();
     for (size_t i = 0; i < materials.size(); ++i) {
@@ -1828,59 +1827,13 @@ static int sidebar_continuous_fiber_material_index_for_filament_preset(const Pre
         const std::string material_source = sidebar_lower_string(material.source_material_id);
         const std::string material_name = sidebar_lower_string(material.name);
         const std::string material_type = sidebar_lower_string(material.type);
-        const std::string material_suffix = sidebar_lower_string(material.profile_suffix);
-
-        if ((!source_id.empty() && source_id == material_source) ||
-            (!fiber_name.empty() && fiber_name == material_name) ||
-            (!fiber_type.empty() && fiber_type == material_type) ||
-            searchable.find(" + " + material_suffix) != std::string::npos)
+        // Fiber type alone (carbon, glass) does not name a product, and neither does the profile name.
+        if (fiber_name == material_name && fiber_type == material_type &&
+            (recipe || source_id.empty() || source_id == material_source))
             return static_cast<int>(i);
     }
 
     return -1;
-}
-
-static std::string sidebar_resolve_loaded_composite_filament_name(PresetBundle *preset_bundle, const std::string& target_name, const std::string& target_alias)
-{
-    if (!preset_bundle)
-        return {};
-
-    if (Preset *preset = preset_bundle->filaments.find_preset(target_name, false, true))
-        return preset->name;
-
-    const std::string alias_match = preset_bundle->filaments.get_preset_name_by_alias(target_alias);
-    if (!alias_match.empty() && alias_match != target_alias) {
-        if (Preset *preset = preset_bundle->filaments.find_preset(alias_match, false, true))
-            return preset->name;
-        return alias_match;
-    }
-
-    for (const Preset& preset : preset_bundle->filaments.get_presets()) {
-        const std::string preset_name = Preset::remove_suffix_modified(preset.name);
-        const std::string preset_alias = Preset::remove_suffix_modified(preset.alias);
-        if (preset_name == target_name || preset_alias == target_name ||
-            preset_name == target_alias || preset_alias == target_alias)
-            return preset.name;
-    }
-
-    return {};
-}
-
-static bool sidebar_composite_filament_profile_exists(const std::string& target_name)
-{
-    const fs::path data_dir = Slic3r::data_dir();
-    const std::array<fs::path, 2> roots = {
-        data_dir / "system" / "Tinman" / "filament",
-        fs::path(Slic3r::resources_dir()) / "profiles" / "Tinman" / "filament",
-    };
-
-    for (const fs::path& root : roots) {
-        boost::system::error_code ec;
-        if (fs::exists(root / (target_name + ".json"), ec))
-            return true;
-    }
-
-    return false;
 }
 
 static int sidebar_continuous_fiber_material_index()
@@ -1898,20 +1851,13 @@ static int sidebar_continuous_fiber_material_index()
     return std::max(0, std::min(selected, int(materials.size()) - 1));
 }
 
-static std::string sidebar_continuous_fiber_detail(const SidebarContinuousFiberMaterial& material)
+static wxString sidebar_continuous_fiber_detail(const PresetBundle *preset_bundle)
 {
-    return (boost::format("%.2f mm  %.0f g/km") % material.diameter_mm % material.linear_density_g_per_km).str();
-}
-
-static std::string sidebar_serialized_option(const DynamicConfig& config, const char* key)
-{
-    const ConfigOption* option = config.option(key);
-    if (option == nullptr)
-        return {};
-
-    std::string value = option->serialize();
-    boost::algorithm::trim(value);
-    return value;
+    const auto *diameter = preset_bundle ? preset_bundle->project_config.option<ConfigOptionFloat>("continuous_fiber_diameter") : nullptr;
+    const auto *density  = preset_bundle ? preset_bundle->project_config.option<ConfigOptionFloat>("continuous_fiber_linear_density") : nullptr;
+    if (!diameter || diameter->value <= 0.)
+        return _L("Set the fiber diameter in the composite filament profile");
+    return from_u8((boost::format("%.2f mm  %.0f g/km") % diameter->value % (density ? density->value : 0.)).str());
 }
 
 static std::string sidebar_lower_string(std::string value)
@@ -1921,73 +1867,9 @@ static std::string sidebar_lower_string(std::string value)
     return value;
 }
 
-static std::string sidebar_lower_option(const DynamicConfig& config, const char* key)
-{
-    return sidebar_lower_string(sidebar_serialized_option(config, key));
-}
-
-static bool sidebar_truthy_option(const DynamicConfig& config, const char* key)
-{
-    const std::string value = sidebar_lower_option(config, key);
-    if (value.empty() || value == "0" || value == "false" || value == "no" || value == "off" || value == "null")
-        return false;
-    if (value == "1" || value == "true" || value == "yes" || value == "on")
-        return true;
-
-    try {
-        size_t parsed = 0;
-        return std::stod(value, &parsed) != 0.0 && parsed > 0;
-    } catch (...) {
-        return false;
-    }
-}
-
-static bool sidebar_positive_option(const DynamicConfig& config, const char* key)
-{
-    const std::string value = sidebar_lower_option(config, key);
-    if (value.empty())
-        return false;
-
-    try {
-        size_t parsed = 0;
-        return std::stod(value, &parsed) > 0.0 && parsed > 0;
-    } catch (...) {
-        return false;
-    }
-}
-
-static bool sidebar_payload_option(const DynamicConfig& config, const char* key)
-{
-    const std::string value = sidebar_lower_option(config, key);
-    return !value.empty() && value != "{}" && value != "[]" && value != "null";
-}
-
-static bool sidebar_text_matches_fiberseek_seeker3(const std::string& text)
-{
-    const std::string value = sidebar_lower_string(text);
-    if (value.empty())
-        return false;
-
-    const bool has_fiberseek = value.find("fibreseek") != std::string::npos ||
-                               value.find("fiberseek") != std::string::npos;
-    const bool has_seeker3 = value.find("seeker 3") != std::string::npos;
-    return (has_fiberseek && has_seeker3) || value == "seeker 3";
-}
-
 static bool sidebar_selected_printer_supports_continuous_fiber(const PresetBundle* preset_bundle)
 {
-    if (!preset_bundle)
-        return false;
-
-    const Preset& printer = preset_bundle->printers.get_edited_preset();
-    const DynamicConfig& config = printer.config;
-    return sidebar_truthy_option(config, "fiber_enabled") ||
-           sidebar_payload_option(config, "fiber_cut_gcode") ||
-           (sidebar_positive_option(config, "fiber_cut_distance") &&
-            sidebar_positive_option(config, "composite_nozzle_diameter")) ||
-           sidebar_text_matches_fiberseek_seeker3(Preset::remove_suffix_modified(printer.name)) ||
-           sidebar_text_matches_fiberseek_seeker3(sidebar_serialized_option(config, "printer_model")) ||
-           sidebar_text_matches_fiberseek_seeker3(sidebar_serialized_option(config, "printer_settings_id"));
+    return preset_bundle != nullptr && selected_printer_supports_continuous_fiber(*preset_bundle);
 }
 
 static void sidebar_ensure_filament_preset_slot(PresetBundle *preset_bundle, size_t slot)
@@ -2004,20 +1886,6 @@ static void sidebar_ensure_filament_preset_slot(PresetBundle *preset_bundle, siz
 
     if (preset_bundle->filament_presets.size() <= slot)
         preset_bundle->set_num_filaments(static_cast<unsigned int>(slot + 1));
-}
-
-static void sidebar_apply_continuous_fiber_material(PresetBundle *preset_bundle, const SidebarContinuousFiberMaterial& material)
-{
-    if (!preset_bundle)
-        return;
-
-    DynamicPrintConfig& cfg = preset_bundle->project_config;
-    cfg.set_key_value("continuous_fiber_name", new ConfigOptionString(material.name));
-    cfg.set_key_value("continuous_fiber_type", new ConfigOptionString(material.type));
-    cfg.set_key_value("continuous_fiber_material_kind", new ConfigOptionString(material.material_kind));
-    cfg.set_key_value("continuous_fiber_source_material_id", new ConfigOptionString(material.source_material_id));
-    cfg.set_key_value("continuous_fiber_diameter", new ConfigOptionFloat(material.diameter_mm));
-    cfg.set_key_value("continuous_fiber_linear_density", new ConfigOptionFloat(material.linear_density_g_per_km));
 }
 
 struct DynamicFilamentList : DynamicList
@@ -4218,7 +4086,9 @@ Sidebar::Sidebar(Plater *parent)
     p->m_staticText_continuous_fiber_detail->SetFont(Label::Body_10);
     p->m_staticText_continuous_fiber_detail->SetForegroundColour(wxColour(86, 86, 86));
 
-    p->m_combo_continuous_fiber = new ComboBox(p->m_panel_continuous_fiber, wxID_ANY, wxString(""), wxDefaultPosition, wxDefaultSize, 0, nullptr, wxCB_READONLY);
+    // A native choice exposes its name, value and options to screen readers and the keyboard.
+    p->m_combo_continuous_fiber = new wxChoice(p->m_panel_continuous_fiber, wxID_ANY);
+    p->m_combo_continuous_fiber->SetName(_L("Continuous fiber material"));
     p->m_combo_continuous_fiber->SetMinSize(FromDIP(wxSize(150, 28)));
     p->m_combo_continuous_fiber->SetFont(Label::Body_10);
 
@@ -4366,6 +4236,7 @@ Sidebar::Sidebar(Plater *parent)
     p->m_filament_area_wrapper->Layout();
     scrolled_sizer->Add(p->m_filament_area_wrapper, 0, wxEXPAND | wxTOP | wxBOTTOM, FromDIP(SidebarProps::ContentMarginV())); // ORCA use vertical margin on parent otherwise it shows scrollbar even on 1 filament
     scrolled_sizer->Add(p->m_panel_continuous_fiber, 0, wxEXPAND | wxLEFT | wxRIGHT | wxTOP | wxBOTTOM, FromDIP(10));
+    update_continuous_fiber_visibility();
     // ---- End filament area ----
     }
 
@@ -4602,42 +4473,25 @@ bool Sidebar::apply_continuous_fiber_material_to_slot(const SidebarContinuousFib
         return false;
 
     constexpr size_t fiber_slot = 1; // FibreSeek lane #2: plastic + selected continuous fiber.
-    sidebar_ensure_filament_preset_slot(preset_bundle, fiber_slot);
-    if (preset_bundle->filament_presets.size() <= fiber_slot)
-        return false;
-
     std::string matrix_material;
     if (!preset_bundle->filament_presets.empty()) {
         if (Preset* current_plastic_slot = preset_bundle->filaments.find_preset(preset_bundle->filament_presets.front(), false))
             matrix_material = sidebar_material_from_filament_preset(current_plastic_slot);
     }
 
-    if (matrix_material.empty())
-        return false;
-
-    const std::string target_name = sidebar_composite_filament_name(matrix_material, material);
-    const std::string target_alias = sidebar_composite_filament_alias(matrix_material, material);
-    std::string selected_name = sidebar_resolve_loaded_composite_filament_name(preset_bundle, target_name, target_alias);
-    if (selected_name.empty() && sidebar_composite_filament_profile_exists(target_name))
-        selected_name = target_name;
-    if (selected_name.empty() && std::string(material.profile_suffix) == "X-CCF") {
-        const std::string legacy_carbon_name =
-            (boost::format("Tinman %1% + X-CCF @FibreSeek Seeker 3") % matrix_material).str();
-        const std::string legacy_carbon_alias =
-            (boost::format("Tinman %1% + X-CCF") % matrix_material).str();
-        selected_name = sidebar_resolve_loaded_composite_filament_name(preset_bundle, legacy_carbon_name, legacy_carbon_alias);
-    }
-    if (selected_name.empty()) {
-        BOOST_LOG_TRIVIAL(warning) << __FUNCTION__
-            << boost::format(": no Tinman composite filament found for material %1% and fiber %2%")
-            % matrix_material % material.profile_suffix;
+    // Material 2 and the project's fibre data change together, and only when exactly
+    // one composite profile matches; otherwise nothing changes.
+    std::string reason;
+    const bool committed = commit_continuous_fiber_choice(*preset_bundle,
+        {matrix_material, material.source_material_id, material.name, material.type}, reason);
+    if (p->m_combo_continuous_fiber)
+        p->m_combo_continuous_fiber->SetToolTip(committed ? wxString() : from_u8(reason));
+    if (!committed) {
+        BOOST_LOG_TRIVIAL(warning) << __FUNCTION__ << ": " << reason;
         return false;
     }
-
-    if (preset_bundle->filament_presets[fiber_slot] == selected_name)
-        return false;
-
-    preset_bundle->set_filament_preset(fiber_slot, selected_name);
+    if (p->m_staticText_continuous_fiber_detail)
+        p->m_staticText_continuous_fiber_detail->SetLabel(sidebar_continuous_fiber_detail(preset_bundle));
     preset_bundle->export_selections(*app_config);
     update_dynamic_filament_list();
 
@@ -4662,21 +4516,23 @@ bool Sidebar::sync_continuous_fiber_selector_from_filament_preset(const std::str
         return false;
 
     const Preset* preset = sidebar_find_filament_preset_by_name_or_alias(preset_bundle, preset_name);
-    const int selected = sidebar_continuous_fiber_material_index_for_filament_preset(preset, preset_name);
-    const auto& materials = sidebar_continuous_fiber_materials();
-    if (selected < 0 || selected >= static_cast<int>(materials.size()))
+    if (!preset || !filament_is_cfc_slot_profile(*preset))
         return false;
-
-    const SidebarContinuousFiberMaterial& material = materials[selected];
-    app_config->set("continuous_fiber_material_index", std::to_string(selected));
-    sidebar_apply_continuous_fiber_material(preset_bundle, material);
+    // Any composite, also one the fiber list does not name, brings its own
+    // identity and strand data; no other product's data stays behind.
+    copy_continuous_fiber_metadata(*preset, preset_bundle->project_config);
+    const int selected = sidebar_continuous_fiber_material_index_for_filament_preset(preset);
+    const auto& materials = sidebar_continuous_fiber_materials();
+    const bool listed = selected >= 0 && selected < static_cast<int>(materials.size());
+    if (listed)
+        app_config->set("continuous_fiber_material_index", std::to_string(selected));
 
     if (p->m_combo_continuous_fiber)
-        p->m_combo_continuous_fiber->SetSelection(selected);
+        p->m_combo_continuous_fiber->SetSelection(listed ? selected : wxNOT_FOUND);
     if (p->m_staticText_continuous_fiber_detail)
-        p->m_staticText_continuous_fiber_detail->SetLabel(from_u8(sidebar_continuous_fiber_detail(material)));
-    if (p->m_continuous_fiber_swatch)
-        p->m_continuous_fiber_swatch->SetBackgroundColour(wxColour(material.color));
+        p->m_staticText_continuous_fiber_detail->SetLabel(sidebar_continuous_fiber_detail(preset_bundle));
+    if (p->m_continuous_fiber_swatch && listed)
+        p->m_continuous_fiber_swatch->SetBackgroundColour(wxColour(materials[selected].color));
     if (p->m_panel_continuous_fiber)
         p->m_panel_continuous_fiber->Layout();
     if (p->m_panel_filament_content)
@@ -4707,10 +4563,9 @@ void Sidebar::init_continuous_fiber_combo()
     if (!materials.empty()) {
         const SidebarContinuousFiberMaterial& material = materials[selected];
         p->m_combo_continuous_fiber->SetSelection(selected);
-        p->m_staticText_continuous_fiber_detail->SetLabel(from_u8(sidebar_continuous_fiber_detail(material)));
         p->m_continuous_fiber_swatch->SetBackgroundColour(wxColour(material.color));
-        sidebar_apply_continuous_fiber_material(wxGetApp().preset_bundle, material);
         apply_continuous_fiber_material_to_slot(material, false);
+        p->m_staticText_continuous_fiber_detail->SetLabel(sidebar_continuous_fiber_detail(wxGetApp().preset_bundle));
         refresh_continuous_fiber_slot_choice();
     }
 
@@ -4723,31 +4578,94 @@ void Sidebar::init_continuous_fiber_combo()
         const SidebarContinuousFiberMaterial& material = materials[selected];
 
         PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+        if (!sidebar_selected_printer_supports_continuous_fiber(preset_bundle))
+            return;
+        // Keep the previous fiber when no saved composite profile matches the new one.
+        if (!apply_continuous_fiber_material_to_slot(material, false)) {
+            p->m_combo_continuous_fiber->SetSelection(sidebar_continuous_fiber_material_index());
+            return;
+        }
         AppConfig *app_config = wxGetApp().app_config;
         if (app_config)
             app_config->set("continuous_fiber_material_index", std::to_string(selected));
         p->m_combo_continuous_fiber->SetSelection(selected);
-        sidebar_apply_continuous_fiber_material(preset_bundle, material);
-        apply_continuous_fiber_material_to_slot(material);
-
-        p->m_staticText_continuous_fiber_detail->SetLabel(from_u8(sidebar_continuous_fiber_detail(material)));
+        p->m_staticText_continuous_fiber_detail->SetLabel(sidebar_continuous_fiber_detail(preset_bundle));
         p->m_continuous_fiber_swatch->SetBackgroundColour(wxColour(material.color));
         p->m_panel_continuous_fiber->Layout();
         p->m_panel_filament_content->Layout();
         update_filaments_area_height();
         refresh_continuous_fiber_slot_choice();
 
-        if (preset_bundle && app_config)
+        if (app_config)
             preset_bundle->export_selections(*app_config);
         wxGetApp().plater()->update_project_dirty_from_presets();
-        if (preset_bundle && wxGetApp().mainframe)
+        wxGetApp().plater()->on_filament_change(1);
+        wxGetApp().plater()->on_config_change(preset_bundle->full_config());
+        if (wxGetApp().mainframe)
             wxGetApp().mainframe->on_config_changed(&preset_bundle->project_config);
         wxPostEvent(this, SimpleEvent(EVT_SCHEDULE_BACKGROUND_PROCESS, this));
     };
 
-    p->m_combo_continuous_fiber->Bind(wxEVT_COMBOBOX, [apply_selected_fiber](wxCommandEvent& e) {
+    p->m_combo_continuous_fiber->Bind(wxEVT_CHOICE, [apply_selected_fiber](wxCommandEvent& e) {
         apply_selected_fiber(e.GetInt());
     });
+}
+
+void Sidebar::update_continuous_fiber_visibility()
+{
+    if (!p->m_panel_continuous_fiber || !p->m_combo_continuous_fiber)
+        return;
+    const PresetBundle *bundle = wxGetApp().preset_bundle;
+    const bool visible = bundle != nullptr &&
+        bundle->printers.get_edited_preset().printer_technology() == ptFFF &&
+        sidebar_selected_printer_supports_continuous_fiber(bundle);
+    p->m_combo_continuous_fiber->Enable(visible);
+    if (p->m_panel_continuous_fiber->Show(visible)) {
+        m_scrolled_sizer->Layout();
+        p->scrolled->FitInside();
+    }
+}
+
+// Tinman has no built-in fibre data: say once per composite which settings a
+// fibre slice still needs, and where to enter them.
+void Sidebar::notify_missing_continuous_fiber_settings(const Preset &composite)
+{
+    const std::vector<std::string> missing = missing_continuous_fiber_settings(composite);
+    std::string key = composite.name;
+    for (const std::string &name : missing)
+        key += "|" + name;
+    if (missing.empty() || key == p->continuous_fiber_missing_notice)
+        return;
+    p->continuous_fiber_missing_notice = key;
+    wxString names;
+    for (const std::string &name : missing)
+        names += (names.empty() ? wxString() : wxString(", ")) + wxGetTranslation(from_u8(name));
+    if (p->plater && p->plater->get_notification_manager())
+        p->plater->get_notification_manager()->push_notification(
+            NotificationType::CustomNotification, NotificationManager::NotificationLevel::WarningNotificationLevel,
+            into_u8(GUI::format_wxstr(_L("The composite filament \"%1%\" needs %2% before it can be sliced with fiber. "
+                                         "Enter them in its filament settings, under the fiber settings."),
+                                      from_u8(composite.name), names)));
+}
+
+void Sidebar::refresh_continuous_fiber_choice()
+{
+    PresetBundle *preset_bundle = wxGetApp().preset_bundle;
+    if (!preset_bundle || preset_bundle->filament_presets.size() < 2 ||
+        !sidebar_selected_printer_supports_continuous_fiber(preset_bundle))
+        return;
+    const Preset *composite = preset_bundle->filaments.find_preset(preset_bundle->filament_presets[1], false);
+    if (composite && filament_is_cfc_slot_profile(*composite)) {
+        // A loaded project keeps its own composite; the panel follows it instead of
+        // the fiber remembered from another project.
+        sync_continuous_fiber_selector_from_filament_preset(composite->name, false);
+        notify_missing_continuous_fiber_settings(*composite);
+        return;
+    }
+    // Material 2 has no composite yet (a new project): try the remembered fiber.
+    const auto &materials = sidebar_continuous_fiber_materials();
+    if (!materials.empty())
+        apply_continuous_fiber_material_to_slot(materials[sidebar_continuous_fiber_material_index()], false);
 }
 
 void Sidebar::refresh_continuous_fiber_slot_choice()
@@ -4793,6 +4711,7 @@ void Sidebar::update_all_preset_comboboxes()
 {
     PresetBundle &preset_bundle = *wxGetApp().preset_bundle;
     const auto print_tech = preset_bundle.printers.get_edited_preset().printer_technology();
+    update_continuous_fiber_visibility();
 
     bool is_bbl_vendor = preset_bundle.is_bbl_vendor();
 
@@ -4801,10 +4720,9 @@ void Sidebar::update_all_preset_comboboxes()
     const bool use_printer_agents = wxGetApp().app_config->get_bool("use_printer_agents");
     const bool use_native_device_tab = preset_bundle.use_bbl_device_tab() || use_printer_agents;
 
-    if (print_tech == ptFFF && preset_bundle.filament_presets.size() > 1) {
-        const auto& materials = sidebar_continuous_fiber_materials();
-        if (!materials.empty())
-            apply_continuous_fiber_material_to_slot(materials[sidebar_continuous_fiber_material_index()], false);
+    if (print_tech == ptFFF && preset_bundle.filament_presets.size() > 1 &&
+        sidebar_selected_printer_supports_continuous_fiber(&preset_bundle)) {
+        refresh_continuous_fiber_choice();
     }
 
     if (preset_bundle.use_bbl_network()) {
@@ -4927,6 +4845,7 @@ void Sidebar::update_presets(Preset::Type preset_type)
 {
     PresetBundle &preset_bundle = *wxGetApp().preset_bundle;
     const auto print_tech = preset_bundle.printers.get_edited_preset().printer_technology();
+    update_continuous_fiber_visibility();
 
     BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << boost::format(": enter, preset_type %1%")%preset_type;
     switch (preset_type) {
@@ -4952,11 +4871,8 @@ void Sidebar::update_presets(Preset::Type preset_type)
 
         }
 
-        if (filament_cnt > 1) {
-            const auto& materials = sidebar_continuous_fiber_materials();
-            if (!materials.empty())
-                apply_continuous_fiber_material_to_slot(materials[sidebar_continuous_fiber_material_index()], false);
-        }
+        if (filament_cnt > 1)
+            refresh_continuous_fiber_choice();
 
         for (size_t i = 0; i < filament_cnt; i++)
             p->combos_filament[i]->update();
@@ -6774,11 +6690,8 @@ void Sidebar::on_filament_count_change(size_t num_filaments)
     // remove unused choices if any
     remove_unused_filament_combos(num_physical);
 
-    if (num_filaments > 1) {
-        const auto& materials = sidebar_continuous_fiber_materials();
-        if (!materials.empty())
-            apply_continuous_fiber_material_to_slot(materials[sidebar_continuous_fiber_material_index()], false);
-    }
+    if (num_filaments > 1)
+        refresh_continuous_fiber_choice();
     refresh_continuous_fiber_slot_choice();
 
     show_SEMM_buttons(); // ORCA
@@ -12728,6 +12641,8 @@ unsigned int Plater::priv::update_background_process(bool force_validation, bool
 
     Print::ApplyStatus invalidated;
     const auto& preset_bundle = wxGetApp().preset_bundle;
+    // Material map edits since the last preset change must not move a FibreSeek lane.
+    normalize_fibreseek_material_mapping(*preset_bundle);
     if (preset_bundle->get_printer_extruder_count() > 1) {
         PartPlate* cur_plate = background_process.get_current_plate();
         std::vector<int> f_maps = cur_plate->get_real_filament_maps(preset_bundle->project_config);
@@ -21844,6 +21759,8 @@ int Plater::export_3mf(const boost::filesystem::path& output_path, SaveStrategy 
     // modify model
     publish(p->model, strategy);
 
+    // Save a FibreSeek project with its role map.
+    normalize_fibreseek_material_mapping(*wxGetApp().preset_bundle);
     DynamicPrintConfig cfg = wxGetApp().preset_bundle->full_config_secure();
     const std::string path_u8 = into_u8(path);
     wxBusyCursor wait;

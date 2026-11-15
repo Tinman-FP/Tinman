@@ -32,6 +32,7 @@
 #include <sstream>
 
 #include "PresetBundle.hpp"
+#include "FibreSeekMaterials.hpp"
 #include "PrinterBedAssets.hpp"
 
 #include "Config.hpp"
@@ -1010,6 +1011,7 @@ PresetBundle& PresetBundle::operator=(const PresetBundle &rhs)
 
     filament_presets    = rhs.filament_presets;
     project_config      = rhs.project_config;
+    fibreseek_mapping   = rhs.fibreseek_mapping;
     vendors             = rhs.vendors;
     obsolete_presets    = rhs.obsolete_presets;
     m_errors    = rhs.m_errors;
@@ -6266,6 +6268,8 @@ DynamicPrintConfig PresetBundle::full_fff_config(bool apply_extruder, std::optio
         trace->checkpoint(out, {ConfigOriginKind::Normalization});
         if (normalized) trace->warn("Tool/material dimensions or invalid routes required normalization.");
     }
+    // FibreSeek: the fibre writers' strand data comes from the effective composite profile.
+    apply_continuous_fiber_strand_data(out);
     return out;
 }
 
@@ -6862,6 +6866,10 @@ void PresetBundle::load_config_file_config(const std::string &name_or_path, bool
 
         // Load the project config values. In published mode only the plate/bed geometry keys
         // cross over (the receiver must not inherit the author's filament/purge data).
+        // A loaded project brings its own filament map: forget the one saved for leaving
+        // FibreSeek. A published project keeps the receiver's filament data, and so its memory.
+        if (!is_published)
+            this->fibreseek_mapping = {};
         this->project_config.apply_only(config, is_published ? s_project_options_published : s_project_options);
         // Older projects inherit one-element mixed defaults, regardless of their filament count.
         if (!is_published)
@@ -9146,6 +9154,7 @@ void PresetBundle::update_multi_material_filament_presets(size_t to_delete_filam
     multipliers.swap(new_multipliers);
     if (rebuild_matrix)
         matrix.swap(new_matrix);
+    normalize_fibreseek_material_mapping(*this);
 }
 
 // Rewrite a preset-name-list field (compatible_printers / compatible_prints) so references to a
@@ -9411,6 +9420,7 @@ void PresetBundle::set_filament_preset(size_t idx, const std::string &name)
         return;
     }
     filament_presets[idx] = Preset::remove_suffix_modified(name);
+    normalize_fibreseek_material_mapping(*this);
 }
 
 void PresetBundle::set_default_suppressed(bool default_suppressed)

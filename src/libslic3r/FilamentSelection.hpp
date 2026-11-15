@@ -27,7 +27,9 @@ struct FilamentSlotSelection {
 
 // Call only after confirmation, on the thread that owns the bundle. Stages all
 // allocations before committing the slot and palette; never exports selections
-// or modifies the active filament editor, tool mapping, or hardware settings.
+// or modifies the active filament editor or hardware settings. Keeps the
+// continuous-fiber lane rule, and on the FibreSeek Seeker 3 refreshes its fixed
+// tool mapping; other printers' tool mapping is left alone.
 bool apply_filament_slot_selection(PresetBundle &bundle, const FilamentSlotSelection &selection,
                                    std::string &reason);
 

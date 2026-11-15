@@ -43,6 +43,7 @@ G1 X35 Y35 E8
 ; fiber_reinforcement_mode = heavy
 ; fiber_infill_pattern = grid
 ; fiber_diameter = 0.25
+; fiber_feed_factor = 0.8
 ; fiber_linear_density = 102
 """
 
@@ -78,6 +79,7 @@ G1 X39 Y20 E12
 ; fiber_cut_distance = 58
 ; fiber_start_length = 15
 ; fiber_diameter = 0.25
+; fiber_feed_factor = 0.8
 ; fiber_linear_density = 102
 """
 
@@ -107,6 +109,7 @@ G1 X20 Y20 E8
 ; fiber_cut_distance = 58
 ; fiber_start_length = 15
 ; fiber_diameter = 0.25
+; fiber_feed_factor = 0.8
 ; fiber_linear_density = 102
 """
 
@@ -169,6 +172,7 @@ def synthetic_close_hole_cluster_gcode() -> str:
             "; fiber_start_length = 15",
             "; fiber_min_radius = 12",
             "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
             "; fiber_linear_density = 102",
             "",
         ]
@@ -198,6 +202,7 @@ def synthetic_legal_small_hole_gcode() -> str:
             "; fiber_start_length = 15",
             "; fiber_min_radius = 12",
             "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
             "; fiber_linear_density = 102",
             "",
         ]
@@ -227,6 +232,7 @@ def synthetic_isolated_tiny_hole_gcode() -> str:
             "; fiber_start_length = 15",
             "; fiber_min_radius = 12",
             "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
             "; fiber_linear_density = 102",
             "",
         ]
@@ -271,6 +277,7 @@ def synthetic_local_hole_cluster_gcode() -> str:
             "; fiber_start_length = 15",
             "; fiber_min_radius = 12",
             "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
             "; fiber_linear_density = 102",
             "",
         ]
@@ -322,6 +329,7 @@ def synthetic_internal_void_stitch_gear_gcode() -> str:
                     "; fiber_start_length = 15",
                     "; fiber_min_radius = 12",
                     "; fiber_diameter = 0.25",
+                    "; fiber_feed_factor = 0.8",
                     "; fiber_linear_density = 102",
                 ]
             )
@@ -369,6 +377,7 @@ def synthetic_alternating_hole_family_gcode() -> str:
                     "; fiber_start_length = 15",
                     "; fiber_min_radius = 12",
                     "; fiber_diameter = 0.25",
+                    "; fiber_feed_factor = 0.8",
                     "; fiber_linear_density = 102",
                 ]
             )
@@ -418,6 +427,7 @@ def synthetic_radial_small_gear_hole_gcode() -> str:
                     "; fiber_start_length = 15",
                     "; fiber_min_radius = 12",
                     "; fiber_diameter = 0.25",
+                    "; fiber_feed_factor = 0.8",
                     "; fiber_linear_density = 102",
                 ]
             )
@@ -466,6 +476,7 @@ def synthetic_fiberseek_contract_gcode() -> str:
             "; fiber_start_length = 15",
             "; fiber_min_radius = 12",
             "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
             "; fiber_linear_density = 102",
             "M106 S0",
             ";TYPE:Custom",
@@ -489,6 +500,10 @@ def synthetic_bad_fiberseek_process_gcode() -> str:
             "; fiber_generate_perimeters = 1",
             "; fiber_generate_infill = 1",
             "; fiber_reinforcement_mode = heavy",
+            # Synthetic strand data for material 2, the composite.
+            "; fiber_diameter = 0,0.3",
+            "; fiber_feed_factor = 0,0.8",
+            "; fiber_linear_density = 0,90",
             "G90",
             "M82",
             ";LAYER_CHANGE",
@@ -541,6 +556,10 @@ def synthetic_layup_payload_gcode() -> str:
             "; fiber_generate_perimeters = 0",
             "; fiber_generate_infill = 1",
             "; fiber_reinforcement_mode = heavy",
+            # Synthetic strand data: the planner has no built-in fibre diameter.
+            "; fiber_diameter = 0.3",
+            "; fiber_feed_factor = 0.8",
+            "; fiber_linear_density = 90",
             "; fiber_infill_source_policy = generated_ribs",
             "; fiber_min_route_length = 55",
             "; fiber_mechanical_min_route_length = 55",
@@ -597,6 +616,10 @@ def synthetic_layup_ui_gcode() -> str:
             "; fiber_generate_perimeters = 0",
             "; fiber_generate_infill = 0",
             "; fiber_reinforcement_mode = light",
+            # Synthetic strand data: the planner has no built-in fibre diameter.
+            "; fiber_diameter = 0.3",
+            "; fiber_feed_factor = 0.8",
+            "; fiber_linear_density = 90",
             "; fiber_infill_source_policy = generated_ribs",
             "; fiber_min_route_length = 55",
             "; fiber_mechanical_min_route_length = 55",
@@ -630,6 +653,7 @@ def synthetic_fan_schedule_gcode() -> str:
             "; fiber_cut_distance = 58",
             "; fiber_start_length = 15",
             "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
             "; fiber_linear_density = 102",
         ]
     )
@@ -735,6 +759,54 @@ def main() -> int:
             raise SystemExit("Canonical process fiber metadata was lost to filament vector defaults")
         if cfg.fiber_diameter != 0.25 or cfg.fiber_linear_density != 102:
             raise SystemExit("Legacy fiber metadata compatibility was lost")
+
+        # "0" means not set: an unset project value falls back to the composite's own data.
+        unset_fixture = Path(tmpdir) / "unset_metadata.gcode"
+        unset_fixture.write_text(
+            SYNTHETIC_GCODE + "; continuous_fiber_diameter = 0\n; continuous_fiber_linear_density = 0\n",
+            encoding="utf-8",
+        )
+        unset_cfg = planner.planner_config(planner.parse_gcode(unset_fixture), default_planner_args())
+        if unset_cfg.fiber_diameter != 0.25 or unset_cfg.fiber_linear_density != 102:
+            raise SystemExit("An unset continuous_fiber_* value masked the composite's strand data")
+        # Linear density is g/km; a value below 1 is the setting's earlier g/m label.
+        grams_per_meter = Path(tmpdir) / "grams_per_meter.gcode"
+        grams_per_meter.write_text(SYNTHETIC_GCODE.replace("; fiber_linear_density = 102", "; fiber_linear_density = 0.102"),
+                                   encoding="utf-8")
+        if abs(planner.planner_config(planner.parse_gcode(grams_per_meter), default_planner_args()).fiber_linear_density - 102) > 1e-9:
+            raise SystemExit("A g/m linear density was not converted to g/km")
+        # Per-material values are read at the composite's slot (the first CFC), as in C++.
+        def three_materials(factors: str) -> Path:
+            fixture = Path(tmpdir) / "three_materials.gcode"
+            fixture.write_text(
+                SYNTHETIC_GCODE
+                + "; print_settings_id = 0.20mm Plastic + Continuous Fiber Medium @FibreSeek Seeker 3 0.4+0.7 nozzle\n"
+                + "; filament_type = PCTG;CFC;CFC\n; fiber_diameter = 0,0.25,0.3\n"
+                "; fiber_linear_density = 0,102,90\n; fiber_feed_factor = " + factors + "\n",
+                encoding="utf-8",
+            )
+            return fixture
+        conflicting = planner.planner_config(planner.parse_gcode(three_materials("0,0.8,0.6")), default_planner_args())
+        if abs(conflicting.fiber_feed_factor - 0.8) > 1e-9 or conflicting.fiber_diameter != 0.25:
+            raise SystemExit("The strand data was not taken from material 2, the composite")
+        try:
+            planner.planner_config(planner.parse_gcode(three_materials("0,0,0.6")), default_planner_args())
+        except SystemExit as error:
+            if "Fiber feed factor" not in str(error):
+                raise
+        else:
+            raise SystemExit("Another material's feed factor was used for an unset composite")
+
+        # No feed factor: the planner stops instead of guessing one.
+        no_factor = Path(tmpdir) / "no_feed_factor.gcode"
+        no_factor.write_text(SYNTHETIC_GCODE.replace("; fiber_feed_factor = 0.8\n", ""), encoding="utf-8")
+        try:
+            planner.planner_config(planner.parse_gcode(no_factor), default_planner_args())
+        except SystemExit as error:
+            if "Fiber feed factor" not in str(error):
+                raise
+        else:
+            raise SystemExit("A missing fiber feed factor was not reported")
 
         material_payload = {
             "material_tuning": {

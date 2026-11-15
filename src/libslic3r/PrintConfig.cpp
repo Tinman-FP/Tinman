@@ -3675,8 +3675,18 @@ void PrintConfigDef::init_fff_params()
 
     def = this->add("fiber_linear_density", coFloats);
     def->label = L("Fiber linear density");
-    def->tooltip = L("Weight of the fiber per meter. This is used for estimates and planning.");
-    def->sidetext = L("g/m");
+    def->tooltip = L("Weight of the fiber per kilometer, from its datasheet. This is used for fiber weight estimates. 0 means not set.");
+    def->sidetext = L("g/km");
+    def->min = 0;
+    def->mode = comSimple;
+    def->set_default_value(new ConfigOptionFloats { 0.0 });
+
+    // FibreSeek: the fibre feed per mm of route is pi*(d/2)^2 times this factor. It
+    // depends on the fibre and the printer and has no default: calibrate it.
+    def = this->add("fiber_feed_factor", coFloats);
+    def->label = L("Fiber feed factor");
+    def->tooltip = L("Fiber feed per millimeter of route, as a fraction of the strand's cross-section area (pi x (diameter / 2)^2). "
+                     "Calibrate it for your fiber and printer. There is no default: continuous-fiber slicing stops until it is set.");
     def->min = 0;
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionFloats { 0.0 });
@@ -6792,19 +6802,19 @@ void PrintConfigDef::init_fff_params()
 
     def = this->add("continuous_fiber_diameter", coFloat);
     def->label = L("Continuous fiber diameter");
-    def->tooltip = L("Thickness of the selected continuous-fiber strand.");
+    def->tooltip = L("Thickness of the selected continuous-fiber strand, copied from the composite filament profile's fiber diameter. 0 means not set.");
     def->sidetext = L("mm");
     def->min = 0;
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(0.25));
+    def->set_default_value(new ConfigOptionFloat(0.));
 
     def = this->add("continuous_fiber_linear_density", coFloat);
     def->label = L("Continuous fiber linear density");
-    def->tooltip = L("Weight of the selected continuous fiber per kilometer.");
+    def->tooltip = L("Weight of the selected continuous fiber per kilometer, copied from the composite filament profile's fiber linear density. 0 means not set.");
     def->sidetext = L("g/km");
     def->min = 0;
     def->mode = comAdvanced;
-    def->set_default_value(new ConfigOptionFloat(102.0));
+    def->set_default_value(new ConfigOptionFloat(0.));
 
     def = this->add("fiber_postprocessor_type", coInt);
     def->label = L("Fiber postprocessor type");

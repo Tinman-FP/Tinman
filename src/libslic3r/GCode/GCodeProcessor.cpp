@@ -139,13 +139,16 @@ static bool orcaslicer_codex_config_nonempty_string_option(const Slic3r::Dynamic
     return !orcaslicer_codex_config_string_option(config, key).empty();
 }
 
+// Density (g/cm^3) of the fibre strand from its linear density (g/km) and
+// cross-section area pi*(d/2)^2 (mm^2): (g/km) / (mm^2) / 1000 = g/cm^3.
+// Without strand data the preview shows no fibre mass instead of a guess.
 static float orcaslicer_codex_continuous_fiber_density(float diameter_mm, float linear_density_g_per_km)
 {
     if (diameter_mm <= 1e-6f || linear_density_g_per_km <= 1e-6f)
-        return Slic3r::DEFAULT_FILAMENT_DENSITY;
+        return 0.0f;
 
     const float area_mm2 = static_cast<float>(M_PI) * 0.25f * diameter_mm * diameter_mm;
-    return area_mm2 > 1e-6f ? linear_density_g_per_km / (area_mm2 * 1000.0f) : Slic3r::DEFAULT_FILAMENT_DENSITY;
+    return area_mm2 > 1e-6f ? linear_density_g_per_km / (area_mm2 * 1000.0f) : 0.0f;
 }
 
 static bool parse_arc_support_preview_marker(
@@ -3714,12 +3717,12 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
             orcaslicer_codex_config_float_option(
                 config,
                 "continuous_fiber_diameter",
-                orcaslicer_codex_config_float_option(config, "fiber_diameter", 0.25f)),
+                orcaslicer_codex_config_float_option(config, "fiber_diameter", 0.0f)),
             0.001f);
         const float fiber_linear_density = orcaslicer_codex_config_float_option(
             config,
             "continuous_fiber_linear_density",
-            orcaslicer_codex_config_float_option(config, "fiber_linear_density", 102.0f));
+            orcaslicer_codex_config_float_option(config, "fiber_linear_density", 0.0f)); // not set: no fibre mass
         const std::string fiber_name = orcaslicer_codex_config_string_option(config, "continuous_fiber_name");
         const float configured_fiber_line_width = orcaslicer_codex_config_float_option(config, "fiber_line_width", fiber_diameter * 2.0f);
         m_orcaslicer_codex_continuous_fiber_preview_width_mm = std::clamp(

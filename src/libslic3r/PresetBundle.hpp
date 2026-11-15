@@ -4,6 +4,7 @@
 #include "Config.hpp"
 #include "Preset.hpp"
 #include "ProfileScopeSave.hpp"
+#include "FibreSeekMaterials.hpp"
 #include "PresetCacheFormat.hpp"
 #include "AppConfig.hpp"
 #include "PrintConfig.hpp"
@@ -548,6 +549,8 @@ public:
     // they are being serialized / deserialized from / to the .amf, .3mf, .config, .gcode,
     // and they are being used by slicing core.
     DynamicPrintConfig          project_config;
+    // The project's own filament map while the FibreSeek role map replaces it (FibreSeekMaterials.hpp).
+    FibreSeekMappingMemory      fibreseek_mapping;
 
     // There will be an entry for each system profile loaded,
     // and the system profiles will point to the VendorProfile instances owned by PresetBundle::vendors.

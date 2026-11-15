@@ -562,10 +562,12 @@ CONTINUOUS_FIBERS = [
         "manufacturer": "fibreseek",
         "source_id": "tinmanx1-x-ccf-025",
         "color": "#111111",
-        "diameter": 0.25,
-        "linear_density": 102.0,
+        # Not set: enter the strand diameter and linear density from the fibre's
+        # own datasheet. The earlier values came from a Rocket Slicer baseline.
+        "diameter": 0.0,
+        "linear_density": 0.0,
         "cost": 180,
-        "confidence": "Rocket PETG baseline",
+        "confidence": "Material data not set; enter it from the fibre's datasheet",
     },
     {
         "label": "CGF Glass fiber 0.35 mm",
@@ -839,14 +841,10 @@ def plastic_filament(material: str) -> dict:
 
 
 def composite_filament(material: str, values: dict, fiber: dict) -> dict:
-    confidence = (
-        "Known FibreSeek/Rocket baseline"
-        if material == "PETG" and fiber["profile_suffix"] == "X-CCF"
-        else "TinManX1 estimate"
-    )
+    confidence = fiber["confidence"]
     baseline_note = (
-        "Known FibreSeek/Rocket baseline only for CFC PETG + X-CCF; "
-        "other matrix/fiber combinations are conservative TinManX1 estimates for coupon tuning."
+        "Matrix and fibre values are TinManX1 estimates for coupon tuning; "
+        "check the fibre's diameter and linear density against its datasheet."
     )
     profile = {
         "type": "filament",
@@ -895,7 +893,8 @@ def composite_filament(material: str, values: dict, fiber: dict) -> dict:
         "fiber_type": arr(fiber["type"]),
         "fiber_manufacturer": arr(fiber["manufacturer"]),
         "fiber_diameter": arr(fiber["diameter"]),
-        "fiber_linear_density": arr(fiber["linear_density"]),
+        "fiber_linear_density": arr(fiber["linear_density"]),  # g/km
+        "fiber_feed_factor": arr("0"),  # not set: calibrate per fibre (see docs/fibreseek-first-prints.md)
         "fiber_spool_length_km": arr("0.5"),
         "fiber_cost": arr(fiber["cost"]),
         "fiber_plastic_name": arr(values.get("fiber_plastic_name", material)),
@@ -1027,8 +1026,8 @@ def machine_common() -> dict:
         "continuous_fiber_type": "carbon_fiber",
         "continuous_fiber_material_kind": "continuous_fiber",
         "continuous_fiber_source_material_id": "tinmanx1-x-ccf-025",
-        "continuous_fiber_diameter": "0.25",
-        "continuous_fiber_linear_density": "102",
+        "continuous_fiber_diameter": "0",
+        "continuous_fiber_linear_density": "0",
         "fiber_postprocessor_type": "3",
         "fiber_machine_contract_payload": json.dumps(
             {

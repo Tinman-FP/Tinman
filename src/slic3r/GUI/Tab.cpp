@@ -5072,6 +5072,7 @@ void TabFilament::build()
         optgroup->append_single_option_line("fiber_manufacturer");
         optgroup->append_single_option_line("fiber_diameter");
         optgroup->append_single_option_line("fiber_linear_density");
+        optgroup->append_single_option_line("fiber_feed_factor");
         optgroup->append_single_option_line("fiber_spool_length_km");
         optgroup->append_single_option_line("fiber_cost");
         optgroup->append_single_option_line("fiber_plastic_name");

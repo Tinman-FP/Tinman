@@ -54,6 +54,7 @@
 
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r/FibreSeekMaterials.hpp"
 #include "libslic3r/TinManMachineProfileContract.hpp"
 #include "libslic3r/Color.hpp"
 
@@ -150,60 +151,15 @@ static bool tinmanx_truthy_option(const DynamicConfig& config, const char* key)
     }
 }
 
-static bool tinmanx_positive_option(const DynamicConfig& config, const char* key)
-{
-    const std::string value = tinmanx_lower_option(config, key);
-    if (value.empty())
-        return false;
-
-    try {
-        size_t parsed = 0;
-        return std::stod(value, &parsed) > 0.0 && parsed > 0;
-    } catch (...) {
-        return false;
-    }
-}
-
 static bool tinmanx_payload_option(const DynamicConfig& config, const char* key)
 {
     const std::string value = tinmanx_lower_option(config, key);
     return !value.empty() && value != "{}" && value != "[]" && value != "null";
 }
 
-static bool tinmanx_text_matches_fiberseek_seeker3(const std::string& text)
-{
-    const std::string value = tinmanx_lower_string(text);
-    if (value.empty())
-        return false;
-
-    const bool has_fiberseek = value.find("fibreseek") != std::string::npos ||
-                               value.find("fiberseek") != std::string::npos;
-    const bool has_seeker3 = value.find("seeker 3") != std::string::npos;
-    return (has_fiberseek && has_seeker3) || value == "seeker 3";
-}
-
-static bool tinmanx_selected_printer_matches_fiberseek(const PresetBundle* bundle)
-{
-    if (bundle == nullptr)
-        return false;
-
-    const Preset& printer = bundle->printers.get_edited_preset();
-    return tinmanx_text_matches_fiberseek_seeker3(Preset::remove_suffix_modified(printer.name)) ||
-           tinmanx_text_matches_fiberseek_seeker3(tinmanx_serialized_option(printer.config, "printer_model")) ||
-           tinmanx_text_matches_fiberseek_seeker3(tinmanx_serialized_option(printer.config, "printer_settings_id"));
-}
-
 static bool tinmanx_selected_printer_supports_continuous_fiber(const PresetBundle* bundle)
 {
-    if (bundle == nullptr)
-        return false;
-
-    const DynamicConfig& config = bundle->printers.get_edited_preset().config;
-    return tinmanx_truthy_option(config, "fiber_enabled") ||
-           tinmanx_payload_option(config, "fiber_cut_gcode") ||
-           (tinmanx_positive_option(config, "fiber_cut_distance") &&
-            tinmanx_positive_option(config, "composite_nozzle_diameter")) ||
-           tinmanx_selected_printer_matches_fiberseek(bundle);
+    return bundle != nullptr && selected_printer_supports_continuous_fiber(*bundle);
 }
 
 static bool tinmanx_process_preset_uses_continuous_fiber(const Preset& preset)
@@ -225,9 +181,7 @@ static bool tinmanx_process_preset_uses_continuous_fiber(const Preset& preset)
 
 static bool tinmanx_filament_preset_is_cfc_slot_profile(const Preset& preset)
 {
-    std::string name = get_preset_bare_name(Preset::remove_suffix_modified(preset.name));
-    boost::algorithm::trim(name);
-    return boost::starts_with(name, "CFC ");
+    return filament_is_cfc_slot_profile(preset);
 }
 
 static size_t tinmanx_count_cfc_slot_profiles(const PresetCollection* collection)
@@ -244,16 +198,8 @@ static size_t tinmanx_count_cfc_slot_profiles(const PresetCollection* collection
 
 static bool tinmanx_filament_preset_allowed_for_slot(const PresetBundle* bundle, int filament_idx, const Preset& preset)
 {
-    if (bundle == nullptr || filament_idx < 0 || !tinmanx_selected_printer_supports_continuous_fiber(bundle))
-        return true;
-
-    const bool cfc_profile = tinmanx_filament_preset_is_cfc_slot_profile(preset);
-    if (filament_idx == 0)
-        return !cfc_profile;
-    if (filament_idx == 1)
-        return cfc_profile;
-
-    return true;
+    return bundle == nullptr || filament_idx < 0 ||
+           filament_fits_continuous_fiber_lane(*bundle, static_cast<size_t>(filament_idx), preset);
 }
 
 static ConfigOptionStrings* tinmanx_clone_project_string_option(DynamicPrintConfig* config, const char* key, size_t min_size)
