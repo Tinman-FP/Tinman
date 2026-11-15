@@ -6,10 +6,18 @@
 // test contacts a real printer.
 
 #include <catch2/catch_all.hpp>
+#include <catch2/catch_approx.hpp>
+#include <catch2/catch_message.hpp>
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
+#include <functional>
+#include <ios>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <cstdlib>
@@ -18,18 +26,24 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <boost/filesystem.hpp>
 #include <boost/filesystem/fstream.hpp>
+#include <boost/filesystem/operations.hpp>
+#include <boost/filesystem/path.hpp>
 #include <boost/process.hpp>
 #include <nlohmann/json.hpp>
+#include <wx/string.h>
 
+#include "libslic3r/Config.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/TinManMachineProfileContract.hpp"
 #include "slic3r/Utils/FibreSeek.hpp"
 #include "slic3r/Utils/FibreSeekSendChecks.hpp"
 #include "slic3r/Utils/Http.hpp"
+#include "slic3r/Utils/PrintHost.hpp"
 
 using namespace Slic3r;
 using namespace Slic3r::FibreSeekSend;

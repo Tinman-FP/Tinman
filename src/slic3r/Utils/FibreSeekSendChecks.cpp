@@ -4,12 +4,23 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <exception>
+#include <ios>
 #include <memory>
 #include <random>
+#include <string>
+#include <vector>
 
 #include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string/split.hpp>
+#include <boost/algorithm/string/trim.hpp>
 #include <boost/filesystem/fstream.hpp>
+#include <boost/filesystem/path.hpp>
 #include <boost/format.hpp>
 #include <nlohmann/json.hpp>
 #include <openssl/evp.h>
