@@ -26,6 +26,9 @@ void make_seeker3(DynamicPrintConfig &machine)
     machine.set_key_value("nozzle_diameter", new ConfigOptionFloats{0.4, 0.7});
     machine.set_key_value("plastic_nozzle_diameter", new ConfigOptionFloat(0.4));
     machine.set_key_value("composite_nozzle_diameter", new ConfigOptionFloat(0.7));
+    // Two separate nozzles, as in the FS3 machine profiles. Since 2.5.1 a new project
+    // gets one material slot per tool only when this is off (min_filament_count()).
+    machine.set_key_value("single_extruder_multi_material", new ConfigOptionBool(false));
 }
 
 std::vector<int> project_map(const PresetBundle &bundle)
