@@ -1,4 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
+#include <string>
+#include <wx/string.h>
 
 #include "libslic3r/Preset.hpp"
 #include "libslic3r/PrintConfig.hpp"
