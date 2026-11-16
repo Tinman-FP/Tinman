@@ -35,6 +35,8 @@
 #include "FilamentGroupUtils.hpp"
 #include "MultiNozzleUtils.hpp"
 #include <chrono>
+#include <system_error>
+#include <thread>
 #include <optional>
 #include "GCode/GCodeProcessor.hpp"
 #include "GCode/ThumbnailData.hpp"
@@ -466,8 +468,23 @@ static bool run_orcaslicer_codex_native_fiber_planner(const Print& print, const 
         process::std_err > stderr_path.string());
 #endif
 
+    // Polls child.running() instead of child.wait_for(), as PluginLoader.cpp does: on macOS, which
+    // lacks sigtimedwait, boost.process v1 times its waits with sigwait(), and in a multi-threaded
+    // process SIGCHLD can reach another thread, so the wait misses the planner's exit and sits out
+    // the whole timeout. running() polls waitpid(WNOHANG), which is correct everywhere.
     const int timeout_seconds = orcaslicer_codex_native_fiber_planner_timeout_seconds();
-    const bool completed = child.wait_for(std::chrono::seconds(timeout_seconds));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout_seconds);
+    bool completed = true;
+    std::error_code wait_error;
+    while (child.running(wait_error)) {
+        if (std::chrono::steady_clock::now() >= deadline) {
+            completed = false;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    if (wait_error)
+        throw Slic3r::RuntimeError("FibreSeek native planner: could not query its process: " + wait_error.message());
     if (!completed) {
         std::error_code terminate_error;
         child.terminate(terminate_error);
