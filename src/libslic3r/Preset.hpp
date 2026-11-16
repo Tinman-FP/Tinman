@@ -1028,6 +1028,9 @@ private:
         // Counted and logged by commit, in the order the directory listed the files.
         std::vector<std::string>   errors;
         PresetsConfigSubstitutions substitutions;
+        // Tinman: the parent it names that is not loaded, which may be another preset of
+        // the same pass, loaded after it.
+        std::string                missing_parent;
     };
 
     // Read and flatten one preset file. It reads only, and resolves against the presets

@@ -437,6 +437,8 @@ set(lisbslic3r_sources
     PrinterBedAssets.hpp
     PresetCacheFormat.cpp
     PresetCacheFormat.hpp
+    LocalVendorPresets.cpp
+    LocalVendorPresets.hpp
     Preset.cpp
     Preset.hpp
     TinManMachineProfileContract.cpp

@@ -56,6 +56,7 @@
 #include "TriangleSelector.hpp"
 #include "libslic3r_version.h"
 #include "TinManMachineProfileContract.hpp"
+#include "LocalVendorPresets.hpp"
 #include "ProfileScopeMigration.hpp"
 #include "ConfigResolutionTrace.hpp"
 
@@ -8386,7 +8387,8 @@ PresetBundle::PresetInstall PresetBundle::resolve_vendor_preset(const CachedPres
     out.file_path = (boost::filesystem::path(data_dir()) / PRESET_SYSTEM_DIR / vendor_name / entry.sub_path).make_preferred().string();
     if (validation_mode)
         out.file_path = (boost::filesystem::path(data_dir()) / vendor_name / entry.sub_path).make_preferred().string();
-    if (m_preserve_vendor_source_paths)
+    // Tinman: a local preset's file is under the directory its install names.
+    if (m_preserve_vendor_source_paths || install.local)
         out.file_path = (boost::filesystem::path(path) / vendor_name / entry.sub_path).make_preferred().string();
     if (retain)
         out.retained = out.config;
@@ -8535,29 +8537,189 @@ void PresetBundle::install_vendor_entries(VendorInstall& install, const std::vec
     install_run(entries.size());
 }
 
+// Tinman: a local printer of a model the vendor ships without the printer's variant, as
+// when the user added a nozzle size to a stock model, adds the variant to that model.
+static void add_local_printer_variants(VendorProfile& vendor, const std::vector<CachedPreset>& printers)
+{
+    for (const CachedPreset& printer : printers) {
+        const auto* model   = printer.config_src.option<ConfigOptionString>("printer_model");
+        const auto* variant = printer.config_src.option<ConfigOptionString>("printer_variant");
+        if (model == nullptr || variant == nullptr || variant->value.empty())
+            continue;
+        for (VendorProfile::PrinterModel& printer_model : vendor.models)
+            if (printer_model.id == model->value && printer_model.variant(variant->value) == nullptr) {
+                printer_model.variants.emplace_back(variant->value);
+                BOOST_LOG_TRIVIAL(info) << "Local printer " << printer.name << " adds variant " << variant->value
+                                        << " to " << vendor.id << " " << printer_model.id;
+            }
+    }
+}
+
 size_t PresetBundle::install_vendor(const std::string& path, const std::string& vendor_name, const PresetBundle* base_bundle,
                                     LoadConfigBundleAttributes flags, const VendorCacheData& entries,
-                                    VendorParse* parsed, bool complete, PresetsConfigSubstitutions& substitutions)
+                                    VendorParse* parsed, bool complete, PresetsConfigSubstitutions& substitutions,
+                                    const LocalVendorEntries* local)
 {
     const bool           is_orca_lib    = vendor_name == ORCA_FILAMENT_LIBRARY;
     const VendorProfile* vendor_profile = &this->vendors.at(vendor_name);
     size_t               count          = 0;
     auto install_collection = [&](const std::vector<CachedPreset>& list, std::vector<EntryParse>* list_parsed,
-                                  PresetCollection* presets, bool is_from_lib) {
+                                  PresetCollection* presets, bool is_from_lib, const std::vector<CachedPreset>* local_list) {
         VendorInstall install { path, vendor_name, vendor_profile, base_bundle, flags, presets, is_from_lib, &substitutions };
+        // Tinman: the vendor's own presets that its local ones inherit or include are
+        // kept for them to resolve against, as for the vendor's own children.
+        if (local_list != nullptr)
+            for (const CachedPreset& entry : *local_list) {
+                if (! entry.inherits.empty())
+                    install.inherited.insert(entry.inherits);
+                install.included.insert(entry.includes.begin(), entry.includes.end());
+            }
         install_vendor_entries(install, list, list_parsed);
+        if (local_list != nullptr && ! local_list->empty())
+            install_local_vendor_entries(install, *local_list, local->dir);
         count += install.count;
         return install;
     };
-    install_collection(entries.process_entries, parsed ? &parsed->process_entries : nullptr, &this->prints, false);
+    install_collection(entries.process_entries, parsed ? &parsed->process_entries : nullptr, &this->prints, false,
+                       local ? &local->process_entries : nullptr);
     VendorInstall filaments = install_collection(entries.filament_entries, parsed ? &parsed->filament_entries : nullptr,
-                                                 &this->filaments, is_orca_lib);
+                                                 &this->filaments, is_orca_lib, local ? &local->filament_entries : nullptr);
     if (is_orca_lib && complete) {
         m_config_maps      = std::move(filaments.config_maps);
         m_filament_id_maps = std::move(filaments.filament_id_maps);
     }
-    install_collection(entries.machine_entries, parsed ? &parsed->machine_entries : nullptr, &this->printers, false);
+    if (local != nullptr)
+        add_local_printer_variants(this->vendors.at(vendor_name), local->machine_entries);
+    install_collection(entries.machine_entries, parsed ? &parsed->machine_entries : nullptr, &this->printers, false,
+                       local ? &local->machine_entries : nullptr);
     return count;
+}
+
+void PresetBundle::install_local_vendor_entries(VendorInstall& install, const std::vector<CachedPreset>& entries,
+                                                const std::string& dir)
+{
+    install.path  = dir;
+    install.local = true;
+    for (const CachedPreset& entry : entries) {
+        // The vendor ships it again: the user's presets get the vendor's.
+        if (install.installed_names.count(entry.name) != 0 || install.config_maps.count(entry.name) != 0) {
+            BOOST_LOG_TRIVIAL(warning) << "Local preset " << entry.name << " of " << install.vendor_name
+                                       << " is not loaded: the vendor ships a preset of that name";
+            continue;
+        }
+        // One at a time, so the one that fails is the only one left out.
+        try {
+            install_vendor_entries(install, std::vector<CachedPreset>{ entry }, nullptr);
+        } catch (const std::exception& err) {
+            if (tbb::is_current_task_group_canceling())
+                throw;
+            BOOST_LOG_TRIVIAL(error) << "Local preset " << entry.name << " of " << install.vendor_name
+                                     << " is not loaded: " << err.what();
+        }
+    }
+}
+
+static std::string parse_vendor_subfile(const std::string& dir, const std::string& vendor_name,
+    ConfigSubstitutionContext& substitution_context, const std::pair<std::string, std::string>& subfile_iter,
+    CachedPreset& entry, std::vector<std::string>& errors, std::vector<std::string>& warnings);
+
+// Tinman: order `entries` so that each comes after the ones among them it inherits or
+// includes, keeping the given order otherwise. A cycle is left as listed, to fail there.
+static void order_after_what_they_build_on(std::vector<CachedPreset>& entries)
+{
+    std::map<std::string, size_t> position;
+    for (size_t i = 0; i < entries.size(); ++ i)
+        position.emplace(entries[i].name, i);
+    enum class Visit { Not, Doing, Done };
+    std::vector<Visit>        visits(entries.size(), Visit::Not);
+    std::vector<CachedPreset> ordered;
+    ordered.reserve(entries.size());
+    std::function<void(size_t)> visit = [&](size_t i) {
+        if (visits[i] != Visit::Not)
+            return;
+        visits[i] = Visit::Doing;
+        auto after = [&](const std::string& name) {
+            if (const auto it = position.find(name); it != position.end())
+                visit(it->second);
+        };
+        after(entries[i].inherits);
+        std::for_each(entries[i].includes.begin(), entries[i].includes.end(), after);
+        visits[i] = Visit::Done;
+        ordered.push_back(std::move(entries[i]));
+    };
+    for (size_t i = 0; i < entries.size(); ++ i)
+        visit(i);
+    entries = std::move(ordered);
+}
+
+PresetBundle::LocalVendorEntries PresetBundle::read_local_vendor_entries(const std::string& dir, const std::string& vendor_name,
+                                                                          LoadConfigBundleAttributes flags)
+{
+    namespace fs = boost::filesystem;
+    LocalVendorEntries local;
+    if (validation_mode || ! flags.has(LoadConfigBundleAttribute::LoadSystem) || flags.has(LoadConfigBundleAttribute::LoadVendorOnly))
+        return local;
+    const fs::path root    = local_vendor_presets_dir();
+    const fs::path profile = root / (vendor_name + ".json");
+    boost::system::error_code ec;
+    if (! fs::exists(profile, ec) || ! fs::equivalent(fs::path(dir), fs::path(data_dir()) / PRESET_SYSTEM_DIR, ec) || ec)
+        return local;
+    local.dir = root.string();
+
+    // Their errors are logged but not counted: a vendor parse stamps its count into the
+    // vendor's cache, which the local presets are no part of.
+    json index;
+    try {
+        boost::nowide::ifstream ifs(profile.string());
+        ifs >> index;
+    } catch (const std::exception& err) {
+        BOOST_LOG_TRIVIAL(error) << "Cannot read the local presets of " << vendor_name << " in " << profile.string() << ": " << err.what();
+        return local;
+    }
+    // As lenient as a user preset's, since they were written for an earlier version.
+    ConfigSubstitutionContext substitution_context { ForwardCompatibilitySubstitutionRule::EnableSilent };
+    CNumericLocalesSetter     locales_setter;
+    auto read_list = [&](const char* key, std::vector<CachedPreset>& entries) {
+        const auto list = index.find(key);
+        if (list == index.end() || ! list->is_array())
+            return;
+        for (const json& item : *list) {
+            const auto name = item.is_object() ? item.find(BBL_JSON_KEY_NAME) : item.end();
+            const auto sub_path = item.is_object() ? item.find(BBL_JSON_KEY_SUB_PATH) : item.end();
+            if (name == item.end() || ! name->is_string() || sub_path == item.end() || ! sub_path->is_string() ||
+                ! is_path_within_root(sub_path->get<std::string>(), root / vendor_name)) {
+                BOOST_LOG_TRIVIAL(error) << "Skipping an invalid entry in " << profile.string() << ": " << item.dump();
+                continue;
+            }
+            CachedPreset             entry;
+            std::vector<std::string> errors, warnings;
+            std::string              reason;
+            try {
+                reason = parse_vendor_subfile(local.dir, vendor_name, substitution_context,
+                                              { name->get<std::string>(), sub_path->get<std::string>() }, entry, errors, warnings);
+            } catch (const std::exception& err) {
+                reason = err.what();
+            }
+            for (const std::string& error : errors)
+                BOOST_LOG_TRIVIAL(error) << error;
+            for (const std::string& warning : warnings)
+                BOOST_LOG_TRIVIAL(warning) << warning;
+            if (! reason.empty()) {
+                BOOST_LOG_TRIVIAL(error) << "Local preset " << name->get<std::string>() << " of " << vendor_name << " is not loaded: " << reason;
+                continue;
+            }
+            entries.push_back(std::move(entry));
+        }
+        order_after_what_they_build_on(entries);
+    };
+    // A filament-only load is of the filaments alone, as for the vendor's own.
+    const bool filament_only = flags.has(LoadConfigBundleAttribute::LoadFilamentOnly);
+    if (! filament_only)
+        read_list(BBL_JSON_KEY_PROCESS_LIST, local.process_entries);
+    read_list(BBL_JSON_KEY_FILAMENT_LIST, local.filament_entries);
+    if (! filament_only)
+        read_list(BBL_JSON_KEY_MACHINE_LIST, local.machine_entries);
+    return local;
 }
 
 //BBS: Load a config bundle file from json
@@ -8615,6 +8777,87 @@ PresetBundle::VendorRead PresetBundle::read_vendor(const std::string& dir, const
     }
     this->parse_vendor_json(read);
     return read;
+}
+
+// Parse one subfile of the vendor `vendor_name` in `dir` into a source-form entry —
+// everything the JSON states, nothing resolved. Installing the entries (install_vendor)
+// is the same code whether they were parsed just now or deserialized from the vendor's
+// cache.
+static std::string parse_vendor_subfile(const std::string& dir, const std::string& vendor_name,
+    ConfigSubstitutionContext& substitution_context,
+    const std::pair<std::string, std::string>& subfile_iter,
+    CachedPreset& entry, std::vector<std::string>& errors, std::vector<std::string>& warnings)
+{
+    std::string subfile = dir + "/" + vendor_name + "/" + subfile_iter.second;
+    std::string reason;
+    try {
+        std::map<std::string, std::string> key_values;
+        substitution_context.substitutions.clear();
+
+        //parse the json elements
+        entry.sub_path = subfile_iter.second;
+        entry.config_src.load_from_json(subfile, substitution_context, false, key_values, reason);
+        if (!reason.empty()) {
+            errors.push_back(std::string(__FUNCTION__) + ": load config file " + subfile + " Failed!");
+            return reason;
+        }
+        entry.name        = key_values[BBL_JSON_KEY_NAME];
+        entry.description = key_values[BBL_JSON_KEY_DESCRIPTION];
+        // A file that states no instantiation and is named as G-code, or has no
+        // name, is a template that is only there to be included. A nameless one
+        // goes by its name in the vendor index.
+        if (auto it = key_values.find(BBL_JSON_KEY_INSTANTIATION);
+            (it == key_values.end() || it->second.empty()) && (entry.name.empty() || entry.name.find("gcode") != std::string::npos)) {
+            key_values[BBL_JSON_KEY_INSTANTIATION] = "false";
+            if (entry.name.empty())
+                entry.name = subfile_iter.first;
+        }
+        if(key_values.find(BBL_JSON_KEY_INSTANTIATION) == key_values.end())
+            errors.push_back(std::string(__FUNCTION__) + ": Missing instantiation attribute for " + entry.name);
+        entry.instantiation = key_values[BBL_JSON_KEY_INSTANTIATION];
+        if(entry.instantiation != "false" && entry.instantiation != "true")
+            errors.push_back(std::string(__FUNCTION__) + ": Missing instantiation attribute for " + entry.name);
+        auto setting_it = key_values.find(BBL_JSON_KEY_SETTING_ID);
+        if (setting_it != key_values.end())
+            entry.setting_id = setting_it->second;
+        auto filament_it = key_values.find(BBL_JSON_KEY_FILAMENT_ID);
+        if (filament_it != key_values.end())
+            entry.filament_id = filament_it->second;
+        auto it1 = key_values.find(BBL_JSON_KEY_INHERITS);
+        if (it1 != key_values.end()) {
+            entry.inherits = it1->second;
+            // An `inherits` key naming nothing can never resolve; fail it
+            // here so install can key off the empty string as "no inherits".
+            if (entry.inherits.empty()) {
+                errors.push_back(std::string(__FUNCTION__) + ": can not find inherits " + entry.inherits + " for " + entry.name);
+                reason = "Can not find inherits: " + entry.inherits;
+                return reason;
+            }
+        }
+        if (auto it = key_values.find(BBL_JSON_KEY_INCLUDES); it != key_values.end()) {
+            // An array of names, or one bare name; load_from_json kept the JSON text.
+            nlohmann::json includes = nlohmann::json::parse(it->second);
+            if (!includes.is_array())
+                includes = nlohmann::json::array({std::move(includes)});
+            for (const auto& name : includes) {
+                if (name.is_string())
+                    entry.includes.push_back(name.get<std::string>());
+                else
+                    errors.push_back(std::string(__FUNCTION__) + ": invalid include " + name.dump() + " for " + entry.name);
+            }
+        }
+        if (key_values.find(ORCA_JSON_KEY_RENAMED_FROM) != key_values.end()) {
+            if (!unescape_strings_cstyle(key_values[ORCA_JSON_KEY_RENAMED_FROM], entry.renamed_from))
+                warnings.push_back("Error in a Config \"" + dir + "\": The preset \"" + entry.name +
+                                   "\" contains invalid \"renamed_from\" key, which is being ignored.");
+        }
+    }
+    catch(nlohmann::detail::parse_error &err) {
+        errors.push_back(std::string(__FUNCTION__) + ": parse " + subfile + " got a nlohmann::detail::parse_error, reason = " + err.what());
+        reason = std::string("json parse error") + err.what();
+        return reason;
+    }
+    return reason;
 }
 
 void PresetBundle::parse_vendor_json(VendorRead& read)
@@ -8854,87 +9097,6 @@ void PresetBundle::parse_vendor_json(VendorRead& read)
 
     // 3) paste the process/filament/print configs
 
-    // Parse one subfile into a source-form entry — everything the JSON states,
-    // nothing resolved. Installing the entries (install_vendor) is the
-    // same code whether they were parsed just now or deserialized from the
-    // vendor's cache.
-    auto parse_subfile = [&dir, &vendor_name](
-        ConfigSubstitutionContext& substitution_context,
-        const std::pair<std::string, std::string>& subfile_iter,
-        CachedPreset& entry, std::vector<std::string>& errors, std::vector<std::string>& warnings) -> std::string {
-
-        std::string subfile = dir + "/" + vendor_name + "/" + subfile_iter.second;
-        std::string reason;
-        try {
-            std::map<std::string, std::string> key_values;
-            substitution_context.substitutions.clear();
-
-            //parse the json elements
-            entry.sub_path = subfile_iter.second;
-            entry.config_src.load_from_json(subfile, substitution_context, false, key_values, reason);
-            if (!reason.empty()) {
-                errors.push_back(std::string(__FUNCTION__) + ": load config file " + subfile + " Failed!");
-                return reason;
-            }
-            entry.name        = key_values[BBL_JSON_KEY_NAME];
-            entry.description = key_values[BBL_JSON_KEY_DESCRIPTION];
-            // A file that states no instantiation and is named as G-code, or has no
-            // name, is a template that is only there to be included. A nameless one
-            // goes by its name in the vendor index.
-            if (auto it = key_values.find(BBL_JSON_KEY_INSTANTIATION);
-                (it == key_values.end() || it->second.empty()) && (entry.name.empty() || entry.name.find("gcode") != std::string::npos)) {
-                key_values[BBL_JSON_KEY_INSTANTIATION] = "false";
-                if (entry.name.empty())
-                    entry.name = subfile_iter.first;
-            }
-            if(key_values.find(BBL_JSON_KEY_INSTANTIATION) == key_values.end())
-                errors.push_back(std::string(__FUNCTION__) + ": Missing instantiation attribute for " + entry.name);
-            entry.instantiation = key_values[BBL_JSON_KEY_INSTANTIATION];
-            if(entry.instantiation != "false" && entry.instantiation != "true")
-                errors.push_back(std::string(__FUNCTION__) + ": Missing instantiation attribute for " + entry.name);
-            auto setting_it = key_values.find(BBL_JSON_KEY_SETTING_ID);
-            if (setting_it != key_values.end())
-                entry.setting_id = setting_it->second;
-            auto filament_it = key_values.find(BBL_JSON_KEY_FILAMENT_ID);
-            if (filament_it != key_values.end())
-                entry.filament_id = filament_it->second;
-            auto it1 = key_values.find(BBL_JSON_KEY_INHERITS);
-            if (it1 != key_values.end()) {
-                entry.inherits = it1->second;
-                // An `inherits` key naming nothing can never resolve; fail it
-                // here so install can key off the empty string as "no inherits".
-                if (entry.inherits.empty()) {
-                    errors.push_back(std::string(__FUNCTION__) + ": can not find inherits " + entry.inherits + " for " + entry.name);
-                    reason = "Can not find inherits: " + entry.inherits;
-                    return reason;
-                }
-            }
-            if (auto it = key_values.find(BBL_JSON_KEY_INCLUDES); it != key_values.end()) {
-                // An array of names, or one bare name; load_from_json kept the JSON text.
-                nlohmann::json includes = nlohmann::json::parse(it->second);
-                if (!includes.is_array())
-                    includes = nlohmann::json::array({std::move(includes)});
-                for (const auto& name : includes) {
-                    if (name.is_string())
-                        entry.includes.push_back(name.get<std::string>());
-                    else
-                        errors.push_back(std::string(__FUNCTION__) + ": invalid include " + name.dump() + " for " + entry.name);
-                }
-            }
-            if (key_values.find(ORCA_JSON_KEY_RENAMED_FROM) != key_values.end()) {
-                if (!unescape_strings_cstyle(key_values[ORCA_JSON_KEY_RENAMED_FROM], entry.renamed_from))
-                    warnings.push_back("Error in a Config \"" + dir + "\": The preset \"" + entry.name +
-                                       "\" contains invalid \"renamed_from\" key, which is being ignored.");
-            }
-        }
-        catch(nlohmann::detail::parse_error &err) {
-            errors.push_back(std::string(__FUNCTION__) + ": parse " + subfile + " got a nlohmann::detail::parse_error, reason = " + err.what());
-            reason = std::string("json parse error") + err.what();
-            return reason;
-        }
-        return reason;
-    };
-
     // Orca: whether to (re)write the vendor's cache after this parse, leaving it
     // in step with the profile so the next run reads it instead. It is written
     // where the vendor was looked for, even when the profile came from resources,
@@ -8953,7 +9115,7 @@ void PresetBundle::parse_vendor_json(VendorRead& read)
         for (const auto& subfile : subfiles) {
             CachedPreset             entry;
             std::vector<std::string> errors, warnings;
-            read.reason = parse_subfile(substitution_context, subfile, entry, errors, warnings);
+            read.reason = parse_vendor_subfile(dir, vendor_name, substitution_context, subfile, entry, errors, warnings);
             if (! read.reason.empty()) {
                 read.failed_subfile = subfile.second;
                 read.failed_kind    = kind;
@@ -8978,8 +9140,12 @@ std::pair<PresetsConfigSubstitutions, size_t> PresetBundle::install_vendor_read(
     const std::string&         dir         = read.dir;
     const std::string&         vendor_name = read.vendor_name;
     PresetsConfigSubstitutions substitutions;
+    // Tinman: the vendor's local presets install with it, from its cache and from its
+    // JSONs alike.
+    const LocalVendorEntries local = read.vendor_only ? LocalVendorEntries() : read_local_vendor_entries(dir, vendor_name, read.flags);
+    const LocalVendorEntries* local_entries = local.empty() ? nullptr : &local;
     if (read.from_cache) {
-        if (this->install_vendor_cache(read.cache_path, vendor_name, std::move(read.data), base_bundle)) {
+        if (this->install_vendor_cache(read.cache_path, vendor_name, std::move(read.data), base_bundle, local_entries)) {
             size_t presets_loaded = 0;
             for (const PresetCollection* coll : std::initializer_list<const PresetCollection*>{
                      &this->prints, &this->sla_prints, &this->filaments, &this->sla_materials, &this->printers })
@@ -8997,8 +9163,10 @@ std::pair<PresetsConfigSubstitutions, size_t> PresetBundle::install_vendor_read(
         for (const EntryParse& entry_parsed : *list)
             parse_errors += int(entry_parsed.errors.size());
     const int    errors_before_install = m_errors;
+    // Tinman: the cache holds the vendor as it ships, without what its local printers add.
+    const VendorMap shipped_vendors = local_entries != nullptr && read.will_cache ? this->vendors : VendorMap();
     const size_t presets_loaded = install_vendor(dir, vendor_name, base_bundle, read.flags, read.data, &read.parsed,
-                                                 read.reason.empty(), substitutions);
+                                                 read.reason.empty(), substitutions, local_entries);
     // Errors added by install are counted apart: a cache load runs install again,
     // so the parse_errors stamped into the cache must hold only what a cache load
     // will not recount.
@@ -9016,7 +9184,7 @@ std::pair<PresetsConfigSubstitutions, size_t> PresetBundle::install_vendor_read(
         // Clamped: the count is a difference of three tallies, and a stamp that
         // wrapped would be added to every future load of this vendor.
         read.data.parse_errors = uint64_t(std::max(0, m_errors - read.errors_at_entry - install_errors));
-        read.data.vendors      = this->vendors;
+        read.data.vendors      = local_entries != nullptr ? shipped_vendors : this->vendors;
         if (! VendorCacheFile::save((boost::filesystem::path(dir) / (vendor_name + ".opc")).string(), vendor_name,
                                     read.version, read.data))
             BOOST_LOG_TRIVIAL(warning) << "PresetBundle: failed to save vendor cache for " << vendor_name;
@@ -9799,7 +9967,7 @@ bool PresetBundle::load_vendor_cache(const std::string& cache_path, const std::s
 }
 
 bool PresetBundle::install_vendor_cache(const std::string& cache_path, const std::string& vendor_name, VendorCacheData&& data,
-                                        const PresetBundle* base_bundle)
+                                        const PresetBundle* base_bundle, const LocalVendorEntries* local)
 {
     // What this bundle had counted before the cache was tried. The caller
     // measures its own parse against this same baseline, so a rejection must
@@ -9815,7 +9983,7 @@ bool PresetBundle::install_vendor_cache(const std::string& cache_path, const std
         // Stays empty, since the entries were substituted when they were parsed.
         PresetsConfigSubstitutions substitutions;
         install_vendor(boost::filesystem::path(cache_path).parent_path().string(), vendor_name, base_bundle,
-                       LoadConfigBundleAttribute::LoadSystem, data, nullptr, true, substitutions);
+                       LoadConfigBundleAttribute::LoadSystem, data, nullptr, true, substitutions, local);
         return true;
     } catch (const std::exception& e) {
         // A cancellation of the caller's task group stops the install without

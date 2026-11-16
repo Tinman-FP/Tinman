@@ -54,6 +54,7 @@ add_executable(${_TEST_NAME}_tests
     test_preset_diff.cpp
     test_publish_settings.cpp
     test_vendor_cache.cpp
+    test_local_vendor_presets.cpp
     test_preset_options.cpp
     test_edge_grid.cpp
     test_elephant_foot_compensation.cpp

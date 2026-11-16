@@ -43,6 +43,7 @@
 #include "libslic3r/Utils.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/PresetCacheFormat.hpp"
+#include "libslic3r/LocalVendorPresets.hpp"
 #include "libslic3r_version.h"
 #include "slic3r/GUI/GUI.hpp"
 #include "slic3r/GUI/GUI_App.hpp"
@@ -1312,7 +1313,20 @@ bool PresetUpdater::priv::perform_updates(Updates &&updates, bool snapshot) cons
 
         BOOST_LOG_TRIVIAL(info) << format("[Orca Updater]:Performing %1% updates", updates.updates.size());
 
+        // Tinman: before any vendor is replaced, what it lists that its update no longer
+        // ships and the user still needs moves to the vendor's local presets. A vendor
+        // whose presets cannot all be kept is left as it is installed.
+        LocalVendorPresetKeeper keeper;
+        std::set<std::string>   held;
+        for (const auto &update : updates.updates)
+            if (! update.is_directory && ! keeper.keep(update.vendor, update.source))
+                held.insert(update.vendor);
+
         for (const auto &update : updates.updates) {
+            if (held.count(update.vendor) != 0) {
+                BOOST_LOG_TRIVIAL(warning) << "[Orca Updater]:not installing " << update << ": the presets it would remove could not be kept";
+                continue;
+            }
             BOOST_LOG_TRIVIAL(info) << '\t' << update;
 
             update.install();
