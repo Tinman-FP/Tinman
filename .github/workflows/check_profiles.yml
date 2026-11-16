@@ -116,13 +116,29 @@ jobs:
           curl -L -o OrcaSlicer_profile_validator https://github.com/OrcaSlicer/OrcaSlicer/releases/download/nightly-builds/OrcaSlicer_profile_validator_Linux_Ubuntu2404_nightly
           chmod +x ./OrcaSlicer_profile_validator
 
+      # Tinman: the validator above is upstream's, so it only knows upstream's settings. A bundle
+      # that uses a printer setting only Tinman has cannot load in it: FibreSeek's composite
+      # machines pin their material roles with filament_map, a printer setting in Tinman
+      # (src/libslic3r/Preset.cpp) but not upstream, which reports it as removed. The steps
+      # below check a copy of the tree without those bundles. Build all runs on any change
+      # to them, and its Slice check validates them with the Tinman-built validator.
+      - name: Leave out the bundles that need Tinman's engine
+        run: |
+          tree="${{ runner.temp }}/upstream-validator-profiles"
+          rm -rf "${tree:?}" && mkdir -p "$tree"
+          cp -a "${{ github.workspace }}/resources/profiles/." "$tree/"
+          for vendor in FibreSeek; do
+            rm -rf "${tree:?}/$vendor" "${tree:?}/$vendor.json"
+          done
+          echo "UPSTREAM_VALIDATOR_PROFILES=$tree" >> "$GITHUB_ENV"
+
       # Validate all system profiles.
       - name: validate system profiles
         id: validate_system
         continue-on-error: true
         run: |
           set +e
-          ./OrcaSlicer_profile_validator -p ${{ github.workspace }}/resources/profiles -l 2 2>&1 | tee ${{ runner.temp }}/validate_system.log
+          ./OrcaSlicer_profile_validator -p "$UPSTREAM_VALIDATOR_PROFILES" -l 2 2>&1 | tee ${{ runner.temp }}/validate_system.log
           exit ${PIPESTATUS[0]}
       # The validator above is the nightly build of main, so it cannot slice profiles that use
       # settings a PR adds to the engine: it reports their placeholders as undefined. A PR that
@@ -147,7 +163,7 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          ./OrcaSlicer_profile_validator -p ${{ github.workspace }}/resources/profiles -s -l 2 2>&1 | tee ${{ runner.temp }}/validate_slice.log
+          ./OrcaSlicer_profile_validator -p "$UPSTREAM_VALIDATOR_PROFILES" -s -l 2 2>&1 | tee ${{ runner.temp }}/validate_slice.log
           exit ${PIPESTATUS[0]}
       # All vendors' filament_id collisions were fixed, so the duplicate-filament-subtype
       # check runs tree-wide.
@@ -156,7 +172,7 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          ./OrcaSlicer_profile_validator -p ${{ github.workspace }}/resources/profiles -l 2 -f 2>&1 | tee ${{ runner.temp }}/validate_filament_subtypes.log
+          ./OrcaSlicer_profile_validator -p "$UPSTREAM_VALIDATOR_PROFILES" -l 2 -f 2>&1 | tee ${{ runner.temp }}/validate_filament_subtypes.log
           exit ${PIPESTATUS[0]}
 
       - name: validate custom presets
@@ -225,7 +241,7 @@ jobs:
 
             rm -rf "${profile_tree}"
             mkdir -p "${profile_tree}"
-            cp -a "${{ github.workspace }}/resources/profiles/." "${profile_tree}/"
+            cp -a "${UPSTREAM_VALIDATOR_PROFILES}/." "${profile_tree}/"
             rm -rf "${profile_tree}/user"
             unzip -q "${fixture_zip}" -d "${profile_tree}"
 

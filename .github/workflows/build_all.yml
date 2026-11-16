@@ -30,6 +30,10 @@ on:
      - 'scripts/msix/**'
      - 'scripts/sign_windows.ps1'
      - 'tests/**'
+     # Tinman: bundles that need Tinman's engine. check_profiles.yml's upstream validator
+     # cannot load them, so the Slice check below is what validates them.
+     - 'resources/profiles/FibreSeek.json'
+     - 'resources/profiles/FibreSeek/**'
 
   pull_request:
     branches:
@@ -58,6 +62,10 @@ on:
      - 'scripts/msix/**'
      - 'scripts/sign_windows.ps1'
      - 'tests/**'
+     # Tinman: bundles that need Tinman's engine. check_profiles.yml's upstream validator
+     # cannot load them, so the Slice check below is what validates them.
+     - 'resources/profiles/FibreSeek.json'
+     - 'resources/profiles/FibreSeek/**'
 
 
   schedule:
@@ -228,7 +236,8 @@ jobs:
   # branches not taken included) - catches slicing regressions the static
   # profile checks and unit tests can't see.
   # Profile-only PRs are covered by check_profiles.yml's nightly binary; this
-  # covers src/engine PRs with the PR-built binary.
+  # covers src/engine PRs with the PR-built binary, and the bundles that need
+  # Tinman's engine (FibreSeek), which check_profiles.yml leaves out.
   slice_check_linux:
     name: Slice check (Linux ${{ vars.SELF_HOSTED && 'x86_64' || 'aarch64' }})
     needs: build_linux
