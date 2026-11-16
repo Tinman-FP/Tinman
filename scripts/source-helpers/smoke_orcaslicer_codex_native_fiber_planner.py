@@ -503,6 +503,21 @@ def synthetic_fiberseek_contract_gcode() -> str:
             "; fiber_diameter = 0.25",
             "; fiber_feed_factor = 0.8",
             "; fiber_linear_density = 102",
+            # FibreSeek's Seeker 3 values: its cut G-code and extended contact radius, the materials'
+            # standby temperatures, and the composite's retraction as Orca settings, with filament
+            # overrides on top of the printer's values.
+            "; fiber_cut_gcode = M2800\\nM400\\n;CUT DISTANCE 54.8",
+            "; fiber_nozzle_contact_radius_extended = 1.8",
+            "; fiber_nozzle_temperature_standby = 120,150",
+            "; filament_map = 1,2",
+            "; retraction_length = 1,1",
+            "; retract_restart_extra = -1,-1",
+            "; retract_length_toolchange = 10,10",
+            "; filament_retract_length_toolchange = nil,5",
+            "; retract_restart_extra_toolchange = 0,-1",
+            "; retraction_speed = 30,30",
+            "; filament_retraction_speed = 20,10",
+            "; printable_area = 0x0,305x0,305x305,0x305",
             "M106 S0",
             ";TYPE:Custom",
             "; filament end gcode",
@@ -827,7 +842,7 @@ def main() -> int:
         try:
             planner.planner_config(planner.parse_gcode(three_materials("0,0,0.6")), default_planner_args())
         except SystemExit as error:
-            if "Fiber feed factor" not in str(error):
+            if "Composite plastic multiplier" not in str(error):
                 raise
         else:
             raise SystemExit("Another material's feed factor was used for an unset composite")
@@ -838,7 +853,7 @@ def main() -> int:
         try:
             planner.planner_config(planner.parse_gcode(no_factor), default_planner_args())
         except SystemExit as error:
-            if "Fiber feed factor" not in str(error):
+            if "Composite plastic multiplier" not in str(error):
                 raise
         else:
             raise SystemExit("A missing fiber feed factor was not reported")
@@ -1403,8 +1418,8 @@ def main() -> int:
         raise SystemExit("Minimum pocket fixture no longer proves the old 90 mm floor was removed.")
     if short_pocket_skipped.get("short_perimeter_stitched_routes") != 0:
         raise SystemExit(f"Minimum pocket routes should not require stitching at the 55 mm floor: {short_pocket_skipped}")
-    # One cut distance: the profile's fiber_cut_distance (58), which the ;CUT DISTANCE marker
-    # now prints too. Before, the planner read 54.8 back from a marker that said cut - 3.2.
+    # One cut distance: the profile's fiber_cut_distance (58). Before, the planner read 54.8 back
+    # from the cut G-code's ;CUT DISTANCE line.
     if abs(short_pocket_cfg.cut_distance - 58.0) > 1e-6:
         raise SystemExit(f"Cut distance should be the profile's fiber_cut_distance: {short_pocket_cfg.cut_distance}")
     if abs(planner.standalone_cuttable_min_route_length(short_pocket_cfg) - 68.0) > 1e-6:
@@ -1695,7 +1710,7 @@ def main() -> int:
             "; ORCA_CODEX_FIBER_PRIME_START",
             "M1001 L90",
             "M2800",
-            ";CUT DISTANCE 58",
+            ";CUT DISTANCE 54.8",
             "M1002",
             "; ORCA_CODEX_FIBER_PRIME_END",
             "; ORCA_CODEX_FIBER_LAYER",
@@ -1719,6 +1734,37 @@ def main() -> int:
             "M106 P5 S255",
         ],
     )
+    # Rocket's machine protocol. The cut G-code is written as the profile gives it, with no marker of
+    # Tinman's own, and fires when cut distance - extended contact radius (58 - 1.8) of path is left.
+    cut_count = contract_merged.count("\nM2800\n")
+    if contract_merged.count("; Start to cut\nM2800\nM400\n;CUT DISTANCE 54.8\n") != cut_count or cut_count < 2:
+        raise SystemExit("FibreSeek contract did not write the profile's cut G-code verbatim at every cut.")
+    if ";CUT DISTANCE 58" in contract_merged:
+        raise SystemExit("FibreSeek contract still writes a CUT DISTANCE marker of its own.")
+    if "G1 X0.85 Y0.85 V2.07322 F180" not in contract_merged or "G1 X141.3 V1.32733 U33.8 " not in contract_merged:
+        raise SystemExit("FibreSeek contract did not cut 56.2 mm before the end of the route and the priming line.")
+    # P from the bead geometry on routes, 0.8 x (0.8 x 0.2 - pi 0.25^2 / 4) / (pi 1.75^2 / 4); the
+    # priming line keeps the strand's cross-section times the multiplier, pi 0.25^2 / 4 x 0.8.
+    route_p = {line.split(" P", 1)[1].split()[0] for line in contract_lines if line.startswith("G1 X") and " Y" in line and " P" in line}
+    if route_p != {"0.03689"} or "U33.8 P0.03927 " not in contract_merged:
+        raise SystemExit(f"FibreSeek contract P is not from the bead geometry: routes {route_p}")
+    for required, label in (
+        # Standby from each material: 120 for the plastic while fibre prints, 150 for the composite.
+        ("\nG0 Z5.2 F600\nM104 S120 T1\n", "a 5 mm lift and the plastic's standby before the brush station"),
+        ("\nM104 S150 T0\n", "the composite's standby"),
+        # The composite's filament overrides: 5 mm and extra -1 on tool change at 10 mm/s, 1 mm and -1 on travel.
+        ("T0 R ; switch extruder type to:FIBER", "the feeder reset at the first fibre tool change"),
+        ("\nG1 F600 V4 ; Extrude restart\nG4 P0\n", "the tool-change unretract 5 - 1"),
+        ("\nG1 F600 V0 ; Extrude restart\nG4 P0\n", "the travel unretract 1 - 1"),
+        ("; Cutting completed.\nG1 F600 V-1 ; Retract\n", "the travel retraction after the cut"),
+        ("\nG1 F600 V-4 ; Retract\nG0 Z5.2 F600\n", "the top-up to the tool-change retraction and the lift"),
+        # The priming line behind the first layer (no room in front of Y 0), reached at the lifted Z.
+        ("\nG0 X106.5 Y102 F30000\nG0 Z1.2 F600\n", "the priming line's place"),
+        ("; ORCA_CODEX_FIBER_PRIME_END\nG0 Z5.2 F600\n", "the lift after the priming line"),
+    ):
+        if required not in contract_merged:
+            raise SystemExit(f"FibreSeek contract is missing {label}: {required!r}")
+
     executable_end_index = contract_merged.find("; EXECUTABLE_BLOCK_END")
     if executable_end_index < 0:
         raise SystemExit("FibreSeek contract fixture lost EXECUTABLE_BLOCK_END.")

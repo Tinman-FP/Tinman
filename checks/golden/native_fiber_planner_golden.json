@@ -96,7 +96,7 @@
       },
       "command_counts": {
         "CLEAN_NOZZLE": 4,
-        "G0": 15,
+        "G0": 16,
         "G1": 33,
         "G21": 2,
         "G4": 3,
