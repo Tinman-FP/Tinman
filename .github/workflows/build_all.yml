@@ -252,6 +252,17 @@ jobs:
         with:
           name: ${{ github.sha }}-profile-validator-linux-${{ vars.SELF_HOSTED && 'x86_64' || 'aarch64' }}
           path: validator-bin
+      # Tinman: the FibreSeek processes select "Plastic + fiber overlay", whose route planner is
+      # a Python helper that needs shapely. Print.cpp runs it with ORCASLICER_CODEX_PYTHON when
+      # set. 2.0.7 is the version the planner was tested with.
+      - name: Set up Python for the fibre planner
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install shapely for the fibre planner
+        run: |
+          python -m pip install --disable-pip-version-check "shapely==2.0.7"
+          echo "ORCASLICER_CODEX_PYTHON=$(python -c 'import sys; print(sys.executable)')" >> "$GITHUB_ENV"
       - name: Validate slice (expand custom g-code)
         timeout-minutes: 60
         run: |
