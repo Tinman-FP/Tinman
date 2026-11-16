@@ -936,6 +936,27 @@ bool DropDown::ShouldDismissOnTopWindowDeactivate()
              (subDropDown  && subDropDown->IsShown()));
 }
 
+#ifdef __WXOSX__
+// On macOS an open side list holds the mouse capture, so a click on its main list arrives here first.
+// wx's popup handler would then close the side list and pass the click on to whatever window is under
+// it, which is rarely the main list. A click on the group row that opened this side list just closed
+// it, so the group seemed not to open. Keep the side list open for that click instead.
+bool DropDown::ProcessLeftDown(wxMouseEvent &event)
+{
+    if (mainDropDown && mainDropDown->IsShown() && mainDropDown->rowSize.y > 0) {
+        const auto  *source = static_cast<wxWindow *>(event.GetEventObject());
+        const wxPoint screen = source ? source->ClientToScreen(event.GetPosition()) : wxGetMousePosition();
+        if (mainDropDown->GetScreenRect().Contains(screen)) {
+            const wxPoint pt  = mainDropDown->ScreenToClient(screen);
+            const int     row = (pt.y - mainDropDown->offset.y) / mainDropDown->rowSize.y;
+            if (row == mainDropDown->hover_item && mainDropDown->hoverIndex() < -1)
+                return true;
+        }
+    }
+    return PopupWindow::ProcessLeftDown(event);
+}
+#endif
+
 void DropDown::OnDismiss()
 {
     if (mainDropDown) {
@@ -943,25 +964,12 @@ void DropDown::OnDismiss()
         const wxPoint& mouse_pos = wxGetMousePosition();
         if (!mainDropDown->GetScreenRect().Contains(mouse_pos))
             mainDropDown->DismissAndNotify();
-        else {
+        else
 #ifdef __WIN32__
             SetActiveWindow(mainDropDown->GetHandle());
-#elif defined(__WXOSX__)
-            // On macOS the open side list holds the mouse capture, so a click on the main list
-            // closes the side list and never reaches the main list. A click on the group row the
-            // side list belongs to just closed it, and hovering that row again did nothing because
-            // it was still the hovered row. Re-run the main list's hover at the pointer instead:
-            // over a group row that reopens its side list, as hovering it did.
-            mainDropDown->CallAfter([main = mainDropDown] {
-                if (!main->IsShown())
-                    return;
-                wxMouseEvent motion(wxEVT_MOTION);
-                motion.SetPosition(main->ScreenToClient(wxGetMousePosition()));
-                main->hover_item = -1;
-                main->mouseMove(motion);
-            });
+#else
+            ;
 #endif
-        }
         return;
     }
     if (subDropDown && subDropDown->IsShown())

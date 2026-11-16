@@ -128,6 +128,10 @@ protected:
 
     void OnDismiss() override;
 
+#ifdef __WXOSX__
+    bool ProcessLeftDown(wxMouseEvent &event) override;
+#endif
+
     bool ShouldDismissOnTopWindowDeactivate() override;
 
 private:
