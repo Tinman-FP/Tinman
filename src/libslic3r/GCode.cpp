@@ -9543,9 +9543,11 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
     const double fiber_diameter_mm = m_config.continuous_fiber_diameter.value;
     if (!(fiber_diameter_mm > 0.))
         throw Slic3r::SlicingError(_(L("The continuous fiber's diameter is not set. Enter Fiber diameter in the composite filament profile.")));
-    // fiber_feed_factor is the composite plastic multiplier (FibreSeek's ExtrusionMultiplierP).
-    const double plastic_multiplier = m_curr_print ? continuous_fiber_composite_value(m_curr_print->full_print_config(), "fiber_feed_factor") : 0.;
-    if (!(plastic_multiplier > 0.))
+    // P, the composite plastic per mm of fibre, follows Composite plastic multiplier (FibreSeek's
+    // ExtrusionMultiplierP) when the composite sets it, else the legacy Fiber feed factor model.
+    const double plastic_multiplier = m_curr_print ? continuous_fiber_composite_value(m_curr_print->full_print_config(), "fiber_composite_plastic_multiplier") : 0.;
+    const double legacy_feed_factor = m_curr_print ? continuous_fiber_composite_value(m_curr_print->full_print_config(), "fiber_feed_factor") : 0.;
+    if (!(plastic_multiplier > 0.) && !(legacy_feed_factor > 0.))
         throw Slic3r::SlicingError(_(L("The composite plastic multiplier is not set. Enter Composite plastic multiplier in the composite filament profile.")));
     const double after_cut_v_multiplier = tinman_positive_or_default(m_config.fiber_after_cut_plastic_extrusion_multiplier.value, 1.0);
     const double slow_length_mm = std::max(0.0, m_config.fiber_slow_length.value);
@@ -9557,22 +9559,26 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
     const size_t fiber_filament_id = continuous_fiber_composite_slot(m_print->full_print_config()).value_or(
         m_config.fiber_nozzle_temperature_preheat.values.size() > 1 || m_config.nozzle_temperature_initial_layer.values.size() > 1 ? 1 : 0);
     const size_t plastic_filament_id = fiber_filament_id == 0 ? 1 : 0;
-    // P, the composite plastic per mm of fibre (V per U), from the bead geometry as Rocket computes
-    // it: the multiplier times the bead's cross-section (line width x layer height) less the fibre's,
-    // over the composite plastic filament's cross-section. Rounded to 5 decimals as written.
+    // The legacy model: the strand's cross-section pi*(d/2)^2 times the feed factor, rounded to 5
+    // decimals, exactly as before, so profiles made for it slice the same. The priming line keeps it
+    // with either setting: Rocket's P there (0.07) follows another rule that is not known yet.
     const double feedrate_scale = tinman_positive_or_default(m_config.fiber_feedrate_percent.value, 100.0) / 100.0;
     const double fiber_area_mm2 = PI * std::pow(fiber_diameter_mm / 2.0, 2.0);
-    const double plastic_diameter_mm = tinman_positive_or_default(tinman_float_at_or_default(m_config.fiber_plastic_diameter, fiber_filament_id, 0.),
-        tinman_positive_or_default(m_config.filament_diameter.get_at(fiber_filament_id), 1.75));
-    const double matrix_area_mm2 = line_width_mm * layer_to_print.object_layer->height - fiber_area_mm2;
-    if (!(matrix_area_mm2 > 0.))
-        throw Slic3r::SlicingError(_(L("The fiber line width times the layer height is smaller than the fiber's cross-section. Raise Fiber line width or the layer height.")));
-    const double fiber_p_value = std::round(plastic_multiplier * matrix_area_mm2 / (PI * std::pow(plastic_diameter_mm / 2.0, 2.0)) * 100000.0) / 100000.0;
-    const double fiber_v_per_mm = fiber_p_value * feedrate_scale;
-    // The priming line keeps the strand's cross-section times the multiplier: Rocket's P there
-    // (0.07) follows another rule that is not known yet.
-    const double prime_p_value = std::round(fiber_area_mm2 * plastic_multiplier * 100000.0) / 100000.0;
+    const double prime_p_value = std::round(fiber_area_mm2 * (legacy_feed_factor > 0. ? legacy_feed_factor : plastic_multiplier) * 100000.0) / 100000.0;
     const double prime_v_per_mm = prime_p_value * feedrate_scale;
+    // With the multiplier, P comes from the bead geometry as Rocket computes it: the multiplier times
+    // the bead's cross-section (line width x layer height) less the fibre's, over the composite
+    // plastic filament's cross-section.
+    double fiber_p_value = prime_p_value;
+    if (plastic_multiplier > 0.) {
+        const double plastic_diameter_mm = tinman_positive_or_default(tinman_float_at_or_default(m_config.fiber_plastic_diameter, fiber_filament_id, 0.),
+            tinman_positive_or_default(m_config.filament_diameter.get_at(fiber_filament_id), 1.75));
+        const double matrix_area_mm2 = line_width_mm * layer_to_print.object_layer->height - fiber_area_mm2;
+        if (!(matrix_area_mm2 > 0.))
+            throw Slic3r::SlicingError(_(L("The fiber line width times the layer height is smaller than the fiber's cross-section. Raise Fiber line width or the layer height.")));
+        fiber_p_value = std::round(plastic_multiplier * matrix_area_mm2 / (PI * std::pow(plastic_diameter_mm / 2.0, 2.0)) * 100000.0) / 100000.0;
+    }
+    const double fiber_v_per_mm = fiber_p_value * feedrate_scale;
     const double restart_pause_s = std::max(0.0, tinman_float_at_or_default(m_config.fiber_restart_pause, fiber_filament_id, 0.0));
     const double finish_ironing_distance_mm = std::max(0.0, tinman_float_at_or_default(m_config.fiber_finish_ironing_distance, fiber_filament_id, 0.0));
     const int plastic_temperature = tinman_positive_int_at_or_default(m_config.nozzle_temperature_initial_layer, plastic_filament_id, 250);
@@ -9614,9 +9620,12 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
     };
     // Rocket lifts Z by FibreSeek's ZLiftOnToolChange before each move to the brush station; Tinman
     // has no setting for it.
+    // The lift stays within the printer's printable height.
     static constexpr double toolchange_z_lift_mm = 5.;
     static constexpr double z_feedrate = 600.;
-    const auto lift_z_mm = [this, layer_z]() { return std::max(m_writer.get_position().z(), layer_z + toolchange_z_lift_mm); };
+    const double toolchange_z_mm = m_config.printable_height.value > 0. ?
+        std::max(layer_z, std::min(layer_z + toolchange_z_lift_mm, m_config.printable_height.value)) : layer_z + toolchange_z_lift_mm;
+    const auto lift_z_mm = [this, toolchange_z_mm]() { return std::max(m_writer.get_position().z(), toolchange_z_mm); };
     auto emit_z = [this](std::string &out, double z) {
         out += Slic3r::format("G0 Z%.3f F%.0f\n", z, z_feedrate);
         Vec3d position = m_writer.get_position();
@@ -9712,28 +9721,42 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
 
     // One fibre priming line per print, before the first route, as Rocket lays it and as the Python
     // planner does (emit_fiber_prime_line): 90 mm along X centred at FibreSeek's X 152.5, at Fiber
-    // priming line height. Rocket puts it 2 mm in front of the first layer, so do both writers; since
-    // Tinman lays it at the first fibre layer, it travels there at the tool-change height, comes down
-    // outside the part and lifts again afterwards.
+    // priming line height. Rocket puts it 2 mm in front of the first layer and prints it before that
+    // layer. Tinman lays it at the first fibre layer, several layers up, so it goes 2 mm in front of
+    // everything the print lays down on any layer (behind it without room in front), on the bed. It
+    // travels there at the tool-change height, comes down outside the print and lifts again after.
     if (first_fiber_block) {
         static constexpr double prime_center_x = 152.5, prime_gap = 2., prime_travel_z = 1.2, travel_feedrate = 30000.;
-        BoundingBoxf first_layer;
+        const double line_length = std::max(90., cut_distance_mm + 1.);
+        const double start_x = prime_center_x - line_length / 2., end_x = start_x + line_length;
+        // Every object's footprint and supports at each instance, and the first layer's skirt and brim.
+        BoundingBoxf printed;
         for (const Point &point : m_print->first_layer_convex_hull().points)
-            first_layer.merge(m_print->translate_to_print_space(point));
+            printed.merge(m_print->translate_to_print_space(point));
+        for (const PrintObject *object : m_print->objects()) {
+            BoundingBox footprint = object->bounding_box();
+            for (const SupportLayer *support : object->support_layers())
+                for (const ExPolygon &island : support->support_islands)
+                    footprint.merge(get_extents(island.contour));
+            for (const PrintInstance &instance : object->instances()) {
+                printed.merge(m_print->translate_to_print_space(Point(footprint.min + instance.shift)));
+                printed.merge(m_print->translate_to_print_space(Point(footprint.max + instance.shift)));
+            }
+        }
         const BoundingBoxf bed(m_config.printable_area.values);
+        const double half_width = line_width_mm / 2.;
+        const bool fits_along_x = printed.defined && start_x - 1. >= bed.min.x() && end_x <= bed.max.x();
         std::optional<double> prime_y;
-        if (first_layer.defined && first_layer.min.y() - prime_gap >= bed.min.y())
-            prime_y = first_layer.min.y() - prime_gap;
-        else if (first_layer.defined && first_layer.max.y() + prime_gap <= bed.max.y())
-            prime_y = first_layer.max.y() + prime_gap;
+        if (fits_along_x && printed.min.y() - prime_gap - half_width >= bed.min.y())
+            prime_y = printed.min.y() - prime_gap;
+        else if (fits_along_x && printed.max.y() + prime_gap + half_width <= bed.max.y())
+            prime_y = printed.max.y() + prime_gap;
         if (!prime_y) {
-            gcode += "; TINMANX1_FIBER_PRIME_SKIPPED no room in front of or behind the first layer\n";
+            gcode += "; TINMANX1_FIBER_PRIME_SKIPPED no room on the bed in front of or behind the print\n";
             m_print->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
-                _(L("There is no room on the bed in front of or behind the first layer for the fiber priming line, so the first fiber route starts without one.")));
+                _(L("There is no room on the bed in front of or behind the print for the fiber priming line, so the first fiber route starts without one.")));
         } else {
-            const double line_length = std::max(90., cut_distance_mm + 1.);
             const double line_z = tinman_positive_or_default(tinman_float_at_or_default(m_config.fiber_priming_line_height, fiber_filament_id, 0.), 0.2);
-            const double start_x = prime_center_x - line_length / 2., end_x = start_x + line_length;
             const double park_x = std::max(start_x, end_x - 1.2);
             const double cut_at = tinman_fiber_cut_position_mm(line_length, cut_distance_mm, contact_radius_extended_mm);
             const double y = *prime_y;
@@ -9749,7 +9772,8 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
             gcode += Slic3r::format(";WIDTH:%.3f\n;HEIGHT:%.3f\n", line_width_mm, line_z);
             gcode += Slic3r::format("G0 X%.3f Y%.3f F%.0f\n", start_x - 1., y, travel_feedrate);
             emit_z(gcode, std::max(prime_travel_z, line_z + 0.2));
-            gcode += Slic3r::format("M1001 L%d\n", int(std::ceil(line_length)));
+            // M1001 L covers the fibre the line feeds: the restart plus what is fed up to the cut.
+            gcode += Slic3r::format("M1001 L%d\n", int(std::ceil(std::max(line_length, restart_length_mm + cut_at))));
             gcode += Slic3r::format("G1 U%.3f F%.0f ; Extrude restart\n", restart_length_mm, restart_feedrate);
             gcode += Slic3r::format("G0 X%.3f Z%.3f F%.0f\n", start_x, line_z, travel_feedrate);
             emit_prime(gcode);
@@ -9764,7 +9788,7 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
             const Vec2d park(park_x + m_writer.get_xy_offset().x(), y + m_writer.get_xy_offset().y());
             m_writer.set_position(Vec3d(park.x(), park.y(), line_z));
             this->set_last_pos(this->gcode_to_point(park));
-            emit_z(gcode, layer_z + toolchange_z_lift_mm);
+            emit_z(gcode, toolchange_z_mm);
         }
     }
 
@@ -9805,11 +9829,12 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
             warnings += (warnings.empty() ? "" : ",") + warning;
 
         const Point route_start = first_polyline->points.front();
-        // M1001 L stays the route's fibre length plus the cut distance, as before the cut moved. The
-        // strand a route takes is the fibre fed up to the cut plus the cut distance behind the cutter,
-        // L + extended contact radius, which that still covers; it is also the floor the contract
-        // audit checks.
-        const int estimated_load = int(std::ceil(fiber_length_mm + cut_distance_mm));
+        // M1001 L stays the route's fibre length plus the cut distance, as before the cut moved: the
+        // floor the contract audit checks, and it covers the strand a route takes (the fibre fed up to
+        // the cut plus the cut distance behind the cutter). It is never less than the fibre the route
+        // feeds, the restart plus what is fed up to the cut.
+        const double cut_at_mm = tinman_fiber_cut_position_mm(fiber_length_mm, cut_distance_mm, contact_radius_extended_mm);
+        const int estimated_load = int(std::ceil(std::max(fiber_length_mm + cut_distance_mm, restart_length_mm + cut_at_mm)));
         gcode += Slic3r::format(
             "; ORCA_CODEX_FIBER_ROUTE_START layer=%zu z=%.3f kind=%s fiber_length=%.3f route_length=%.3f tail_length=%.3f warnings=%s\n",
             route.layer_id,
@@ -9842,7 +9867,6 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
             gcode += Slic3r::format("; SEAM Fiber at X%.3f Y%.3f Z%.3f\n", seam.x(), seam.y(), layer_z);
         }
 
-        const double cut_at_mm = tinman_fiber_cut_position_mm(fiber_length_mm, cut_distance_mm, contact_radius_extended_mm);
         double walked_fiber_mm = 0.0;
         bool cut_emitted = false;
         auto emit_composite_polyline = [

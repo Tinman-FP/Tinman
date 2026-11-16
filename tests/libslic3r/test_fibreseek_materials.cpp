@@ -754,8 +754,14 @@ TEST_CASE("Missing strand settings are named", "[TinMan][Preset][FibreSeek][CfcU
            std::vector<std::string>{"Fiber diameter", "Fiber linear density", "Composite plastic multiplier"}));
     composite.config.set_key_value("fiber_diameter", new ConfigOptionFloats{0.3});
     composite.config.set_key_value("fiber_linear_density", new ConfigOptionFloats{90.});
-    composite.config.set_key_value("fiber_feed_factor", new ConfigOptionFloats{0.8});
-    CHECK(missing_continuous_fiber_settings(composite).empty());
+    SECTION("the composite plastic multiplier") {
+        composite.config.set_key_value("fiber_composite_plastic_multiplier", new ConfigOptionFloats{0.8});
+        CHECK(missing_continuous_fiber_settings(composite).empty());
+    }
+    SECTION("the legacy feed factor") {
+        composite.config.set_key_value("fiber_feed_factor", new ConfigOptionFloats{0.8});
+        CHECK(missing_continuous_fiber_settings(composite).empty());
+    }
 }
 
 TEST_CASE("A fiber choice rolls back every field it touches", "[TinMan][Preset][FibreSeek][CfcCommit]")

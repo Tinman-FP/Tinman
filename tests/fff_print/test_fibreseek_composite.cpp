@@ -8,6 +8,7 @@
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <regex>
@@ -275,9 +276,13 @@ TEST_CASE("The idle tool waits at its own material's standby temperature", "[Fib
 
 TEST_CASE("Each composite tool change lifts Z 5 mm above its layer before the brush station", "[Fibreseek][FibreseekSlicing]")
 {
+    // A 6 mm printable height caps the lift above the 4 mm plate's upper fibre layers.
+    const double printable_height = GENERATE(250., 6.);
+    DynamicPrintConfig config = composite_only_config();
+    config.set_deserialize_strict("printable_height", printable_height > 10. ? "250" : "6");
     Print print;
     Model model;
-    init_plate(print, model, composite_only_config());
+    init_plate(print, model, config);
     const std::string gcode = Test::gcode(print);
 
     // Per fibre layer: the change to fibre, the layer marker, the routes, the change back to plastic.
@@ -297,14 +302,16 @@ TEST_CASE("Each composite tool change lifts Z 5 mm above its layer before the br
             CHECK(lifted);
             in_change = false;
         } else if (std::regex_search(line, match, layer_marker)) {
-            const double z = std::stod(match[1].str());
-            expected.insert(expected.end(), { z + 5., z + 5. });
+            const double z = std::min(std::stod(match[1].str()) + 5., printable_height);
+            expected.insert(expected.end(), { z, z });
         }
     }
     REQUIRE(!expected.empty());
     REQUIRE(lifts.size() == expected.size());
     for (size_t i = 0; i < lifts.size(); ++i)
         CHECK(std::abs(lifts[i] - expected[i]) < 0.001);
+    if (printable_height < 10.)
+        CHECK(std::any_of(lifts.begin(), lifts.end(), [](double z) { return std::abs(z - 6.) < 0.001; }));
 }
 
 TEST_CASE("Each route start unretracts the composite's retraction plus extra length", "[Fibreseek][FibreseekSlicing]")
@@ -331,13 +338,20 @@ TEST_CASE("Each route start unretracts the composite's retraction plus extra len
 
 TEST_CASE("Fibre route moves take P from the bead geometry, the priming line keeps its own", "[Fibreseek][FibreseekSlicing]")
 {
-    // 0.2 mm layers, 0.8 mm fibre line width, multiplier 0.8, 0.25 mm fibre and 1.75 mm composite filament.
+    // 0.2 mm layers, 0.8 mm fibre line width, 0.25 mm fibre and 1.75 mm composite filament. With
+    // Composite plastic multiplier 0.8, as Rocket: 0.8 x (0.8 x 0.2 - pi x 0.25^2 / 4) / (pi x 1.75^2 / 4)
+    // = 0.03689. With only the legacy Fiber feed factor 0.8, P stays pi x 0.25^2 / 4 x 0.8 = 0.03927.
+    const bool multiplier = GENERATE(true, false);
+    DynamicPrintConfig config = composite_only_config();
+    if (multiplier)
+        config.set_deserialize_strict("fiber_composite_plastic_multiplier", "0,0.8");
+    const std::string route_p = multiplier ? "0.03689" : "0.03927";
     Print print;
     Model model;
-    init_plate(print, model, composite_only_config());
+    init_plate(print, model, config);
     const std::string gcode = Test::gcode(print);
 
-    // As Rocket: 0.8 x (0.8 x 0.2 - pi x 0.25^2 / 4) / (pi x 1.75^2 / 4) = 0.03689, V = U x P.
+    // V = U x P on every route move.
     static const std::regex fibre_move(R"(^G1 X\S+ Y\S+ V(\S+) U(\S+) P(\S+))");
     size_t moves = 0;
     std::istringstream stream(gcode);
@@ -346,25 +360,74 @@ TEST_CASE("Fibre route moves take P from the bead geometry, the priming line kee
         if (!std::regex_search(line, match, fibre_move))
             continue;
         ++moves;
-        CHECK(match[3].str() == "0.03689");
-        CHECK(std::abs(std::stod(match[1].str()) - std::stod(match[2].str()) * 0.03689) < 1e-5);
+        CHECK(match[3].str() == route_p);
+        CHECK(std::abs(std::stod(match[1].str()) - std::stod(match[2].str()) * std::stod(route_p)) < 1e-5);
     }
     CHECK(moves > 0);
-    // The priming line keeps the strand's cross-section times the multiplier: pi x 0.25^2 / 4 x 0.8.
-    CHECK(count(gcode, " P0.03927 F") == 1);
+    // The priming line keeps the legacy model either way.
+    const size_t prime = gcode.find("; ORCA_CODEX_FIBER_PRIME_START");
+    REQUIRE(prime != std::string::npos);
+    CHECK_THAT(gcode.substr(prime, gcode.find("; ORCA_CODEX_FIBER_PRIME_END") - prime), ContainsSubstring(" P0.03927 F"));
 }
 
-TEST_CASE("Composite-only G-code lays one priming line, in front of the first layer, before the first route", "[Fibreseek][FibreseekSlicing]")
+TEST_CASE("Fibre slicing needs a composite plastic multiplier or the legacy feed factor", "[Fibreseek][FibreseekSlicing]")
 {
-    // The test plate sits around the origin: a bed reaching below Y 0 has room in front of it, the
-    // default bed from Y 0 only behind it.
+    DynamicPrintConfig config = composite_only_config();
+    config.set_deserialize_strict({ { "fiber_feed_factor", "0,0" }, { "fiber_composite_plastic_multiplier", "0,0" } });
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    REQUIRE_THROWS_WITH(Test::gcode(print), ContainsSubstring("Composite plastic multiplier"));
+}
+
+TEST_CASE("M1001 L covers the restart and the fibre fed before the cut", "[Fibreseek][FibreseekSlicing]")
+{
+    // A 60 mm restart: the priming line feeds 60 + (90 - 56.2) = 93.8 mm before its cut.
+    DynamicPrintConfig config = seeker3_config();
+    config.set_deserialize_strict("fiber_restart_length", "60");
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    const std::string gcode = Test::gcode(print);
+
+    CHECK(count(gcode, "\nM1001 L94\n") == 1);
+    // Every route: L at least the restart plus the U fed up to its cut.
+    static const std::regex fed(R"( U(\S+) P)");
+    double load = 0., fed_mm = 0.;
+    size_t routes = 0;
+    std::istringstream stream(gcode);
+    for (std::string line; std::getline(stream, line);) {
+        std::smatch match;
+        if (line.rfind("M1001 L", 0) == 0) {
+            load = std::stod(line.substr(7));
+            fed_mm = 0.;
+        } else if (std::regex_search(line, match, fed)) {
+            fed_mm += std::stod(match[1].str());
+        } else if (line == "M1002") {
+            ++routes;
+            CHECK(load + 1e-6 >= std::ceil(60. + fed_mm - 1e-3));
+        }
+    }
+    CHECK(routes > 1);
+}
+
+TEST_CASE("Composite-only G-code lays one priming line, in front of the print, before the first route", "[Fibreseek][FibreseekSlicing]")
+{
+    // The test part sits around the origin: a bed reaching below Y 0 has room in front of it, the
+    // default bed from Y 0 only behind it. The part widens after its first layer, from 20 to 40 mm
+    // deep, before the first fibre layer: the line must clear the wide part, not the first layer.
     const bool room_in_front = GENERATE(true, false);
     DynamicPrintConfig config = seeker3_config();
     if (room_in_front)
         config.set_deserialize_strict("printable_area", "-100x-100,200x-100,200x200,-100x200");
+    indexed_triangle_set part = its_make_cube(60., 20., 0.2);
+    its_translate(part, Vec3f(0.f, 10.f, 0.f));
+    indexed_triangle_set wide = its_make_cube(60., 40., 3.8);
+    its_translate(wide, Vec3f(0.f, 0.f, 0.2f));
+    its_merge(part, wide);
     Print print;
     Model model;
-    init_plate(print, model, config);
+    Test::init_print({ TriangleMesh(part) }, print, model, config);
     const std::string gcode = Test::gcode(print);
 
     REQUIRE(count(gcode, "; ORCA_CODEX_FIBER_PRIME_START") == 1);
@@ -375,17 +438,20 @@ TEST_CASE("Composite-only G-code lays one priming line, in front of the first la
     const std::string lift_after_prime = "; ORCA_CODEX_FIBER_PRIME_END\nG0 Z";
     CHECK(gcode.compare(prime_end, lift_after_prime.size(), lift_after_prime) == 0);
 
-    // Rocket's place for it: 2 mm in front of the first layer (behind it without room there),
-    // reached before coming down.
+    // 2 mm in front of everything printed (behind it without room there), reached before coming down.
     static const std::regex approach(R"(\nG0 X(\S+) Y(\S+) F30000\nG0 Z1\.200 F600\n)");
     std::smatch match;
     const std::string block = gcode.substr(prime, prime_end - prime);
     REQUIRE(std::regex_search(block, match, approach));
-    BoundingBoxf first_layer;
+    BoundingBoxf first_layer, printed;
     for (const Point &point : print.first_layer_convex_hull().points)
         first_layer.merge(print.translate_to_print_space(point));
+    const PrintObject &object = *print.objects().front();
+    for (const Point &corner : { object.bounding_box().min, object.bounding_box().max })
+        printed.merge(print.translate_to_print_space(Point(corner + object.instances().front().shift)));
+    REQUIRE(printed.max.y() - printed.min.y() > first_layer.max.y() - first_layer.min.y() + 15.);
     CHECK(std::abs(std::stod(match[1].str()) - 106.5) < 0.001);
-    const double expected_y = room_in_front ? first_layer.min.y() - 2. : first_layer.max.y() + 2.;
+    const double expected_y = room_in_front ? printed.min.y() - 2. : printed.max.y() + 2.;
     CHECK(std::abs(std::stod(match[2].str()) - expected_y) < 0.001);
 }
 

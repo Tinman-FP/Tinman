@@ -3681,14 +3681,24 @@ void PrintConfigDef::init_fff_params()
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionFloats { 0.0 });
 
-    // FibreSeek's ExtrusionMultiplierP. The key keeps its earlier name, from when it scaled the
-    // fibre's cross-section, so existing profiles still load.
+    // FibreSeek: the legacy model, the composite plastic per mm of route is pi*(d/2)^2 times this
+    // factor. It applies only while Composite plastic multiplier is 0, so profiles made for it keep
+    // slicing the same.
     def = this->add("fiber_feed_factor", coFloats);
+    def->label = L("Fiber feed factor");
+    def->tooltip = L("Legacy model, used only while Composite plastic multiplier is 0: fiber feed per millimeter of route, as a fraction "
+                     "of the strand's cross-section area (pi x (diameter / 2)^2).");
+    def->min = 0;
+    def->mode = comSimple;
+    def->set_default_value(new ConfigOptionFloats { 0.0 });
+
+    // FibreSeek's ExtrusionMultiplierP, with Rocket's bead-geometry model of the composite plastic.
+    def = this->add("fiber_composite_plastic_multiplier", coFloats);
     def->label = L("Composite plastic multiplier");
     def->tooltip = L("Multiplier for the plastic the composite nozzle extrudes around the fiber. The plastic per millimeter of fiber is "
                      "this value times the fiber bead's cross-section (fiber line width x layer height) less the fiber's own, over the "
-                     "composite plastic filament's cross-section. FibreSeek uses 0.8 for CFC PETG + X-CCF. There is no default: "
-                     "continuous-fiber slicing stops until it is set.");
+                     "composite plastic filament's cross-section. FibreSeek uses 0.8 for CFC PETG + X-CCF. When it is 0, Fiber feed "
+                     "factor applies; continuous-fiber slicing stops until one of them is set.");
     def->min = 0;
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionFloats { 0.0 });
