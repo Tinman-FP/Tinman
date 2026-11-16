@@ -1,0 +1,9 @@
+{
+	"type": "machine_model",
+	"name": "FibreSeek Seeker 3",
+	"model_id": "FibreSeek-Seeker-3",
+	"nozzle_diameter": "0.4;0.6;0.8;0.4+0.7;0.6+0.7;0.8+0.7",
+	"machine_tech": "FFF",
+	"family": "FibreSeek",
+	"default_materials": "FibreSeek PCTG @FibreSeek Seeker 3;CFC PCTG + X-CCF @FibreSeek Seeker 3;FibreSeek ABS @FibreSeek Seeker 3;CFC ABS + X-CCF @FibreSeek Seeker 3;FibreSeek PA-CF @FibreSeek Seeker 3;CFC PA-CF + X-CCF @FibreSeek Seeker 3"
+}
