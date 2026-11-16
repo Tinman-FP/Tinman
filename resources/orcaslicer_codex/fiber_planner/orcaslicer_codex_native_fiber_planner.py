@@ -225,7 +225,8 @@ class PlannerConfig:
     active_tool_fan_speed: int = 255
     fiber_prime_enabled: bool = True
     fiber_prime_line_center_x: float = 152.5
-    fiber_prime_line_y: float = 119.0  # only without a first layer; see fiber_prime_line_y_for()
+    fiber_prime_line_y: float = 119.0  # set by place_fiber_prime_line()
+    fiber_prime_line_y_requested: float = 0.0  # a payload's Y; 0 = place it automatically
     fiber_prime_line_length: float = 90.0
     fiber_prime_line_height: float = 0.2
     fiber_prime_travel_z: float = 1.2
@@ -723,30 +724,50 @@ def composite_retraction(comments: dict[str, str], slot: int, key: str, default:
     return default if value is None else value
 
 
-def fiber_prime_line_y_for(parsed: ParsedGCode, comments: dict[str, str], cfg: PlannerConfig) -> float | None:
+def place_fiber_prime_line(parsed: ParsedGCode, comments: dict[str, str], cfg: PlannerConfig) -> str | None:
     """Rocket lays the priming line 2 mm in front of the first layer. Tinman lays it at the first fibre
     layer, several layers up, so it goes 2 mm in front of everything the print lays down on any layer
     (behind it when the bed has no room in front), as the C++ writer does; the descent to the line
-    then never meets printed material. None when the line fits on the bed on neither side; the
-    configured Y when the G-code has no extrusions."""
+    then never meets printed material. The line and its approach must lie on the bed polygon. A
+    payload's Y is used when it passes the same checks. Sets fiber_prime_line_y, or turns the line off
+    and returns the warning to report."""
     points = [point for layer in parsed.layers for path in layer.extrusion_paths for point in path.points]
     if not points:
-        return cfg.fiber_prime_line_y
+        return None
     corners = [corner.split("x") for corner in (comments.get("printable_area") or "").split(",") if "x" in corner]
-    bed_x = [float(x) for x, _ in corners] or [-math.inf, math.inf]
-    bed_y = [float(y) for _, y in corners] or [-math.inf, math.inf]
+    bed = Polygon([(float(x), float(y)) for x, y in corners]) if len(corners) >= 3 else None
+    xs, ys = [x for x, _ in points], [y for _, y in points]
+    printed = Polygon([(min(xs), min(ys)), (max(xs), min(ys)), (max(xs), max(ys)), (min(xs), max(ys))])
     line_length = max(cfg.fiber_prime_line_length, cfg.cut_distance + 1.0)
     start_x = cfg.fiber_prime_line_center_x - line_length / 2.0
-    if start_x - 1.0 < min(bed_x) or start_x + line_length > max(bed_x):
-        return None
-    half_width = cfg.fiber_width / 2.0
-    front = min(y for _, y in points) - 2.0
-    back = max(y for _, y in points) + 2.0
-    if front - half_width >= min(bed_y):
-        return front
-    if back + half_width <= max(bed_y):
-        return back
-    return None
+
+    def fits(y: float) -> bool:
+        line = LineString([(start_x - 1.0, y), (start_x + line_length, y)])
+        clear = line.distance(printed) + EPSILON >= PRIME_LINE_GAP
+        return clear and (bed is None or bed.buffer(EPSILON).covers(line.buffer(cfg.fiber_width / 2.0, cap_style=2)))
+
+    warning = None
+    if cfg.fiber_prime_line_y_requested > EPSILON:
+        if fits(cfg.fiber_prime_line_y_requested):
+            cfg.fiber_prime_line_y = cfg.fiber_prime_line_y_requested
+            return None
+        warning = (
+            f"warning: the fiber priming line's Y {fmt_float(cfg.fiber_prime_line_y_requested)} is off the bed or "
+            "too close to the print, so Tinman places it itself."
+        )
+    for y in (min(ys) - PRIME_LINE_GAP, max(ys) + PRIME_LINE_GAP):
+        if fits(y):
+            cfg.fiber_prime_line_y = y
+            return warning
+    cfg.fiber_prime_enabled = False
+    return (
+        "warning: there is no room on the bed in front of or behind the print for the fiber priming line, "
+        "so the first fiber route starts without one."
+    )
+
+
+# The priming line keeps this far from everything printed, as Rocket keeps it from the first layer.
+PRIME_LINE_GAP = 2.0
 
 
 def pattern_from_comments(comments: dict[str, str], default: str) -> str:
@@ -1173,9 +1194,9 @@ def apply_fiber_prime_payload_overrides(cfg: PlannerConfig, payload: dict) -> No
         payload_value(raw_prime, "center_x", "x", "line_center_x"),
         cfg.fiber_prime_line_center_x,
     )
-    cfg.fiber_prime_line_y = payload_positive_float(
+    cfg.fiber_prime_line_y_requested = payload_positive_float(
         payload_value(raw_prime, "y", "line_y", "center_y"),
-        cfg.fiber_prime_line_y,
+        cfg.fiber_prime_line_y_requested,
     )
     cfg.fiber_prime_line_length = payload_positive_float(
         payload_value(raw_prime, "length", "line_length"),
@@ -1516,17 +1537,12 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
     cfg.material_tuning_name = material_tuning_name
     apply_material_tuning_overrides(cfg, material_tuning)
     apply_layup_payload_overrides(cfg, payload, angle_override)
-    prime_y = fiber_prime_line_y_for(parsed, comments, cfg)
-    if prime_y is None:
-        cfg.fiber_prime_enabled = False
-        print(
-            "warning: there is no room on the bed in front of or behind the print for the fiber "
-            "priming line, so the first fiber route starts without one.",
-            file=sys.stderr,
-        )
-    else:
-        cfg.fiber_prime_line_y = prime_y
     apply_fiber_prime_payload_overrides(cfg, payload)
+    # Placed with the final settings; Tinman shows the warning as a slicing warning.
+    if cfg.fiber_prime_enabled:
+        prime_warning = place_fiber_prime_line(parsed, comments, cfg)
+        if prime_warning:
+            print(prime_warning, file=sys.stderr)
     if args.fiber_infill_pattern:
         cfg.pattern = normalized_pattern(args.fiber_infill_pattern, cfg.pattern)
         cfg.angles = angles_for_pattern(cfg.pattern, angle_override)
@@ -2851,18 +2867,20 @@ def perimeter_routes(layer: LayerGeometry, polygon: Polygon, cfg: PlannerConfig)
 
 def hole_reinforcement_routes(
     layer: LayerGeometry,
-    polygon: Polygon,
+    polygons: Sequence[Polygon],
     cfg: PlannerConfig,
     skipped: dict[str, int],
     part_center: tuple[float, float] | None = None,
 ) -> list[FiberRoute]:
-    if cfg.hole_reinforcement_routes_per_layer <= 0:
+    """Loops around the holes of every island, selected together for the layer."""
+    if cfg.hole_reinforcement_routes_per_layer <= 0 or not polygons:
         return []
 
     candidates: list[tuple[float, FiberRoute]] = []
     minimum_hardware_length = hardware_min_route_length(cfg)
-    boundary = polygon.buffer(-cfg.perimeter_inset, join_style=1)
-    boundary_polygons = polygon_parts(boundary) or [polygon]
+    boundary_polygons: list[Polygon] = []
+    for polygon in polygons:
+        boundary_polygons.extend(polygon_parts(polygon.buffer(-cfg.perimeter_inset, join_style=1)) or [polygon])
     seen: set[tuple[float, float, float]] = set()
 
     for boundary_polygon in boundary_polygons:
@@ -2915,7 +2933,7 @@ def hole_reinforcement_routes(
         [route for _, route in candidates],
         cfg.hole_reinforcement_routes_per_layer,
         cfg,
-        part_center or (float(polygon.centroid.x), float(polygon.centroid.y)),
+        part_center or layer_part_center(polygons),
         "hole_reinforcement",
     )
     skipped["hole_reinforcement_routes"] += len(selected)
@@ -3360,7 +3378,7 @@ def plan_routes(parsed: ParsedGCode, cfg: PlannerConfig) -> tuple[list[FiberRout
             )
             layer_routes.extend(perimeter_trace_routes)
             layer_routes.extend(traced_hole_reinforcement_routes(layer, polygons, route_cfg, skipped, part_center, part_regions))
-            layer_routes.extend(hole_reinforcement_routes(layer, unary_union(list(polygons)), route_cfg, skipped, part_center))
+            layer_routes.extend(hole_reinforcement_routes(layer, polygons, route_cfg, skipped, part_center))
         if route_cfg.generate_infill:
             if route_cfg.infill_source_policy == "generated-ribs":
                 for polygon in polygons[:1]:
@@ -3722,6 +3740,8 @@ def emit_fiber_prime_line(cfg: PlannerConfig, z: float) -> list[str]:
     y = cfg.fiber_prime_line_y
     line_z = cfg.fiber_prime_line_height
     travel_z = max(cfg.fiber_prime_travel_z, line_z + 0.2)
+    if cfg.printable_height > EPSILON:
+        travel_z = max(min(travel_z, cfg.printable_height), line_z)
     first_segment = cut_position(line_length, cfg)
     second_segment = max(line_length - first_segment, 0.0)
 

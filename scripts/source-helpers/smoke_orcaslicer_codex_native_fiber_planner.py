@@ -347,6 +347,28 @@ def synthetic_pillars_and_pegs_gcode() -> str:
     return "\n".join(lines)
 
 
+def synthetic_narrow_islands_gcode() -> str:
+    """Two 1 mm wide islands: the perimeter inset leaves nothing of either."""
+    e_value = 0.0
+    lines = [";LAYER_CHANGE", ";Z:0.2", ";HEIGHT:0.2", "G90", "M82"]
+    for x0 in (0.0, 10.0):
+        block, e_value = rectangle_wall_gcode(x0, 0.0, x0 + 1.0, 60.0, e_value, "Outer wall")
+        lines.append(block)
+    lines.extend(
+        [
+            "; fiber_generate_perimeters = 1",
+            "; fiber_generate_infill = 0",
+            "; fiber_reinforcement_mode = heavy",
+            "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
+            "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def synthetic_serrated_hole_gcode() -> str:
     """A 100 mm plate with one serrated 12 mm hole: its outer wall zigzags between radius 5.4 and 6,
     so it is longer (about 43 mm) than the smooth inner wall around it (radius 6.45, 40.5 mm)."""
@@ -1428,6 +1450,20 @@ def main() -> int:
             if off_part.area > 0.01:
                 raise SystemExit(f"A {route.kind} route's bead leaves the part by {off_part.area:.2f} mm2")
 
+        # Islands too narrow for the perimeter inset have no holes to reinforce, and no error.
+        narrow_fixture = Path(tmpdir) / "narrow_islands_fixture.gcode"
+        narrow_fixture.write_text(synthetic_narrow_islands_gcode(), encoding="utf-8")
+        narrow_parsed = planner.parse_gcode(narrow_fixture)
+        narrow_cfg = planner.planner_config(
+            narrow_parsed,
+            default_planner_args(fiber_reinforcement_mode="heavy", fiber_generate_perimeters="1", fiber_generate_infill="0", layer_step=1),
+        )
+        if len(planner.closed_outer_polygons(narrow_parsed.layers[0])) != 2:
+            raise SystemExit("The narrow-island fixture lost an island.")
+        narrow_routes, _ = planner.plan_routes(narrow_parsed, narrow_cfg)
+        if any(route.kind.startswith("hole") for route in narrow_routes):
+            raise SystemExit("Narrow islands were given hole routes.")
+
         # A serrated hole whose outer wall is longer than the inner wall around it is still a hole:
         # the inner wall encloses it.
         serrated_fixture = Path(tmpdir) / "serrated_hole_fixture.gcode"
@@ -1884,6 +1920,23 @@ def main() -> int:
     lift_cfg = planner.replace(contract_cfg, printable_height=245.0)
     if "G0 Z245 F600" not in planner.emit_change_to_fiber(lift_cfg, 243.0) or "G0 Z245 F600" not in planner.emit_change_to_plastic(lift_cfg, 243.0):
         raise SystemExit("The tool-change lift left the printable height.")
+    # The priming line is placed with the final settings, on the bed polygon and clear of the print.
+    moved = planner.replace(contract_cfg, fiber_prime_line_y_requested=50.0, fiber_prime_line_center_x=100.0)
+    if "too close to the print" not in (planner.place_fiber_prime_line(contract_parsed, contract_parsed.config_comments, moved) or "") or moved.fiber_prime_line_y != 102.0:
+        raise SystemExit(f"A priming line Y inside the print was used: {moved.fiber_prime_line_y}")
+    kept = planner.replace(contract_cfg, fiber_prime_line_y_requested=150.0)
+    if planner.place_fiber_prime_line(contract_parsed, contract_parsed.config_comments, kept) or kept.fiber_prime_line_y != 150.0:
+        raise SystemExit("A valid priming line Y was not used.")
+    off_bed = planner.replace(contract_cfg, fiber_prime_line_center_x=290.0)
+    if "no room" not in (planner.place_fiber_prime_line(contract_parsed, contract_parsed.config_comments, off_bed) or "") or off_bed.fiber_prime_enabled:
+        raise SystemExit("A priming line off the bed was kept.")
+    # A triangular bed: Y 102 is inside its bounding box but not inside the bed.
+    triangle = dict(contract_parsed.config_comments, printable_area="0x0,305x0,0x250")
+    triangle_cfg = planner.replace(contract_cfg)
+    if "no room" not in (planner.place_fiber_prime_line(contract_parsed, triangle, triangle_cfg) or ""):
+        raise SystemExit(f"The priming line was placed off a non-rectangular bed at Y {triangle_cfg.fiber_prime_line_y}.")
+    if "G0 Z3 F600" not in planner.emit_fiber_prime_line(planner.replace(contract_cfg, printable_height=3.0, fiber_prime_travel_z=10.0), 0.2):
+        raise SystemExit("The priming line's approach left the printable height.")
     # M1001 L covers the restart plus the fibre fed before the cut: 60 + 33.8 on the priming line.
     if "M1001 L94" not in planner.emit_fiber_prime_line(planner.replace(contract_cfg, restart_length=60.0), 0.2):
         raise SystemExit("The priming line's M1001 L is smaller than the fibre it feeds.")
