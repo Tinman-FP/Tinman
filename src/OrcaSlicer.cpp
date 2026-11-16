@@ -7169,7 +7169,7 @@ int CLI::run(int argc, char **argv)
 
                                     //check the warnings. G-code export adds the native fibre planner's, which are
                                     // checked the same way once it has run.
-                                    auto check_slicing_warnings = [&](bool after_export) {
+                                    auto check_slicing_warnings = [&](bool after_export) -> int {
                                         if (!g_slicing_warnings.empty())
                                         {
                                             for (unsigned int i = 0; i < g_slicing_warnings.size(); i++)
@@ -7189,7 +7189,7 @@ int CLI::run(int argc, char **argv)
                                                         if (sliced_info.strict_mode) {
                                                             sliced_info.sliced_plates.push_back(sliced_plate_info);
                                                             record_exit_reson(outfile_dir, CLI_SLICING_ERROR, index+1, cli_errors[CLI_SLICING_ERROR], sliced_info);
-                                                            flush_and_exit(CLI_SLICING_ERROR);
+                                                            return CLI_SLICING_ERROR; // flush_and_exit() returns from CLI::run, so the caller calls it
                                                         }
                                                     }
                                                     else {
@@ -7201,7 +7201,7 @@ int CLI::run(int argc, char **argv)
                                                             {
                                                                 sliced_info.sliced_plates.push_back(sliced_plate_info);
                                                                 record_exit_reson(outfile_dir, CLI_SLICING_ERROR, index+1, cli_errors[CLI_SLICING_ERROR], sliced_info);
-                                                                flush_and_exit(CLI_SLICING_ERROR);
+                                                                return CLI_SLICING_ERROR; // flush_and_exit() returns from CLI::run, so the caller calls it
                                                             }
                                                         }
                                                     }
@@ -7214,8 +7214,10 @@ int CLI::run(int argc, char **argv)
                                             else
                                                 g_slicing_warnings.clear();
                                         }
+                                        return 0;
                                     };
-                                    check_slicing_warnings(false);
+                                    if (const int warning_exit = check_slicing_warnings(false))
+                                        flush_and_exit(warning_exit);
                                     sliced_plate_info.triangle_count = plate_triangle_counts[index];
 
                                     // The outfile is processed by a PlaceholderParser.
@@ -7230,7 +7232,8 @@ int CLI::run(int argc, char **argv)
                                     BOOST_LOG_TRIVIAL(info) << "process finished, will export gcode temporarily to " << outfile << std::endl;
                                     temp_time = (long long)Slic3r::Utils::get_current_time_utc();
                                     outfile = print_fff->export_gcode(outfile, gcode_result, nullptr);
-                                    check_slicing_warnings(true);
+                                    if (const int warning_exit = check_slicing_warnings(true))
+                                        flush_and_exit(warning_exit);
                                     time_using_cache = time_using_cache + ((long long)Slic3r::Utils::get_current_time_utc() - temp_time);
                                     BOOST_LOG_TRIVIAL(info) << "export_gcode finished: time_using_cache update to " << time_using_cache << " secs.";
                                     if (gcode_result && gcode_result->gcode_check_result.error_code) {
