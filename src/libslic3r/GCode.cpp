@@ -3399,7 +3399,7 @@ void GCode::do_export(Print* print, const char* path, GCodeProcessorResult* resu
     }
 
     BOOST_LOG_TRIVIAL(info) << "Exporting G-code finished" << log_memory_info();
-    print->set_done(psGCodeExport);
+    // Print::export_gcode() marks psGCodeExport done once the native fibre planner has run.
 
     {
         LifecycleEventContext ctx;
@@ -9758,7 +9758,7 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
             prime_y = printed.max.y() + prime_gap;
         if (!prime_y) {
             gcode += "; TINMANX1_FIBER_PRIME_SKIPPED no room on the bed in front of or behind the print\n";
-            m_print->add_gcode_export_warning(
+            m_print->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
                 _(L("There is no room on the bed in front of or behind the print for the fiber priming line, so the first fiber route starts without one.")));
         } else {
             const double line_z = tinman_positive_or_default(tinman_float_at_or_default(m_config.fiber_priming_line_height, fiber_filament_id, 0.), 0.2);

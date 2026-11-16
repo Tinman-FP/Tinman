@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <fstream>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -31,6 +32,7 @@
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/libslic3r.h"
 #include "test_helpers.hpp"
+#include "test_utils.hpp"
 
 using namespace Slic3r;
 using Catch::Matchers::ContainsSubstring;
@@ -473,6 +475,35 @@ TEST_CASE("The priming line must fit on the bed polygon, not just its bounding b
         warnings += warning.message + "\n";
     CHECK_THAT(warnings, ContainsSubstring("fiber priming line"));
 }
+
+#ifndef _WIN32
+TEST_CASE("A warning of the native fibre planner is a slicing warning of the G-code export", "[Fibreseek][FibreseekSlicing]")
+{
+    // A stand-in for the overlay mode's planner, run by /bin/sh so no Python is needed: it leaves the
+    // G-code as it is and reports a warning, as the real one does when the priming line has no room.
+    ScopedTemporaryFile script(".sh");
+    std::ofstream(script.string()) << "echo 'warning: no room for the fiber priming line' >&2\n";
+    ScopedEnvVar planner("ORCASLICER_CODEX_NATIVE_FIBER_PLANNER", "1");
+    ScopedEnvVar planner_script("ORCASLICER_CODEX_NATIVE_FIBER_PLANNER_SCRIPT", script.string());
+    ScopedEnvVar python("ORCASLICER_CODEX_PYTHON", "/bin/sh");
+    DynamicPrintConfig config = composite_only_config();
+    config.set_deserialize_strict("fiber_manufacturing_mode", "plastic_plus_fiber_overlay");
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    Test::gcode(print);
+
+    // The export step ends after the planner, so the warning is stored with it, where the GUI and
+    // the CLI read slicing warnings.
+    CHECK(print.is_step_done(psGCodeExport));
+    const auto warnings = print.step_state_with_warnings(psGCodeExport).warnings;
+    CHECK(std::any_of(warnings.begin(), warnings.end(), [](const PrintStateBase::Warning &warning) {
+        return warning.message == "no room for the fiber priming line" &&
+               warning.message_id == PrintStateBase::SlicingNativeFiberPlannerWarning &&
+               warning.level == PrintStateBase::WarningLevel::NON_CRITICAL;
+    }));
+}
+#endif
 
 TEST_CASE("Each fibre route runs at the start speed for exactly Fiber slow length", "[Fibreseek][FibreseekSlicing]")
 {
