@@ -11,6 +11,7 @@ import tempfile
 from types import SimpleNamespace
 
 from shapely.geometry import LineString, Polygon
+from shapely.ops import unary_union
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -301,6 +302,51 @@ def synthetic_local_hole_cluster_gcode() -> str:
     )
 
 
+def rectangle_wall_gcode(x0: float, y0: float, x1: float, y1: float, e_start: float, role: str) -> tuple[str, float]:
+    lines = [f"G0 X{x0:.3f} Y{y0:.3f} F9000", f";TYPE:{role}"]
+    e_value = e_start
+    for x, y in ((x1, y0), (x1, y1), (x0, y1), (x0, y0)):
+        e_value += 1.0
+        lines.append(f"G1 X{x:.3f} Y{y:.3f} E{e_value:.4f} F1800")
+    return "\n".join(lines), e_value
+
+
+def synthetic_pillars_and_pegs_gcode() -> str:
+    """Two 30 x 60 mm pillars with three 6 mm pegs standing in the 20 mm gap between them, each
+    island with its outer wall and an inner wall, as Tinman prints them. A peg is not a hole: an orbit
+    around one runs through the air and across both pillars."""
+    e_value = 0.0
+    lines: list[str] = []
+    for z in (0.2, 0.4, 0.6, 0.8):
+        lines.extend([";LAYER_CHANGE", f";Z:{z:.1f}", ";HEIGHT:0.2", "G90", "M82"])
+        for x0 in (0.0, 50.0):
+            block, e_value = rectangle_wall_gcode(x0, 0.0, x0 + 30.0, 60.0, e_value, "Outer wall")
+            lines.append(block)
+            block, e_value = rectangle_wall_gcode(x0 + 0.45, 0.45, x0 + 29.55, 59.55, e_value, "Inner wall")
+            lines.append(block)
+        for cy in (12.0, 30.0, 48.0):
+            block, e_value = circular_wall_gcode(40.0, cy, 2.8, e_value, segments=32, role="Outer wall")
+            lines.append(block)
+            block, e_value = circular_wall_gcode(40.0, cy, 2.35, e_value, segments=32, role="Inner wall")
+            lines.append(block)
+    lines.extend(
+        [
+            "; fiber_generate_perimeters = 1",
+            "; fiber_generate_infill = 0",
+            "; fiber_reinforcement_mode = heavy",
+            "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
+            "; fiber_slow_length = 10",
+            "; fiber_min_radius = 12",
+            "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
+            "; fiber_line_width = 0.8",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def synthetic_internal_void_stitch_gear_gcode() -> str:
     centers = [
         (50.0, 50.0),
@@ -323,7 +369,7 @@ def synthetic_internal_void_stitch_gear_gcode() -> str:
                 "G90",
                 "M82",
                 "G0 X0 Y0 F9000",
-                ";TYPE:Inner wall",
+                ";TYPE:Outer wall",
                 f"G1 X100 Y0 E{e_value:.4f} F1800",
             ]
         )
@@ -1319,6 +1365,26 @@ def main() -> int:
                 raise
         else:
             raise SystemExit("FibreSeek planner accepted a generic MyMarlin process for a CFC FibreSeek job.")
+
+        # Pegs between two pillars are islands, not holes: no route orbits them, and every route's
+        # bead stays on the part.
+        pegs_fixture = Path(tmpdir) / "pillars_and_pegs_fixture.gcode"
+        pegs_fixture.write_text(synthetic_pillars_and_pegs_gcode(), encoding="utf-8")
+        pegs_parsed = planner.parse_gcode(pegs_fixture)
+        pegs_cfg = planner.planner_config(
+            pegs_parsed,
+            default_planner_args(fiber_reinforcement_mode="heavy", fiber_generate_perimeters="1", fiber_generate_infill="0", layer_step=1),
+        )
+        pegs_routes, pegs_skipped = planner.plan_routes(pegs_parsed, pegs_cfg)
+        if not pegs_routes:
+            raise SystemExit(f"Pillar fixture generated no routes: {pegs_skipped}")
+        if any(route.kind.startswith("hole") for route in pegs_routes):
+            raise SystemExit(f"Pegs were reinforced as holes: {[route.kind for route in pegs_routes]}")
+        for route in pegs_routes:
+            part = unary_union(planner.layer_part_regions(pegs_parsed.layers[route.layer_index]))
+            off_part = LineString(route.points).buffer(pegs_cfg.fiber_width / 2.0).difference(part.buffer(planner.PART_EDGE_BEYOND_OUTER_WALL))
+            if off_part.area > 0.01:
+                raise SystemExit(f"A {route.kind} route's bead leaves the part by {off_part.area:.2f} mm2")
 
         fan_schedule_fixture = Path(tmpdir) / "fiberseek_fan_schedule_fixture.gcode"
         fan_schedule_fixture.write_text(synthetic_fan_schedule_gcode(), encoding="utf-8")

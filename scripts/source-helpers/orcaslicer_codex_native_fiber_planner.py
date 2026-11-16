@@ -25,6 +25,7 @@ from typing import Iterable, Sequence
 
 try:
     from shapely.geometry import GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point, Polygon
+    from shapely.ops import linemerge, unary_union
 except Exception as exc:  # pragma: no cover - exercised on machines without shapely.
     raise SystemExit(
         "The native FibreSeek planner needs shapely. Install it with "
@@ -1605,6 +1606,12 @@ def closed_outer_polygons(layer: LayerGeometry) -> list[Polygon]:
         elif isinstance(polygon, MultiPolygon):
             contours.extend([item for item in polygon.geoms if item.area >= 1.0])
 
+    return nested_regions(contours)
+
+
+def nested_regions(contours: Sequence[Polygon]) -> list[Polygon]:
+    """Filled wall loops nested by containment: even depths are part outlines, odd depths their
+    holes."""
     if not contours:
         return []
 
@@ -1669,6 +1676,28 @@ def closed_outer_polygons(layer: LayerGeometry) -> list[Polygon]:
             regions.extend([item for item in region.geoms if item.area >= 1.0])
 
     return sorted(regions, key=lambda item: item.area, reverse=True)
+
+
+# A part's edge is its outer wall, or its overhang wall where the wall overhangs.
+OUTLINE_ROLES = {"Outer wall", "Overhang wall"}
+# Wall deposits closer than this are one loop: it closes a loop split into several paths (overhang
+# sections) or across a seam gap.
+OUTLINE_JOIN_DISTANCE = 0.6
+
+
+def layer_part_regions(layer: LayerGeometry) -> list[Polygon]:
+    """The layer's part, holes being voids, from all its outer-wall deposits; the boundaries follow
+    the outer-wall centre lines, as in closed_outer_polygons(), which only sees walls printed as one
+    closed path."""
+    walls = [LineString(path.points) for path in layer.extrusion_paths if path.role in OUTLINE_ROLES and len(path.points) >= 2]
+    if not walls:
+        return []
+    half = OUTLINE_JOIN_DISTANCE / 2.0
+    joined = unary_union([wall.buffer(half) for wall in walls])
+    loops: list[Polygon] = []
+    for part in polygon_parts(joined, 0.0):
+        loops.extend(polygon_parts(Polygon(part.exterior).buffer(-half), 1.0))
+    return nested_regions(loops)
 
 
 def polygon_parts(geometry, min_area: float = 1.0) -> list[Polygon]:
@@ -2275,6 +2304,41 @@ def grouped_hole_loop_infos(
     return grouped
 
 
+def loop_encloses_void(
+    loop_info: dict,
+    closed_loops: Sequence[dict],
+    part_regions: Sequence[Polygon],
+    cfg: PlannerConfig,
+) -> bool:
+    """A closed wall surrounds a real hole, a void inside the slice, not an island (a peg or a boss)
+    that an orbit would run around through the air. The outer wall the loop shares a centre with
+    tells them apart: a hole's inner walls lie outside it, an island's inside it. With no inner wall
+    there, the part regions decide: inside a part's outline but not part material. G-code that prints
+    no outer wall of its own around the loop gives nothing to go by; the loop counts as a hole, as
+    before."""
+    # The same wall group as grouped_hole_loop_infos(): concentric and within a few wall widths.
+    center_tolerance = max(0.45, cfg.fiber_width * 0.6)
+    radius_tolerance = max(cfg.fiber_width * 3.0, 3.0)
+    group = [
+        other
+        for other in closed_loops
+        if distance(other["center"], loop_info["center"]) <= center_tolerance + EPSILON
+        and abs(other["equivalent_radius"] - loop_info["equivalent_radius"]) <= radius_tolerance + EPSILON
+    ]
+    walls = [other for other in group if other.get("role") == "Outer wall" and other.get("polygon") is not None]
+    if not walls:
+        return True
+    wall = min(walls, key=lambda other: abs(other["equivalent_radius"] - loop_info["equivalent_radius"]))
+    inner_walls = [other for other in group if other.get("role") == "Inner wall"]
+    if inner_walls:
+        nearest = min(inner_walls, key=lambda other: abs(other["equivalent_radius"] - wall["equivalent_radius"]))
+        return nearest["equivalent_radius"] > wall["equivalent_radius"]
+    inside = wall["polygon"].representative_point()
+    if any(region.contains(inside) for region in part_regions):
+        return False
+    return any(Polygon(region.exterior).contains(inside) for region in part_regions)
+
+
 def route_avoids_hole_voids(
     points: Sequence[tuple[float, float]],
     hole_infos: Sequence[dict],
@@ -2827,6 +2891,7 @@ def traced_hole_reinforcement_routes(
     cfg: PlannerConfig,
     skipped: dict[str, int],
     part_center: tuple[float, float] | None = None,
+    part_regions: Sequence[Polygon] | None = None,
 ) -> list[FiberRoute]:
     if cfg.hole_reinforcement_routes_per_layer <= 0:
         return []
@@ -2865,7 +2930,10 @@ def traced_hole_reinforcement_routes(
             }
         )
 
-    grouped_holes = grouped_hole_loop_infos(closed_loops, cfg)
+    part_regions = part_regions or polygons
+    grouped_holes = [
+        hole for hole in grouped_hole_loop_infos(closed_loops, cfg) if loop_encloses_void(hole, closed_loops, part_regions, cfg)
+    ]
     cluster_candidates = stitched_internal_void_routes(
         layer,
         closed_loops,
@@ -2897,7 +2965,7 @@ def traced_hole_reinforcement_routes(
         center = loop_info["center"]
         equivalent_radius = loop_info["equivalent_radius"]
         polygon = loop_info["polygon"]
-        if loop_info.get("role") not in PERIMETER_TRACE_ROLES:
+        if loop_info.get("role") not in PERIMETER_TRACE_ROLES or not loop_encloses_void(loop_info, closed_loops, part_regions, cfg):
             continue
         if equivalent_radius + EPSILON < cfg.min_radius or equivalent_radius > max_hole_radius + EPSILON:
             skipped["hole_reinforcement_skipped_by_radius"] += 1
@@ -2990,6 +3058,47 @@ def traced_hole_reinforcement_routes(
     skipped["hole_reinforcement_routes"] += len(selected)
     skipped["hole_cluster_reinforcement_routes"] += sum(1 for route in selected if route.kind == "hole_cluster_reinforcement_loop")
     return selected
+
+
+# The part regions follow the outer-wall centre lines; the part's edge lies about half a wall width
+# further out.
+PART_EDGE_BEYOND_OUTER_WALL = 0.2
+
+
+def routes_on_part(
+    layer_routes: Sequence[FiberRoute],
+    part_regions: Sequence[Polygon],
+    cfg: PlannerConfig,
+    skipped: dict[str, int],
+) -> list[FiberRoute]:
+    """Keep every route's bead on the layer's part (layer_part_regions()), holes being voids, as
+    the C++ writer refuses a route that crosses a void. A route whose bead would leave the part is
+    trimmed to its longest stretch that stays on it, or dropped when that stretch is shorter than a
+    cuttable route."""
+    on_part = unary_union(list(part_regions)).buffer(PART_EDGE_BEYOND_OUTER_WALL - cfg.fiber_width / 2.0, join_style=2)
+    minimum_length = standalone_cuttable_min_route_length(cfg)
+    kept: list[FiberRoute] = []
+    for route in layer_routes:
+        if len(route.points) < 2:
+            continue
+        line = LineString(route.points)
+        if on_part.covers(line):
+            kept.append(route)
+            continue
+        pieces = list(geometry_segments(line.intersection(on_part)))
+        longest = max(geometry_segments(linemerge(pieces)), key=lambda piece: piece.length, default=None) if pieces else None
+        if longest is None or longest.length + EPSILON < minimum_length:
+            skipped["routes_dropped_off_part"] += 1
+            continue
+        skipped["routes_trimmed_to_part"] += 1
+        kept.append(
+            replace(
+                route,
+                points=[(float(x), float(y)) for x, y in longest.coords],
+                warnings=route.warnings + ["trimmed_to_part"],
+            )
+        )
+    return kept
 
 
 def traced_path_routes(
@@ -3147,6 +3256,8 @@ def plan_routes(parsed: ParsedGCode, cfg: PlannerConfig) -> tuple[list[FiberRout
         "hole_reinforcement_skipped_by_unprintable_path": 0,
         "internal_void_stitch_routes": 0,
         "internal_void_stitch_skipped": 0,
+        "routes_trimmed_to_part": 0,
+        "routes_dropped_off_part": 0,
         "infill_requested_without_explicit_source_layers": 0,
         "infill_explicit_fallback_to_plastic_trace_layers": 0,
         "infill_explicit_fallback_to_generated_ribs_layers": 0,
@@ -3182,6 +3293,7 @@ def plan_routes(parsed: ParsedGCode, cfg: PlannerConfig) -> tuple[list[FiberRout
         perimeter_trace_routes: list[FiberRoute] = []
         infill_trace_routes: list[FiberRoute] = []
         part_center = layer_part_center(polygons)
+        part_regions = layer_part_regions(layer) or list(polygons)
         if route_cfg.generate_perimeters:
             perimeter_trace_candidates = traced_path_routes(
                 layer,
@@ -3210,7 +3322,7 @@ def plan_routes(parsed: ParsedGCode, cfg: PlannerConfig) -> tuple[list[FiberRout
                 "perimeter_trace",
             )
             layer_routes.extend(perimeter_trace_routes)
-            layer_routes.extend(traced_hole_reinforcement_routes(layer, polygons, route_cfg, skipped, part_center))
+            layer_routes.extend(traced_hole_reinforcement_routes(layer, polygons, route_cfg, skipped, part_center, part_regions))
             for polygon in polygons[:1]:
                 layer_routes.extend(hole_reinforcement_routes(layer, polygon, route_cfg, skipped, part_center))
         if route_cfg.generate_infill:
@@ -3264,6 +3376,7 @@ def plan_routes(parsed: ParsedGCode, cfg: PlannerConfig) -> tuple[list[FiberRout
                         "perimeter_trace",
                     )
                 )
+        layer_routes = routes_on_part(layer_routes, part_regions, route_cfg, skipped)
         layer_routes.sort(key=lambda route: (ROUTE_PRIORITY.get(route.kind, 99), -route.length))
         return apply_fiber_seam_placement(layer_routes, route_cfg)
 
