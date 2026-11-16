@@ -284,8 +284,8 @@ void select_printer_default_presets(PresetBundle &bundle)
     const std::string def_print = printer_preset.config.opt_string("default_print_profile");
     if (!def_print.empty())
         bundle.prints.select_preset_by_name(def_print, /*force=*/true);
-    if (const auto *def_fil = printer_preset.config.option<ConfigOptionStrings>("default_filament_profile");
-        def_fil != nullptr && !def_fil->values.empty())
+    const auto *def_fil = printer_preset.config.option<ConfigOptionStrings>("default_filament_profile");
+    if (def_fil != nullptr && !def_fil->values.empty())
         bundle.filaments.select_preset_by_name(def_fil->values.front(), /*force=*/true);
     // Re-seed the per-slot filament list from that selection, or the sweep's result depends on the
     // printer sliced before it. Once there are 2+ slots, full_config() builds the filament config from
@@ -298,6 +298,15 @@ void select_printer_default_presets(PresetBundle &bundle)
     // re-resolves it to "Generic TPU @System", and its alias then pins every later printer to that
     // vendor's own "Generic TPU @..." - which the BBL dual-nozzle profiles rightly refuse to group.
     bundle.filament_presets.assign(1, bundle.filaments.get_selected_preset_name());
+    // A multi-nozzle printer gets one default per nozzle, as the app picks slot i's material
+    // (PresetBundle::update_compatible: default_filament_profile[i], else the first). A printer whose
+    // nozzles take different materials, such as the FibreSeek Seeker 3's plastic and composite nozzles,
+    // is then sliced with them rather than with copies of the first.
+    if (def_fil != nullptr) {
+        const size_t nozzles = printer_preset.config.option<ConfigOptionFloats>("nozzle_diameter")->size();
+        for (size_t i = 1; i < std::min(def_fil->values.size(), nozzles); ++i)
+            bundle.filament_presets.push_back(def_fil->values[i]);
+    }
 }
 
 // The vendor/printer currently being sliced, stamped onto every engine log record by the sink below so
