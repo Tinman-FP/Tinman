@@ -751,7 +751,7 @@ TEST_CASE("Missing strand settings are named", "[TinMan][Preset][FibreSeek][CfcU
 {
     Preset composite(Preset::TYPE_FILAMENT, "CFC Composite", false);
     CHECK((missing_continuous_fiber_settings(composite) ==
-           std::vector<std::string>{"Fiber diameter", "Fiber linear density", "Fiber feed factor"}));
+           std::vector<std::string>{"Fiber diameter", "Fiber linear density", "Composite plastic multiplier"}));
     composite.config.set_key_value("fiber_diameter", new ConfigOptionFloats{0.3});
     composite.config.set_key_value("fiber_linear_density", new ConfigOptionFloats{90.});
     composite.config.set_key_value("fiber_feed_factor", new ConfigOptionFloats{0.8});

@@ -23,6 +23,7 @@
 
 #include <boost/filesystem.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -50,8 +51,10 @@ std::string strf(const char *f, ...)
 struct MachineValues
 {
     double cut_distance { 58. };
+    double contact_radius_extended { 1.8 };
     double restart_length { 55. }; // fiber_restart_length in the generator's Seeker 3 printer profile
-    double start_length { 0. };
+    // The composite's retraction in FibreSeek's preset: 1 mm on travel, 5 mm on tool change, extra -1.
+    double travel_retract { 1. }, toolchange_retract { 5. }, travel_prime { 0. }, toolchange_prime { 4. };
     double print_feed { 30. * 60. };
     double slow_feed { 5. * 60. };
     double tail_feed { 3. * 60. };
@@ -60,7 +63,7 @@ struct MachineValues
     double slow_length { 0. };
     double fibre_p { std::round(M_PI * 0.125 * 0.125 * 0.835 * 100000.) / 100000. };
     double ironing { 5. };
-    int    fibre_temp { 270 }, plastic_temp { 250 }, bed { 75 }, chamber { 0 }, plastic_standby { 150 }, fibre_standby { 180 };
+    int    fibre_temp { 270 }, plastic_temp { 250 }, bed { 75 }, chamber { 0 }, plastic_standby { 120 }, fibre_standby { 150 };
     int    plastic_fan { 2 }, composite_fan { 0 };
     double offset_x { 150. }, offset_y { 150. };
 };
@@ -77,7 +80,8 @@ std::string xy(const MachineValues &m, const Point &p)
     return strf("X%.3f Y%.3f", double(p.x()) * SCALING_FACTOR + m.offset_x, double(p.y()) * SCALING_FACTOR + m.offset_y);
 }
 
-// One layer's fibre block, in the writer's order.
+// One layer's fibre block, in the writer's order. The writer's priming line before the first route is
+// left out, like the plastic moves.
 void emit_layer(std::string &g, const MachineValues &m, const EmittedLayer &layer, bool &planner_started)
 {
     const double v_per_mm = m.fibre_p;
@@ -86,13 +90,14 @@ void emit_layer(std::string &g, const MachineValues &m, const EmittedLayer &laye
         g += "G21\nG90\nM83 ; use relative distances for extrusion\n";
         planner_started = true;
     }
-    g += "; Start change extruder\nM400\n" + strf("M104 S%d T0\n", m.fibre_temp) + "G1 F1800 E-15 ; Retract\n";
-    g += strf("M104 S%d T1\n", m.plastic_standby) + strf("M106 P%d S230\n", m.plastic_fan);
+    g += "; Start change extruder\nM400\n" + strf("M104 S%d T0\n", m.fibre_temp) + "G1 E-15 F1800 ; Retract\n";
+    g += strf("G0 Z%.3f F600\n", layer.z + 5.) + strf("M104 S%d T1\n", m.plastic_standby) + strf("M106 P%d S230\n", m.plastic_fan);
     g += "MOVE_TO_BRUSH_STATION\nCLEAN_NOZZLE\nMOVE_OUT_BRUSH_STATION\nT0 R ; switch extruder type to:FIBER\n";
     g += strf("M106 P%d S64\n", m.composite_fan) + strf("M109 S%d T0\n", m.fibre_temp) + strf("M106 P%d S0\n", m.plastic_fan);
     g += "; End change extruder\n";
     g += strf("; ORCA_CODEX_FIBER_LAYER layer=%zu z=%.3f routes=%zu\n", layer.layer_index, layer.z, layer.routes.routes.size());
 
+    double prime = m.toolchange_prime;
     for (const WriterRoute &route : layer.routes.routes) {
         if (!route.is_release_safe()) {
             g += strf("; TINMANX1_SKIPPED_UNSAFE_FIBER_ROUTE layer=%zu region=%zu route=%zu length=%.3f unsupported_void_crossings=%zu\n",
@@ -115,11 +120,12 @@ void emit_layer(std::string &g, const MachineValues &m, const EmittedLayer &laye
         g += "G0 " + xy(m, start) + " F12000 ; move to first FibreSeek composite route point\n";
         g += strf("G0 Z%.3f ; FibreSeek composite route Z\n", layer.z);
         g += strf("M1001 L%d\n", int(std::ceil(fibre + m.cut_distance)));
-        g += strf("G1 F1500 U%.3f ; Extrude restart\n", m.restart_length);
-        g += strf("G1 F600 V%.5f ; Extrude restart\nG4 P0\n", m.start_length * v_per_mm);
+        g += strf("G1 U%.3f F1500 ; Extrude restart\n", m.restart_length);
+        g += strf("G1 V%.5f F600 ; Extrude restart\nG4 P0\n", prime);
+        prime = m.travel_prime;
         g += "; SEAM Fiber at " + xy(m, start) + strf(" Z%.3f\n", layer.z);
 
-        const double cut_at = std::max(0., fibre - m.cut_distance);
+        const double cut_at = std::clamp(fibre - (m.cut_distance - m.contact_radius_extended), 0., fibre);
         double       walked = 0.;
         bool         cut    = false;
         Point        last   = start;
@@ -130,8 +136,8 @@ void emit_layer(std::string &g, const MachineValues &m, const EmittedLayer &laye
             g += strf(" F%.0f\n", feed);
             last = to;
         };
-        // The writer's marker carries Fiber cut distance itself (tinman_fiber_cut_gcode in GCode.cpp).
-        auto emit_cut = [&]() { g += strf("M2800\nM400\n;CUT DISTANCE %.3f\n", m.cut_distance); };
+        // FibreSeek's cut G-code, written verbatim (tinman_fiber_cut_gcode in GCode.cpp).
+        auto emit_cut = [&]() { g += "; Start to cut\nM2800\nM400\n;CUT DISTANCE 54.8\n"; };
         for (size_t si = 0; si < route.planned_segments.size(); ++si) {
             const WriterRouteSegment &seg = route.planned_segments[si];
             g += strf("; TINMANX1_FIBER_SEGMENT index=%zu phase=%s length=%.3f plastic=1 fiber=1\n", si, to_string(seg.phase), seg.length_mm);
@@ -175,9 +181,10 @@ void emit_layer(std::string &g, const MachineValues &m, const EmittedLayer &laye
             }
             g += strf("; TINMANX1_FIBER_FINISH_IRONING distance=%.3f requested=%.3f\n", done, m.ironing);
         }
-        g += "G1 F600 V-1 ; Retract\nM1002\n" + strf("; ORCA_CODEX_FIBER_ROUTE_END layer=%zu route=%zu\n", route.layer_id, route.id);
+        g += strf("G1 V-%g F600 ; Retract\nM1002\n", m.travel_retract) + strf("; ORCA_CODEX_FIBER_ROUTE_END layer=%zu route=%zu\n", route.layer_id, route.id);
     }
-    g += "; Start change extruder\nM400\n" + strf("M104 S%d T1\n", m.plastic_temp) + "G1 F600 V-14 ; Retract\n";
+    g += "; Start change extruder\nM400\n" + strf("M104 S%d T1\n", m.plastic_temp);
+    g += strf("G1 V-%g F600 ; Retract\n", m.toolchange_retract - m.travel_retract) + strf("G0 Z%.3f F600\n", layer.z + 5.);
     g += strf("M104 S%d T0\n", m.fibre_standby) + "T1 ; switch extruder type to:PLASTIC\n" + strf("M106 P%d S255\n", m.plastic_fan);
     g += "MOVE_TO_BRUSH_STATION\n" + strf("M109 S%d T1\n", m.plastic_temp) + "CLEAN_NOZZLE\nMOVE_OUT_BRUSH_STATION\n";
     g += strf("M106 P%d S0\n", m.composite_fan) + "; End change extruder\n";

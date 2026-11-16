@@ -3681,12 +3681,14 @@ void PrintConfigDef::init_fff_params()
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionFloats { 0.0 });
 
-    // FibreSeek: the fibre feed per mm of route is pi*(d/2)^2 times this factor. It
-    // depends on the fibre and the printer and has no default: calibrate it.
+    // FibreSeek's ExtrusionMultiplierP. The key keeps its earlier name, from when it scaled the
+    // fibre's cross-section, so existing profiles still load.
     def = this->add("fiber_feed_factor", coFloats);
-    def->label = L("Fiber feed factor");
-    def->tooltip = L("Fiber feed per millimeter of route, as a fraction of the strand's cross-section area (pi x (diameter / 2)^2). "
-                     "Calibrate it for your fiber and printer. There is no default: continuous-fiber slicing stops until it is set.");
+    def->label = L("Composite plastic multiplier");
+    def->tooltip = L("Multiplier for the plastic the composite nozzle extrudes around the fiber. The plastic per millimeter of fiber is "
+                     "this value times the fiber bead's cross-section (fiber line width x layer height) less the fiber's own, over the "
+                     "composite plastic filament's cross-section. FibreSeek uses 0.8 for CFC PETG + X-CCF. There is no default: "
+                     "continuous-fiber slicing stops until it is set.");
     def->min = 0;
     def->mode = comSimple;
     def->set_default_value(new ConfigOptionFloats { 0.0 });
@@ -6719,7 +6721,7 @@ void PrintConfigDef::init_fff_params()
 
     def = this->add("fiber_cut_distance", coFloat);
     def->label = L("Fiber cut distance");
-    def->tooltip = L("Length of fiber between the cutter and the nozzle tip. The cut fires this far before the end of each route, and the G-code's CUT DISTANCE marker prints this value. This must match the hardware.");
+    def->tooltip = L("Length of fiber between the cutter and the nozzle tip. The cut fires this far, less the extended fiber contact radius, before the end of each route. This must match the hardware.");
     def->sidetext = L("mm");
     def->min = 0;
     def->mode = comAdvanced;
@@ -6750,7 +6752,7 @@ void PrintConfigDef::init_fff_params()
 
     def = this->add("fiber_nozzle_contact_radius_extended", coFloat);
     def->label = L("Extended fiber contact radius");
-    def->tooltip = L("Extra safety area around the nozzle for conservative fiber clearance checks.");
+    def->tooltip = L("Extra safety area around the nozzle for conservative fiber clearance checks. The cut fiber end stops this far short of the end of each route, under the nozzle.");
     def->sidetext = L("mm");
     def->min = 0;
     def->mode = comAdvanced;
