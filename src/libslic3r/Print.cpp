@@ -4501,18 +4501,25 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
     this->update_imex_slice_offset();
     const Vec2d imex_off = this->get_imex_slice_offset();
     gcode->set_gcode_offset_with_imex_shift(origin(0), origin(1), imex_off.x(), imex_off.y());
-    // GCode::do_export() starts psGCodeExport, unless the G-code is already exported, and the step is
-    // marked done below, once the native fibre planner has post-processed the file. The planner's
-    // warnings so land in the step like the writer's own.
+    // GCode::do_export() starts psGCodeExport, and the step is marked done below, once the native fibre
+    // planner has post-processed the file, so the planner's warnings land in the step like the
+    // writer's own. G-code already exported to this path is kept as it is, planned. A repeat export to
+    // another path, after the step is done, writes and plans the G-code outside the step; its warnings
+    // then go to the status callback only.
     const bool already_exported = this->is_step_done(psGCodeExport) && boost::filesystem::exists(boost::filesystem::path(path));
     gcode->do_export(this, path.c_str(), result, thumbnail_cb);
+    const bool in_export_step = gcode->export_step_started();
     if (!already_exported) {
         std::vector<std::string> native_fiber_planner_warnings;
         const bool native_fiber_planner_ran = run_orcaslicer_codex_native_fiber_planner(*this, path, native_fiber_planner_warnings);
-        if (!native_fiber_planner_warnings.empty())
-            this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
-                                          boost::algorithm::join(native_fiber_planner_warnings, "\n"),
-                                          PrintStateBase::SlicingNativeFiberPlannerWarning);
+        if (!native_fiber_planner_warnings.empty()) {
+            const std::string warning = boost::algorithm::join(native_fiber_planner_warnings, "\n");
+            if (in_export_step)
+                this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL, warning, PrintStateBase::SlicingNativeFiberPlannerWarning);
+            else
+                this->status_update_warnings(int(psGCodeExport), PrintStateBase::WarningLevel::NON_CRITICAL, warning, nullptr,
+                                             PrintStateBase::SlicingNativeFiberPlannerWarning);
+        }
         if (native_fiber_planner_ran && result != nullptr) {
             BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek native planner rewrote the G-code output after preview generation for " << path;
             reload_orcaslicer_codex_native_fiber_preview_result(*this, path, result);
@@ -4528,7 +4535,7 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
         // generation and read by no emitter, so it does not affect the emitted g-code.
         result->nozzle_group_result = this->get_layered_nozzle_group_result();
     }
-    if (!already_exported)
+    if (in_export_step)
         this->set_done(psGCodeExport);
     return path.c_str();
 }

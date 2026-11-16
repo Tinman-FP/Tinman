@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstddef>
 #include <fstream>
+#include <iterator>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -479,10 +480,12 @@ TEST_CASE("The priming line must fit on the bed polygon, not just its bounding b
 #ifndef _WIN32
 TEST_CASE("A warning of the native fibre planner is a slicing warning of the G-code export", "[Fibreseek][FibreseekSlicing]")
 {
-    // A stand-in for the overlay mode's planner, run by /bin/sh so no Python is needed: it leaves the
-    // G-code as it is and reports a warning, as the real one does when the priming line has no room.
+    // A stand-in for the overlay mode's planner, run by /bin/sh so no Python is needed: it marks the
+    // G-code ($2, after --in-gcode) as planned and reports a warning, as the real one does when the
+    // priming line has no room.
     ScopedTemporaryFile script(".sh");
-    std::ofstream(script.string()) << "echo 'warning: no room for the fiber priming line' >&2\n";
+    std::ofstream(script.string()) << "echo '; STAND_IN_PLANNED' >> \"$2\"\n"
+                                      "echo 'warning: no room for the fiber priming line' >&2\n";
     ScopedEnvVar planner("ORCASLICER_CODEX_NATIVE_FIBER_PLANNER", "1");
     ScopedEnvVar planner_script("ORCASLICER_CODEX_NATIVE_FIBER_PLANNER_SCRIPT", script.string());
     ScopedEnvVar python("ORCASLICER_CODEX_PYTHON", "/bin/sh");
@@ -491,7 +494,7 @@ TEST_CASE("A warning of the native fibre planner is a slicing warning of the G-c
     Print print;
     Model model;
     init_plate(print, model, config);
-    Test::gcode(print);
+    CHECK(count(Test::gcode(print), "; STAND_IN_PLANNED") == 1);
 
     // The export step ends after the planner, so the warning is stored with it, where the GUI and
     // the CLI read slicing warnings.
@@ -502,6 +505,19 @@ TEST_CASE("A warning of the native fibre planner is a slicing warning of the G-c
                warning.message_id == PrintStateBase::SlicingNativeFiberPlannerWarning &&
                warning.level == PrintStateBase::WarningLevel::NON_CRITICAL;
     }));
+
+    // Exporting again, after the step is done, plans the new file once, outside the step, and the
+    // planned G-code already at a path is kept as it is.
+    ScopedTemporaryFile second(".gcode");
+    const auto read = [](const std::string &path) {
+        std::ifstream file(path, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    };
+    print.export_gcode(second.string(), nullptr);
+    CHECK(count(read(second.string()), "; STAND_IN_PLANNED") == 1);
+    print.export_gcode(second.string(), nullptr);
+    CHECK(count(read(second.string()), "; STAND_IN_PLANNED") == 1);
+    CHECK(print.is_step_done(psGCodeExport));
 }
 #endif
 

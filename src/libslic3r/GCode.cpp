@@ -3158,6 +3158,7 @@ void GCode::do_export(Print* print, const char* path, GCodeProcessorResult* resu
     CNumericLocalesSetter locales_setter;
 
     // Does the file exist? If so, we hope that it is still valid.
+    m_export_step_started = false;
     if (print->is_step_done(psGCodeExport) && boost::filesystem::exists(boost::filesystem::path(path)))
         return;
 
@@ -3165,7 +3166,7 @@ void GCode::do_export(Print* print, const char* path, GCodeProcessorResult* resu
 
     GCodeProcessor::s_IsBBLPrinter = print->is_BBL_printer();
     m_writer.set_is_bbl_machine(print->is_BBL_printer());
-    print->set_started(psGCodeExport);
+    m_export_step_started = print->set_started(psGCodeExport);
 
     {
         LifecycleEventContext ctx;
@@ -9758,8 +9759,11 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
             prime_y = printed.max.y() + prime_gap;
         if (!prime_y) {
             gcode += "; TINMANX1_FIBER_PRIME_SKIPPED no room on the bed in front of or behind the print\n";
-            m_print->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
-                _(L("There is no room on the bed in front of or behind the print for the fiber priming line, so the first fiber route starts without one.")));
+            const std::string warning = _(L("There is no room on the bed in front of or behind the print for the fiber priming line, so the first fiber route starts without one."));
+            if (m_export_step_started)
+                m_print->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL, warning);
+            else
+                m_print->status_update_warnings(int(psGCodeExport), PrintStateBase::WarningLevel::NON_CRITICAL, warning);
         } else {
             const double line_z = tinman_positive_or_default(tinman_float_at_or_default(m_config.fiber_priming_line_height, fiber_filament_id, 0.), 0.2);
             const double park_x = std::max(start_x, end_x - 1.2);
