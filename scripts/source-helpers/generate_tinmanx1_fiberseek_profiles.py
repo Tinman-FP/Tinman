@@ -36,7 +36,7 @@ def find_repo_root(start: Path) -> Path:
 ROOT = find_repo_root(Path(__file__).resolve())
 HELPER_DIR = Path(__file__).resolve().parent
 PROFILE_ROOT = ROOT / "resources" / "profiles"
-PACK_VERSION = "02.04.00.17"
+PACK_VERSION = "02.04.00.18"
 MACHINE_MODEL = "FibreSeek Seeker 3"
 
 
@@ -986,12 +986,11 @@ def composite_filament(material: str, values: dict, fiber: dict) -> dict:
         "compatible_printers": compatible_filament_printers(composite=True),
         # The composite nozzle's matrix retraction, which both fibre writers read: FibreSeek preset
         # (Rocket Slicer 1.4.0, PresetVersion 16), the same for every CFC material. Its travel
-        # restart extra (ExtraLengthP) is -1, and Rocket 1.4.0's G-code primes V0 between routes.
-        # 0 is used, as Rocket 1.3.1's G-code primed 1 + 0 = V1; whether to follow 1.4.0 is still
-        # open. After a tool change it primes 5 - 1 = V4.
+        # restart extra (ExtraLengthP) is -1, so it primes 1 - 1 = V0 between routes, as Rocket
+        # 1.4.0's G-code does (Rocket 1.3.1's primed 1 + 0 = V1); after a tool change 5 - 1 = V4.
         "filament_retraction_length": arr("1"),
         "filament_retract_length_toolchange": arr("5"),
-        "filament_retract_restart_extra": arr("0"),
+        "filament_retract_restart_extra": arr("-1"),
         "filament_retract_restart_extra_toolchange": arr("-1"),
         "filament_retraction_speed": arr("10"),
     }

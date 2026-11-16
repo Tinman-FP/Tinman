@@ -184,7 +184,7 @@
 		"5"
 	],
 	"filament_retract_restart_extra": [
-		"0"
+		"-1"
 	],
 	"filament_retract_restart_extra_toolchange": [
 		"-1"
