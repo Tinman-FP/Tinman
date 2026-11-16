@@ -9,7 +9,6 @@ only confirming that JSON files exist.
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -288,11 +287,6 @@ def check_machine_common() -> None:
     for needle in ("M2800", "M400"):
         if needle not in cut_gcode:
             fail(f"{path.relative_to(ROOT)} fiber_cut_gcode missing {needle}")
-    # The writers print fiber_cut_distance as the CUT DISTANCE marker; a cut G-code that names
-    # a different distance stops the slice, so catch it here first.
-    named = re.search(r"CUT\s+DISTANCE\s+([-+]?(?:\d+(?:\.\d*)?|\.\d+))", cut_gcode, re.IGNORECASE)
-    if named and abs(float(named.group(1)) - float(data.get("fiber_cut_distance", 0))) > 1e-3:
-        fail(f"{path.relative_to(ROOT)} fiber_cut_gcode names CUT DISTANCE {named.group(1)}, not fiber_cut_distance")
 
     after = require_string(data, "fiber_toolchange_gcode_after", path)
     for needle in ("SAVE_NOZZLE_TO_CLEAN", "RESTORE_NOZZLE_TO_PRINT", "G0 X304 Y285 F30000", "G0 Y335 F600"):

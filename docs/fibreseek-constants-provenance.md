@@ -510,10 +510,10 @@ Proposal: four groups, at most two new keys. All of them live in the composite f
 
 These are not classifications, but the owner should see them.
 
-1. **[fixed in the planner swap: both writers cut at L − `fiber_cut_distance` and print that value]** **Cut position differs by 3.2 mm.**
+1. **[fixed in the planner swap: both writers cut at L − `fiber_cut_distance`; since the Rocket-parity changes both cut at L − (`fiber_cut_distance` − `fiber_nozzle_contact_radius_extended`), as Rocket does, and write the cut G-code verbatim, whose 54.8 is a literal of FibreSeek's cut code]** **Cut position differs by 3.2 mm.**
    - C++ cuts at L − `fiber_cut_distance` (58) and only *prints* `;CUT DISTANCE 54.8`.
    - Python parses that number back into `cut_distance` (py:1322-1324), so it cuts at L − 54.8 and its M1001 estimate is 3.2 mm shorter. The generator's profiles set `fiber_cut_gcode` to `;CUT DISTANCE 54.8` literally.
-2. **[fixed in the planner swap: both use `fiber_restart_length`, required; Python's prime line still caps it at 55]** **Restart length.** C++ uses cut + 2 (60). Python uses 55, and the prime line caps it at 55.
+2. **[fixed in the planner swap: both use `fiber_restart_length`, required; Python's prime line no longer caps it at 55]** **Restart length.** C++ uses cut + 2 (60). Python uses 55, and the prime line caps it at 55.
 3. **[fixed in the planner swap: both use `fiber_start_length` and `fiber_slow_length`, 0 = off. C++ showed 0/0 because the writer never received the process's fibre settings]** **Start and slow lengths.** C++ uses 0 and 0. Python uses 15 and 10.
 4. **Post-cut tail speed.**
    - C++ uses `fiber_finish_max_speed` (fallback 3).

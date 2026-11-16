@@ -894,7 +894,7 @@ def composite_filament(material: str, values: dict, fiber: dict) -> dict:
         "fiber_manufacturer": arr(fiber["manufacturer"]),
         "fiber_diameter": arr(fiber["diameter"]),
         "fiber_linear_density": arr(fiber["linear_density"]),  # g/km
-        "fiber_feed_factor": arr("0"),  # not set: calibrate per fibre (see docs/fibreseek-first-prints.md)
+        "fiber_feed_factor": arr("0"),  # composite plastic multiplier; not set (FibreSeek uses 0.8, see docs/fibreseek-first-prints.md)
         "fiber_spool_length_km": arr("0.5"),
         "fiber_cost": arr(fiber["cost"]),
         "fiber_plastic_name": arr(values.get("fiber_plastic_name", material)),
@@ -996,9 +996,9 @@ def machine_common() -> dict:
         "fiber_motion_blocks_buffer_size": "16",
         "fiber_cut_distance": "58",
         "fiber_restart_length": "55",
-        # The writers append ";CUT DISTANCE <fiber_cut_distance>" themselves, so the cut
-        # G-code names no distance of its own.
-        "fiber_cut_gcode": "M2800\nM400",
+        # FibreSeek's cut G-code, which the writers write verbatim at every cut. Its 54.8 is a
+        # literal of that code; the cut position comes from fiber_cut_distance.
+        "fiber_cut_gcode": "M2800\nM400\n;CUT DISTANCE 54.8",
         "fiber_nozzle_contact_radius": "1.2",
         "fiber_nozzle_contact_radius_extended": "1.8",
         "fiber_toolchange_gcode_before": "G0 Y280 F10000\nM106 P1 S255\nM400\n",

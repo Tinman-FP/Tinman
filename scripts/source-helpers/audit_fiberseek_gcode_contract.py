@@ -339,7 +339,6 @@ def audit_gcode(gcode_path: Path, summary_path: Path | None, require_alternation
                 ("fiber prime start", lambda line: "; ORCA_CODEX_FIBER_PRIME_START" in line),
                 ("fiber prime M1001", lambda line: "M1001" in line),
                 ("fiber prime cut start", lambda line: exact_command(line).upper() == "M2800"),
-                ("fiber prime cut distance", lambda line: CUT_RE.match(line) is not None),
                 ("fiber prime M1002", lambda line: exact_command(line).upper() == "M1002"),
                 ("fiber prime end", lambda line: "; ORCA_CODEX_FIBER_PRIME_END" in line),
             ]
@@ -349,7 +348,6 @@ def audit_gcode(gcode_path: Path, summary_path: Path | None, require_alternation
             ("fiber route marker", lambda line: "; ORCA_CODEX_FIBER_LAYER" in line or "; ORCA_CODEX_FIBER_ROUTE_START" in line),
             ("fiber route M1001", lambda line: "M1001" in line),
             ("fiber route cut start", lambda line: exact_command(line).upper() == "M2800"),
-            ("fiber route cut distance", lambda line: CUT_RE.match(line) is not None),
             ("fiber route M1002", lambda line: exact_command(line).upper() == "M1002"),
             ("plastic tool return", lambda line: "T1 ; switch extruder type to:PLASTIC" in line),
             ("native planner end", lambda line: "; ORCA_CODEX_NATIVE_FIBER_PLANNER_END" in line),
@@ -386,8 +384,10 @@ def audit_gcode(gcode_path: Path, summary_path: Path | None, require_alternation
             elif wait_index > initial_plastic_index:
                 add_failure(failures, f"startup command {label} appears after initial plastic tool selection")
 
+    # The writers write the profile's cut G-code verbatim at every cut. FibreSeek's ends in a
+    # ";CUT DISTANCE 54.8" line, a literal of that code; any such line must then be at every cut.
     expected_macro_groups = route_count + prime_count
-    if expected_macro_groups != len(cut_distances):
+    if cut_distances and expected_macro_groups != len(cut_distances):
         add_failure(
             failures,
             f"route+prime count {expected_macro_groups} does not match CUT DISTANCE count {len(cut_distances)}",
@@ -408,7 +408,7 @@ def audit_gcode(gcode_path: Path, summary_path: Path | None, require_alternation
     post_cut_u_lines: list[int] = []
     post_cut_v_only_moves = 0
     for cut_index, line in enumerate(lines):
-        if CUT_RE.match(line) is None:
+        if exact_command(line).upper() != "M2800":
             continue
         for index in range(cut_index + 1, len(lines)):
             command = exact_command(lines[index])
@@ -423,12 +423,19 @@ def audit_gcode(gcode_path: Path, summary_path: Path | None, require_alternation
     if post_cut_u_lines:
         add_failure(failures, f"post-cut tail moves still advance U fiber axis at lines {post_cut_u_lines[:8]}")
     if route_count > 0 and post_cut_v_only_moves <= 0:
-        add_failure(failures, "no V-only post-cut tail moves found after CUT DISTANCE")
+        add_failure(failures, "no V-only post-cut tail moves found after M2800")
 
+    # The cut distance sizes M1001 L: Fiber cut distance from the config block, or for files without
+    # one the cut G-code's CUT DISTANCE value.
     unique_cut_distances = sorted(set(cut_distances))
-    if len(unique_cut_distances) != 1:
-        add_failure(failures, f"expected one CUT DISTANCE value, found {unique_cut_distances}")
-    cut_distance = unique_cut_distances[0] if unique_cut_distances else None
+    config_cut_distances = parse_numeric_values(" ".join(top_summary.get("fiber_cut_distance", [])))
+    if config_cut_distances:
+        cut_distance = config_cut_distances[0]
+    elif len(unique_cut_distances) == 1:
+        cut_distance = unique_cut_distances[0]
+    else:
+        cut_distance = None
+        add_failure(failures, f"no fiber_cut_distance in the config block and CUT DISTANCE values {unique_cut_distances}")
 
     for key, expected in (
         ("continuous_fiber_route_count", route_count),
@@ -481,7 +488,7 @@ def audit_gcode(gcode_path: Path, summary_path: Path | None, require_alternation
         if cut_distance is not None and abs(float(summary_config.get("cut_distance", cut_distance)) - cut_distance) > 0.001:
             add_failure(
                 failures,
-                f"summary cut distance {summary_config.get('cut_distance')} does not match emitted CUT DISTANCE {cut_distance}",
+                f"summary cut distance {summary_config.get('cut_distance')} does not match fiber cut distance {cut_distance}",
             )
         for command in ("M1001", "M1002", "M2800", "T0", "T1"):
             if int(summary_command_counts.get(command, command_counts.get(command, 0))) != command_counts.get(command, 0):
@@ -523,13 +530,12 @@ def audit_gcode(gcode_path: Path, summary_path: Path | None, require_alternation
         block_start = route["index"]
         m1001_index = find_in_window(lines, block_start, block_end, lambda line: M1001_RE.match(line) is not None)
         m2800_index = find_in_window(lines, block_start, block_end, lambda line: line.strip() == "M2800")
-        cut_index = find_in_window(lines, block_start, block_end, lambda line: CUT_RE.match(line) is not None)
         m1002_index = find_in_window(lines, block_start, block_end, lambda line: line.strip() == "M1002")
-        if None in (m1001_index, m2800_index, cut_index, m1002_index):
-            add_failure(failures, f"route at line {block_start + 1} is missing M1001/M2800/CUT/M1002")
+        if None in (m1001_index, m2800_index, m1002_index):
+            add_failure(failures, f"route at line {block_start + 1} is missing M1001/M2800/M1002")
             continue
-        if not (block_start < m1001_index < m2800_index < cut_index < m1002_index < block_end):
-            add_failure(failures, f"route at line {block_start + 1} has out-of-order M1001/M2800/CUT/M1002")
+        if not (block_start < m1001_index < m2800_index < m1002_index < block_end):
+            add_failure(failures, f"route at line {block_start + 1} has out-of-order M1001/M2800/M1002")
         if cut_distance is not None:
             load_match = M1001_RE.match(lines[m1001_index])
             emitted_load = float(load_match.group(1)) if load_match else 0.0
@@ -583,6 +589,7 @@ def audit_gcode(gcode_path: Path, summary_path: Path | None, require_alternation
         "prime_blocks": prime_count,
         "fiber_layers": len(route_layers),
         "total_route_length_mm": round(total_route_length, 3),
+        "cut_distance": cut_distance,
         "cut_distance_values": unique_cut_distances,
         "command_counts": {
             key: command_counts.get(key, 0)
@@ -629,7 +636,7 @@ def main() -> int:
         print(
             "FibreSeek G-code contract audit "
             f"{status}: routes={metrics['route_count']} layers={metrics['fiber_layers']} "
-            f"length_mm={metrics['total_route_length_mm']} cut={metrics['cut_distance_values']}"
+            f"length_mm={metrics['total_route_length_mm']} cut={metrics['cut_distance']}"
         )
         for failure in failures:
             print(f"FAIL: {failure}", file=sys.stderr)

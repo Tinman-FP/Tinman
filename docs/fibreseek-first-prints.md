@@ -33,10 +33,12 @@ own. Check that it has:
   - **Fiber diameter** (mm), from the fibre's datasheet.
   - **Fiber linear density** (g/km), from the datasheet. This is only used for
     the fibre weight estimate.
-  - **Fiber feed factor**: how much fibre is fed per mm of route, as a
-    fraction of the strand's cross-section area. Use the value from your own
-    calibration of this fibre on this printer. Tinman has no default, because
-    its earlier built-in value had no documented source.
+  - **Composite plastic multiplier** (the `fiber_feed_factor` key, formerly
+    "Fiber feed factor"): FibreSeek's ExtrusionMultiplierP, 0.8 for CFC PETG +
+    X-CCF. The plastic the composite nozzle extrudes per mm of fibre (P) is
+    this times the bead's cross-section (Fiber line width × layer height) less
+    the fibre's, over the composite filament's cross-section. Tinman has no
+    default.
 
 **Fibre planner.** In the default fibre mode, Tinman plans the fibre routes
 with a Python helper run by `/usr/bin/python3`. That helper needs `shapely`.
@@ -193,15 +195,16 @@ Tinman log line for this send must say `continuous fibre: no`.
 A review of the fibre output found these. Watch for them, and stop the print
 if one causes trouble:
 
-- **Prime line.** In the default fibre mode, the planner lays a 90 mm prime
-  line at the start of the first fibre layer. It primes much more matrix than
-  a route start does. Watch for a blob or overflow at the prime.
-- **Cut position.** Both modes cut Fiber cut distance (58 mm in the Seeker 3
-  test profiles) before a route's end. Check where the fibre ends against the
-  preview.
-- **Fixed values.** Standby temperatures (150 °C plastic, 180 °C fibre) and
-  fan speeds in the default mode are fixed values with no documented source.
-  Note what the printer does at each tool change.
+- **Prime line.** Both modes lay one 90 mm fibre prime line at the start of
+  the first fibre layer, 2 mm in front of the first layer (behind it when the
+  bed has no room in front). Rocket lays its line before the first layer
+  instead, so watch the idle nozzle's clearance over the part while the line
+  is laid at 0.2 mm.
+- **Cut position.** Both modes cut when Fiber cut distance less Extended
+  fiber contact radius is left of a route (58 − 1.8 = 56.2 mm in the Seeker 3
+  test profiles). Check where the fibre ends against the preview.
+- **Fixed values.** Fan speeds in the default mode are fixed values with no
+  documented source. Note what the printer does at each tool change.
 
 The full list is in `docs/fibreseek-constants-provenance.md`.
 
@@ -216,23 +219,33 @@ The planner swap (PR #25) changes what the printer receives. Old → new:
 - **`M1001 L`:** ceil(L + 54.8) → ceil(L + 58), about 3 mm more fibre loaded per route.
 - **Shortest standalone route:** 64.8 → 68 mm (cut distance + slow length). Routes from 64.8 to 68 mm long are now left out.
 - **Restart, start and slow lengths:** taken from the profile, with no stand-ins. The Seeker 3 test profiles set 55 / 15 / 10, so these numbers don't change. A profile that leaves Fiber cut distance or Fiber restart length at 0 now stops the slice; before, 58 / 55 were used silently.
-- **Old cut G-code line:** if a printer preset's Fiber cut G-code still has the line `;CUT DISTANCE 54.8` (older generated profiles did), Tinman ignores that line and shows a slicing warning naming both values. The slice still works, with one `;CUT DISTANCE 58` per route. Delete the line when convenient, since Tinman adds the marker itself. If 54.8 is the real cutter-to-tip length, set Fiber cut distance to 54.8 instead.
 
 **Fibre-owned composite roads** (composite-only, the C++ writer):
 
 - **Routes:** the new planner lays wall loops and spirals plus linked ribs. Route count, lengths and positions differ (coupon table in PR #25).
 - **Plastic under the fibre:** plastic infill is no longer printed under the fibre bead. Before, they overlapped. A route the writer skips (one that would leave the part, logged as `TINMANX1_SKIPPED_UNSAFE_FIBER_ROUTE`) keeps its plastic.
 - **`;CUT DISTANCE` line:** 54.8 → 58. The cut position (L − 58) and `M1001 L` are unchanged.
-- **Prime at each route start:** V0 → Fiber start length × P (15 mm × P, V0.589 for the test strand).
+- **Prime at each route start:** V0 → Fiber start length × P (15 mm × P, V0.589 for the test strand); replaced again by the Rocket-parity changes below.
 - **Slow start:** none → the first Fiber slow length (10 mm) of each route at Fiber start speed (5 mm/s), split mid-move where needed so it is exactly that length. Before, the whole route ran at print speed (30 mm/s).
 - **After the cut:** the tail runs at Fiber finish max speed, 3 → 15 mm/s. Its matrix V is multiplied by the after-cut multiplier, 1.0 → 0.72.
 - **Finish ironing:** skipped on every route → 8 mm of V-only ironing at 10 mm/s (the mean of finish max and min speed). It runs back along the route's end, or over a loop's start.
 - **Restart `U`:** unchanged (55, from the profile). A restart length of 0 now stops the slice; before, 60 was used.
 - **Comments only:** route comments name the real warnings instead of `native_route_warnings`, and `connector_threshold` is gone.
 
+**Both modes, Rocket parity.** Later changes bring both writers to Rocket's machine protocol, measured on Rocket's own G-code:
+
+- **Cut G-code:** written exactly as the printer profile gives it at every cut, after `; Start to cut`. FibreSeek's own cut code ends in `;CUT DISTANCE 54.8`, a literal of that code, so a profile with it prints that line; Tinman adds no marker of its own and no longer warns.
+- **Cut position:** L − 58 → L − (58 − Extended fiber contact radius), L − 56.2 with the Seeker 3 profile's 1.8 mm. The cut strand ends that radius short of the route's end, under the nozzle, as Rocket's does. `M1001 L` is unchanged: ceil(L + Fiber cut distance).
+- **Standby temperatures:** each idle nozzle waits at its own material's Composite standby temperature (Rocket: 120 °C for PETG, 150 °C for CFC PETG). A material that leaves it at 0 keeps 150 °C plastic and 180 °C composite. The generated Seeker 3 test profiles set 150 and 180, so enter 120 and 150 to match Rocket.
+- **Tool changes:** both lift Z 5 mm above the layer before the brush station (FibreSeek's Z lift on tool change). Composite-only mode had no lift.
+- **Prime at each route start:** the composite material's retraction plus Extra length on restart, at its retraction speed, then `G4 P0`: the tool-change values after a tool change, the travel values between routes. FibreSeek's preset gives 5 − 1 = V4 and 1 − 1 = V0 at 10 mm/s. The generated test profiles set no tool-change retraction, so Tinman's default of 10 mm applies (V10, then `V-9` below) until the composite profile sets 5 and −1. After each cut the travel retraction is taken back (`V-1`) and topped up to the tool-change retraction before the change to plastic (`V-4`, was `V-14`). The default mode's prime line used V15 at F720 and `G4 P1000`, composite-only mode Fiber start length × P.
+- **Composite-only retract lines:** they now put F last (`G1 V-1 F600`). With F first, the G-code export dropped `G1 F600` from a line whose feedrate repeated the previous one, leaving ` V-1 ; Retract` or ` V-14 ; Retract`, which the printer skips. That hit most cuts and every change to plastic.
+- **P (plastic per mm of fibre):** π(d/2)² × feed factor → Composite plastic multiplier × (Fiber line width × layer height − π(d/2)²) / (π(D/2)²), as Rocket computes it, with D the composite's Composite plastic diameter (Filament diameter when 0). With 0.8 on 0.2 mm layers: 0.03927 → 0.03689; on Rocket's 0.24 mm layers it is 0.0475 (Rocket writes `P0.048`). The prime line keeps the old rule for now.
+- **Prime line:** composite-only mode now lays the same prime line as the default mode. In both, the line moves from Y 119 to 2 mm in front of the first layer, and is reached at the tool-change height before coming down.
+
 ## What to report back
 
-- The three fibre values you entered (diameter, linear density, feed factor).
+- The three fibre values you entered (diameter, linear density, composite plastic multiplier).
 
 For each print:
 
