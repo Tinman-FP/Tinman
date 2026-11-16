@@ -1571,13 +1571,15 @@ std::string GCodeWriter::unlift()
     return gcode;
 }
 
-std::string GCodeWriter::set_fan(const GCodeFlavor gcode_flavor, unsigned int speed, unsigned int part_cooling_fan_min_pwm)
+std::string GCodeWriter::set_fan(const GCodeFlavor gcode_flavor, unsigned int speed, unsigned int part_cooling_fan_min_pwm, int fan_index)
 {
     std::ostringstream gcode;
     // ORCA: clamp non-zero fan commands up to the configured PWM floor so fans that can't spool at low duty
     // cycles still start reliably. Zero (fan off) is preserved exactly so disable-fan commands are never altered.
     if (speed > 0 && part_cooling_fan_min_pwm > 0 && speed < part_cooling_fan_min_pwm)
         speed = part_cooling_fan_min_pwm;
+    // Tinman: a fan index goes in as P before S. Fan off keeps the M106 S0 form, as M107 takes no index.
+    const std::string m106 = fan_index < 0 ? "M106 S" : "M106 P" + std::to_string(fan_index) + " S";
     if (speed == 0) {
         switch (gcode_flavor) {
         case gcfTeacup:
@@ -1586,7 +1588,7 @@ std::string GCodeWriter::set_fan(const GCodeFlavor gcode_flavor, unsigned int sp
         case gcfSailfish:
             gcode << "M127";    break;
         default:
-            gcode << "M106 S0";    break;
+            gcode << m106 << "0";    break;
         }
         if (GCodeWriter::full_gcode_comment)
             gcode << " ; disable fan";
@@ -1600,7 +1602,7 @@ std::string GCodeWriter::set_fan(const GCodeFlavor gcode_flavor, unsigned int sp
         case gcfMachinekit:
             gcode << "M106 P" << static_cast<unsigned int>(255.5 * speed / 100.0); break;
         default:
-            gcode << "M106 S" << static_cast<unsigned int>(255.5 * speed / 100.0); break;
+            gcode << m106 << static_cast<unsigned int>(255.5 * speed / 100.0); break;
         }
         if (GCodeWriter::full_gcode_comment)
             gcode << " ; enable fan";
@@ -1609,12 +1611,12 @@ std::string GCodeWriter::set_fan(const GCodeFlavor gcode_flavor, unsigned int sp
     return gcode.str();
 }
 
-std::string GCodeWriter::set_fan(unsigned int speed) const
+std::string GCodeWriter::set_fan(unsigned int speed, int fan_index) const
 {
     //BBS
     // ORCA: pick up the per-printer PWM floor from the active config.
     return GCodeWriter::set_fan(this->config.gcode_flavor, speed,
-                                static_cast<unsigned int>(std::max(0, this->config.part_cooling_fan_min_pwm.value)));
+                                static_cast<unsigned int>(std::max(0, this->config.part_cooling_fan_min_pwm.value)), fan_index);
 }
 
 //BBS: set additional fan speed for BBS machine only

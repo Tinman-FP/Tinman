@@ -265,3 +265,30 @@ TEST_CASE("A fibre setting change redoes the infill only while composite-only fi
     print.apply(model, config);
     CHECK(print.objects().front()->is_step_done(posInfill) == !fibre_on);
 }
+
+TEST_CASE("Seeker 3 plastic part cooling names the plastic nozzle's fan", "[Fibreseek][FibreseekSlicing]")
+{
+    // The Seeker 3's M106 without P runs the plastic (P1) and composite (P2) nozzle fans together, so the
+    // plastic's part cooling, off on the first layer and 40% after it, must name P1.
+    DynamicPrintConfig config = composite_only_config();
+    config.set_deserialize_strict({
+        { "fiber_plastic_extruder_has_fan", "1" },
+        { "fiber_composite_extruder_has_fan", "1" },
+        { "fiber_plastic_extruder_fan_index", "1" },
+        { "fiber_composite_extruder_fan_index", "2" },
+        { "close_fan_the_first_x_layers", "1,1" },
+        { "reduce_fan_stop_start_freq", "1,1" },
+        { "fan_min_speed", "40,40" },
+        { "fan_max_speed", "40,40" },
+    });
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    const std::string gcode = Test::gcode(print);
+
+    const std::string cooling_pwm = std::to_string(int(255.5 * 40 / 100.));
+    CHECK(count(gcode, "\nM106 P1 S" + cooling_pwm) > 0);
+    CHECK(count(gcode, "\nM106 P1 S0") > 0);
+    CHECK(count(gcode, "\nM106 S") == 0);
+    CHECK(count(gcode, "\nM107") == 0);
+}

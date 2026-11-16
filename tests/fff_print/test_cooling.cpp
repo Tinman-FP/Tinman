@@ -1,6 +1,7 @@
 #include <catch2/catch_all.hpp>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include "test_helpers.hpp"
 
 #include <algorithm>
@@ -157,4 +158,33 @@ TEST_CASE("Overhang fan transitions do not depend on overhang speed", "[Cooling]
                         [](const auto &command) { return command.second.find("S255") != std::string::npos; }));
     REQUIRE(with_speed_feedrates != without_speed_feedrates);
     CHECK(with_speed_fan == without_speed_fan);
+}
+
+TEST_CASE("Part cooling stays a plain M106 on a printer without fibre", "[Cooling][Regression]")
+{
+    // The FibreSeek fan indices apply only with fibre on. Set or not, an ordinary printer keeps M106 S,
+    // off on the first layer and 40% after it.
+    const bool fibreseek_fans_set = GENERATE(false, true);
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({
+        { "layer_height", "0.2" },
+        { "initial_layer_print_height", "0.2" },
+        { "close_fan_the_first_x_layers", "1" },
+        { "reduce_fan_stop_start_freq", "1" },
+        { "fan_min_speed", "40" },
+        { "fan_max_speed", "40" },
+    });
+    if (fibreseek_fans_set)
+        config.set_deserialize_strict({
+            { "fiber_plastic_extruder_has_fan", "1" },
+            { "fiber_composite_extruder_has_fan", "1" },
+            { "fiber_plastic_extruder_fan_index", "1" },
+            { "fiber_composite_extruder_fan_index", "2" },
+        });
+    const std::string gcode = slice({ cube(20) }, config);
+
+    const std::string cooling_pwm = std::to_string(int(255.5 * 40 / 100.));
+    CHECK(gcode.find("\nM106 S" + cooling_pwm) != std::string::npos);
+    CHECK(gcode.find("\nM106 S0") != std::string::npos);
+    CHECK(gcode.find("\nM106 P") == std::string::npos);
 }

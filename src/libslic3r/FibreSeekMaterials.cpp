@@ -300,7 +300,7 @@ void copy_continuous_fiber_metadata(const Preset &composite, DynamicPrintConfig 
         project.set_key_value("continuous_fiber_linear_density", new ConfigOptionFloat(density));
 }
 
-std::optional<size_t> continuous_fiber_composite_slot(const DynamicConfig &config)
+std::optional<size_t> continuous_fiber_composite_slot(const ConfigBase &config)
 {
     const auto *types = dynamic_cast<const ConfigOptionStrings *>(config.option("filament_type"));
     if (!types)
@@ -315,6 +315,16 @@ double continuous_fiber_composite_value(const DynamicConfig &config, const char 
 {
     const auto slot = continuous_fiber_composite_slot(config);
     return slot ? positive_at(config, key, *slot) : 0.;
+}
+
+int continuous_fiber_part_cooling_fan_index(const PrintConfig &config, size_t filament_id)
+{
+    if (!config.fiber_enabled.value)
+        return -1;
+    const bool composite = continuous_fiber_composite_slot(config) == filament_id;
+    const bool has_fan   = composite ? config.fiber_composite_extruder_has_fan.value : config.fiber_plastic_extruder_has_fan.value;
+    const int  index     = composite ? config.fiber_composite_extruder_fan_index.value : config.fiber_plastic_extruder_fan_index.value;
+    return has_fan ? std::max(0, index) : -1;
 }
 
 void apply_continuous_fiber_strand_data(DynamicPrintConfig &config)

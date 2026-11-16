@@ -18,6 +18,7 @@
 #include "GCode/WipePathHelpers.hpp"
 #include "GCodeReader.hpp"
 #include "GCodeWriter.hpp"
+#include "Extruder.hpp"
 #include "Point.hpp"
 #include "Line.hpp"
 #include "ObjectID.hpp"
@@ -4762,7 +4763,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
 
     // Disable fan.
     if (m_config.auxiliary_fan.value && print.config().close_fan_the_first_x_layers.get_at(initial_extruder_id)) {
-        file.write(m_writer.set_fan(0));
+        file.write(m_writer.set_fan(0, continuous_fiber_part_cooling_fan_index(m_config, initial_extruder_id)));
         //BBS: disable additional fan
         file.write(m_writer.set_additional_fan(0));
     }
@@ -5231,7 +5232,10 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         file.write(gcode);
     }
 
-    file.write(m_writer.set_fan(0));
+    // Tinman: the fan index the CoolingBuffer gave the last filament's part cooling. The fibre writers turn
+    // the composite nozzle's fan off in their own shutdown block.
+    const Extruder *last_filament = m_writer.filament();
+    file.write(m_writer.set_fan(0, continuous_fiber_part_cooling_fan_index(m_config, last_filament ? last_filament->id() : 0)));
     //BBS: make sure the additional fan is closed when end
     if(m_config.auxiliary_fan.value)
         file.write(m_writer.set_additional_fan(0));
