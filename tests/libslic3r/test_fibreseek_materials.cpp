@@ -730,6 +730,32 @@ TEST_CASE("The print configuration takes strand data from the effective composit
     }
 }
 
+TEST_CASE("With fibre on, part cooling names the fan of the filament's nozzle", "[TinMan][FibreSeek][FibreSeekFan]")
+{
+    // The Seeker 3 profile: material 1 the plastic, material 2 the CFC composite, a fan on each nozzle.
+    FullPrintConfig config;
+    config.set_deserialize_strict({
+        { "fiber_enabled", "1" },
+        { "filament_type", "PETG;CFC" },
+        { "fiber_plastic_extruder_has_fan", "1" },
+        { "fiber_composite_extruder_has_fan", "1" },
+        { "fiber_plastic_extruder_fan_index", "1" },
+        { "fiber_composite_extruder_fan_index", "2" },
+    });
+    CHECK(continuous_fiber_part_cooling_fan_index(config, 0) == 1);
+    CHECK(continuous_fiber_part_cooling_fan_index(config, 1) == 2);
+    SECTION("a nozzle with no fan recorded keeps the plain command") {
+        config.set_deserialize_strict("fiber_composite_extruder_has_fan", "0");
+        CHECK(continuous_fiber_part_cooling_fan_index(config, 0) == 1);
+        CHECK(continuous_fiber_part_cooling_fan_index(config, 1) == -1);
+    }
+    SECTION("fibre off keeps the plain command") {
+        config.set_deserialize_strict("fiber_enabled", "0");
+        CHECK(continuous_fiber_part_cooling_fan_index(config, 0) == -1);
+        CHECK(continuous_fiber_part_cooling_fan_index(config, 1) == -1);
+    }
+}
+
 TEST_CASE("Slicing reads unsaved edits of any composite, listed or custom", "[TinMan][Preset][FibreSeek][CfcCommit]")
 {
     ResolverFixture fixture;

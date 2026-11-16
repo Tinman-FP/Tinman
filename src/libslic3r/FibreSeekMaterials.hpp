@@ -89,9 +89,15 @@ void copy_continuous_fiber_metadata(const Preset &composite, DynamicPrintConfig 
 // In an assembled print configuration (PresetBundle::full_fff_config): the CFC
 // material's slot, a positive per-filament value at that slot (0 when unset), and
 // the strand data copied into continuous_fiber_* when that profile sets it.
-std::optional<size_t> continuous_fiber_composite_slot(const DynamicConfig &config);
+std::optional<size_t> continuous_fiber_composite_slot(const ConfigBase &config);
 double continuous_fiber_composite_value(const DynamicConfig &config, const char *key);
 void apply_continuous_fiber_strand_data(DynamicPrintConfig &config);
+
+// The firmware fan that cools a filament's nozzle with fibre on: the composite
+// extruder's fan for the CFC slot, the plastic extruder's for any other. -1 when
+// fibre is off or the printer profile records no fan for that nozzle. The Seeker 3's
+// M106 without P runs both nozzles' fans, so its part cooling must name one.
+int continuous_fiber_part_cooling_fan_index(const PrintConfig &config, size_t filament_id);
 
 // The composite settings a fibre slice needs that this profile leaves unset, by
 // their labels: Fiber diameter, Fiber linear density, Composite plastic multiplier.

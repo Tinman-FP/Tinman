@@ -138,10 +138,13 @@ public:
     // To be called by the CoolingBuffer from another thread.
     // ORCA: `part_cooling_fan_min_pwm` (0-100, default 0) is a floor applied only when `speed` is non-zero, used to overcome
     // PWM start-up thresholds on fans that won't spool below a certain duty cycle. A `speed` of 0 is always honoured.
-    static std::string set_fan(const GCodeFlavor gcode_flavor, unsigned int speed, unsigned int part_cooling_fan_min_pwm = 0);
+    // Tinman: a `fan_index` of 0 or more writes M106 P<fan_index>, for a printer whose M106 without P drives more
+    // than one fan (continuous_fiber_part_cooling_fan_index()). The default -1 writes the plain command. The index
+    // rides on this one writer so the PWM floor and each flavor's form stay in one place.
+    static std::string set_fan(const GCodeFlavor gcode_flavor, unsigned int speed, unsigned int part_cooling_fan_min_pwm = 0, int fan_index = -1);
     // To be called by the main thread. It always emits the G-code, it does not remember the previous state.
     // Keeping the state is left to the CoolingBuffer, which runs asynchronously on another thread.
-    std::string set_fan(unsigned int speed) const;
+    std::string set_fan(unsigned int speed, int fan_index = -1) const;
     //BBS: set additional fan speed for BBS machine only
     static std::string set_additional_fan(unsigned int speed);
     static std::string set_exhaust_fan(int speed);

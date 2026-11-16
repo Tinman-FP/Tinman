@@ -1,6 +1,7 @@
 #include "../GCode.hpp"
 #include "../LocalesUtils.hpp"
 #include "libslic3r/Extruder.hpp"
+#include "libslic3r/FibreSeekMaterials.hpp"
 #include "libslic3r/Point.hpp"
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/Circle.hpp"
@@ -763,6 +764,12 @@ std::string CoolingBuffer::apply_layer_cooldown(
     // ORCA: per-printer minimum non-zero fan PWM. Applied at every part-cooling fan emission below so any
     // non-zero command is raised to at least this percent (0 disables the clamp).
     const unsigned int part_cooling_fan_min_pwm = static_cast<unsigned int>(std::max(0, m_config.part_cooling_fan_min_pwm.value));
+    // Tinman: every part-cooling command goes through here. With fibre on, the Seeker 3 names the fan of the
+    // nozzle printing now, as its M106 without P runs both nozzles' fans. Other printers get index -1, the plain M106.
+    const auto fan_gcode = [this, part_cooling_fan_min_pwm](int speed) {
+        return GCodeWriter::set_fan(m_config.gcode_flavor, speed, part_cooling_fan_min_pwm,
+                                    continuous_fiber_part_cooling_fan_index(m_config, m_current_extruder));
+    };
     bool overhang_fan_control= false;
     int  overhang_fan_speed   = 0;
     bool internal_bridge_fan_control= false; // ORCA: Add support for separate internal bridge fan speed control
@@ -773,7 +780,7 @@ std::string CoolingBuffer::apply_layer_cooldown(
     int  ironing_fan_speed   = 0; // ORCA: Add support for ironing fan speed control
     int  wave_overhang_fan_speed = -1;
     bool wave_aux_override_active = false;
-    auto change_extruder_set_fan = [ this, layer_id, layer_time, &new_gcode, part_cooling_fan_min_pwm,
+    auto change_extruder_set_fan = [ this, layer_id, layer_time, &new_gcode, &fan_gcode,
         &overhang_fan_control, &overhang_fan_speed,
         &internal_bridge_fan_control, &internal_bridge_fan_speed,
         &supp_interface_fan_control, &supp_interface_fan_speed,
@@ -896,7 +903,7 @@ std::string CoolingBuffer::apply_layer_cooldown(
             m_fan_speed = fan_speed_new;
             m_current_fan_speed = fan_speed_new;
             if (immediately_apply)
-                new_gcode  += GCodeWriter::set_fan(m_config.gcode_flavor, m_fan_speed, part_cooling_fan_min_pwm);
+                new_gcode  += fan_gcode(m_fan_speed);
         }
         //BBS
         if (additional_fan_speed_new != m_additional_fan_speed) {
@@ -1102,7 +1109,7 @@ std::string CoolingBuffer::apply_layer_cooldown(
         if (need_set_fan) {
             const auto set_fan = [&](int speed) {
                 if (m_current_fan_speed != speed) {
-                    new_gcode += GCodeWriter::set_fan(m_config.gcode_flavor, speed, part_cooling_fan_min_pwm);
+                    new_gcode += fan_gcode(speed);
                     m_current_fan_speed = speed;
                 }
             };
@@ -1128,7 +1135,7 @@ std::string CoolingBuffer::apply_layer_cooldown(
                 set_fan(ironing_fan_speed);
             }
             else if(fan_speed_change_requests[CoolingLine::TYPE_FORCE_RESUME_FAN] && m_current_fan_speed != -1){
-                new_gcode += GCodeWriter::set_fan(m_config.gcode_flavor, m_current_fan_speed, part_cooling_fan_min_pwm);
+                new_gcode += fan_gcode(m_current_fan_speed);
                 fan_speed_change_requests[CoolingLine::TYPE_FORCE_RESUME_FAN] = false;
             }
             else {

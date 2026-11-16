@@ -369,6 +369,36 @@ def synthetic_narrow_islands_gcode() -> str:
     return "\n".join(lines)
 
 
+def synthetic_by_object_gcode() -> str:
+    """Two 60 mm squares printed by object, three 0.2 mm layers each: Z drops back to 0.2 for the second."""
+    e_value = 0.0
+    lines: list[str] = []
+    for x0 in (0.0, 100.0):
+        for z in (0.2, 0.4, 0.6):
+            lines.extend([";LAYER_CHANGE", f";Z:{z:.1f}", ";HEIGHT:0.2", "G90", "M82"])
+            block, e_value = rectangle_wall_gcode(x0, 0.0, x0 + 60.0, 60.0, e_value, "Outer wall")
+            lines.append(block)
+            block, e_value = rectangle_wall_gcode(x0 + 0.45, 0.45, x0 + 59.55, 59.55, e_value, "Inner wall")
+            lines.append(block)
+    lines.extend(
+        [
+            "; fiber_generate_perimeters = 1",
+            "; fiber_generate_infill = 0",
+            "; fiber_reinforcement_mode = heavy",
+            "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
+            "; fiber_slow_length = 10",
+            "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
+            "; fiber_composite_plastic_multiplier = 0.8",
+            "; layer_height = 0.2",
+            "; print_sequence = by object",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def synthetic_serrated_hole_gcode() -> str:
     """A 100 mm plate with one serrated 12 mm hole: its outer wall zigzags between radius 5.4 and 6,
     so it is longer (about 43 mm) than the smooth inner wall around it (radius 6.45, 40.5 mm)."""
@@ -1913,6 +1943,39 @@ def main() -> int:
     route_p = {line.split(" P", 1)[1].split()[0] for line in contract_lines if line.startswith("G1 X") and " Y" in line and " P" in line}
     if route_p != {"0.03689"} or "U33.8 P0.03927 " not in contract_merged:
         raise SystemExit(f"FibreSeek contract P is not from the bead geometry: routes {route_p}")
+    # P takes the fibre layer's own height, not that of a bridge printed at 0.39 mm on it.
+    with tempfile.TemporaryDirectory() as bridged_dir:
+        bridged = Path(bridged_dir) / "bridged_layer_fixture.gcode"
+        bridged.write_text(
+            synthetic_fiberseek_contract_gcode().replace(
+                "G1 X0 Y0 E4\n; fiber_generate_perimeters",
+                "G1 X0 Y0 E4\n;TYPE:Bridge\n;HEIGHT:0.39\nG1 X50 Y50 E5\n; fiber_generate_perimeters",
+            ),
+            encoding="utf-8",
+        )
+        bridged_parsed = planner.parse_gcode(bridged)
+    bridged_cfg = planner.planner_config(
+        bridged_parsed,
+        default_planner_args(fiber_reinforcement_mode="heavy", fiber_generate_perimeters="1", fiber_generate_infill="0"),
+    )
+    if bridged_parsed.layers[1].height != 0.39 or planner.route_p_value(bridged_cfg, 1) != 0.03689:
+        raise SystemExit(f"P used a feature's height: {planner.route_p_value(bridged_cfg, 1)}")
+    # Two objects printed by object: the second starts from the bed again, so its layers are 0.2 mm too.
+    with tempfile.TemporaryDirectory() as sequential_dir:
+        sequential = Path(sequential_dir) / "by_object_fixture.gcode"
+        sequential.write_text(synthetic_by_object_gcode(), encoding="utf-8")
+        sequential_parsed = planner.parse_gcode(sequential)
+    sequential_cfg = planner.planner_config(
+        sequential_parsed,
+        default_planner_args(fiber_reinforcement_mode="heavy", fiber_generate_perimeters="1", fiber_generate_infill="0", layer_step=1),
+    )
+    if [round(sequential_cfg.layer_heights[layer.index], 3) for layer in sequential_parsed.layers] != [0.2] * 6:
+        raise SystemExit(f"By-object layer heights are wrong: {sequential_cfg.layer_heights}")
+    sequential_routes, _ = planner.plan_routes(sequential_parsed, sequential_cfg)
+    sequential_merged = planner.emit_append_after_layer(sequential_parsed, sequential_routes, sequential_cfg)
+    sequential_p = {line.split(" P", 1)[1].split()[0] for line in sequential_merged.splitlines() if line.startswith("G1 X") and " Y" in line and " P" in line}
+    if not sequential_routes or sequential_p != {"0.03689"} or sequential_cfg.layer_height_warned:
+        raise SystemExit(f"By-object P is wrong: {sequential_p}")
     legacy_cfg = planner.replace(contract_cfg, fiber_plastic_multiplier=0.0)
     if planner.route_p_value(legacy_cfg, 0) != 0.03927:
         raise SystemExit(f"The legacy feed factor model changed: P {planner.route_p_value(legacy_cfg, 0)}")

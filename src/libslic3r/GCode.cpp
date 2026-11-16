@@ -18,6 +18,7 @@
 #include "GCode/WipePathHelpers.hpp"
 #include "GCodeReader.hpp"
 #include "GCodeWriter.hpp"
+#include "Extruder.hpp"
 #include "Point.hpp"
 #include "Line.hpp"
 #include "ObjectID.hpp"
@@ -3158,6 +3159,7 @@ void GCode::do_export(Print* print, const char* path, GCodeProcessorResult* resu
     CNumericLocalesSetter locales_setter;
 
     // Does the file exist? If so, we hope that it is still valid.
+    m_export_step_started = false;
     if (print->is_step_done(psGCodeExport) && boost::filesystem::exists(boost::filesystem::path(path)))
         return;
 
@@ -3165,7 +3167,7 @@ void GCode::do_export(Print* print, const char* path, GCodeProcessorResult* resu
 
     GCodeProcessor::s_IsBBLPrinter = print->is_BBL_printer();
     m_writer.set_is_bbl_machine(print->is_BBL_printer());
-    print->set_started(psGCodeExport);
+    m_export_step_started = print->set_started(psGCodeExport);
 
     {
         LifecycleEventContext ctx;
@@ -3399,7 +3401,7 @@ void GCode::do_export(Print* print, const char* path, GCodeProcessorResult* resu
     }
 
     BOOST_LOG_TRIVIAL(info) << "Exporting G-code finished" << log_memory_info();
-    print->set_done(psGCodeExport);
+    // Print::export_gcode() marks psGCodeExport done once the native fibre planner has run.
 
     {
         LifecycleEventContext ctx;
@@ -4746,7 +4748,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
 
     // Disable fan.
     if (m_config.auxiliary_fan.value && print.config().close_fan_the_first_x_layers.get_at(initial_extruder_id)) {
-        file.write(m_writer.set_fan(0));
+        file.write(m_writer.set_fan(0, continuous_fiber_part_cooling_fan_index(m_config, initial_extruder_id)));
         //BBS: disable additional fan
         file.write(m_writer.set_additional_fan(0));
     }
@@ -5215,7 +5217,10 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         file.write(gcode);
     }
 
-    file.write(m_writer.set_fan(0));
+    // Tinman: the fan index the CoolingBuffer gave the last filament's part cooling. The fibre writers turn
+    // the composite nozzle's fan off in their own shutdown block.
+    const Extruder *last_filament = m_writer.filament();
+    file.write(m_writer.set_fan(0, continuous_fiber_part_cooling_fan_index(m_config, last_filament ? last_filament->id() : 0)));
     //BBS: make sure the additional fan is closed when end
     if(m_config.auxiliary_fan.value)
         file.write(m_writer.set_additional_fan(0));
@@ -9758,8 +9763,12 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
             prime_y = printed.max.y() + prime_gap;
         if (!prime_y) {
             gcode += "; TINMANX1_FIBER_PRIME_SKIPPED no room on the bed in front of or behind the print\n";
-            m_print->add_gcode_export_warning(
-                _(L("There is no room on the bed in front of or behind the print for the fiber priming line, so the first fiber route starts without one.")));
+            const std::string warning = _(L("There is no room on the bed in front of or behind the print for the fiber priming line, so the first fiber route starts without one."));
+            if (m_export_step_started)
+                m_print->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL, warning, PrintStateBase::SlicingContinuousFiberWarning);
+            else
+                m_print->status_update_warnings(int(psGCodeExport), PrintStateBase::WarningLevel::NON_CRITICAL, warning, nullptr,
+                                                PrintStateBase::SlicingContinuousFiberWarning);
         } else {
             const double line_z = tinman_positive_or_default(tinman_float_at_or_default(m_config.fiber_priming_line_height, fiber_filament_id, 0.), 0.2);
             const double park_x = std::max(start_x, end_x - 1.2);

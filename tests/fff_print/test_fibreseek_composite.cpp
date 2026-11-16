@@ -11,6 +11,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <fstream>
+#include <ios>
+#include <iterator>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -27,10 +30,12 @@
 #include "libslic3r/Point.hpp"
 #include "libslic3r/Polyline.hpp"
 #include "libslic3r/Print.hpp"
+#include "libslic3r/PrintBase.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/libslic3r.h"
 #include "test_helpers.hpp"
+#include "test_utils.hpp"
 
 using namespace Slic3r;
 using Catch::Matchers::ContainsSubstring;
@@ -474,6 +479,50 @@ TEST_CASE("The priming line must fit on the bed polygon, not just its bounding b
     CHECK_THAT(warnings, ContainsSubstring("fiber priming line"));
 }
 
+#ifndef _WIN32
+TEST_CASE("A warning of the native fibre planner is a slicing warning of the G-code export", "[Fibreseek][FibreseekSlicing]")
+{
+    // A stand-in for the overlay mode's planner, run by /bin/sh so no Python is needed: it marks the
+    // G-code ($2, after --in-gcode) as planned and reports a warning, as the real one does when the
+    // priming line has no room.
+    ScopedTemporaryFile script(".sh");
+    std::ofstream(script.string()) << "echo '; STAND_IN_PLANNED' >> \"$2\"\n"
+                                      "echo 'warning: no room for the fiber priming line' >&2\n";
+    ScopedEnvVar planner("ORCASLICER_CODEX_NATIVE_FIBER_PLANNER", "1");
+    ScopedEnvVar planner_script("ORCASLICER_CODEX_NATIVE_FIBER_PLANNER_SCRIPT", script.string());
+    ScopedEnvVar python("ORCASLICER_CODEX_PYTHON", "/bin/sh");
+    DynamicPrintConfig config = composite_only_config();
+    config.set_deserialize_strict("fiber_manufacturing_mode", "plastic_plus_fiber_overlay");
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    CHECK(count(Test::gcode(print), "; STAND_IN_PLANNED") == 1);
+
+    // The export step ends after the planner, so the warning is stored with it, where the GUI and
+    // the CLI read slicing warnings.
+    CHECK(print.is_step_done(psGCodeExport));
+    const auto warnings = print.step_state_with_warnings(psGCodeExport).warnings;
+    CHECK(std::any_of(warnings.begin(), warnings.end(), [](const PrintStateBase::Warning &warning) {
+        return warning.message == "no room for the fiber priming line" &&
+               warning.message_id == PrintStateBase::SlicingContinuousFiberWarning &&
+               warning.level == PrintStateBase::WarningLevel::NON_CRITICAL;
+    }));
+
+    // Exporting again, after the step is done, plans the new file once, outside the step, and the
+    // planned G-code already at a path is kept as it is.
+    ScopedTemporaryFile second(".gcode");
+    const auto read = [](const std::string &path) {
+        std::ifstream file(path, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    };
+    print.export_gcode(second.string(), nullptr);
+    CHECK(count(read(second.string()), "; STAND_IN_PLANNED") == 1);
+    print.export_gcode(second.string(), nullptr);
+    CHECK(count(read(second.string()), "; STAND_IN_PLANNED") == 1);
+    CHECK(print.is_step_done(psGCodeExport));
+}
+#endif
+
 TEST_CASE("Each fibre route runs at the start speed for exactly Fiber slow length", "[Fibreseek][FibreseekSlicing]")
 {
     // 3 mm is shorter than the planner's 7 mm anchor, so the slow zone ends inside the Start phase.
@@ -521,4 +570,31 @@ TEST_CASE("A fibre setting change redoes the infill only while composite-only fi
     config.set_deserialize_strict("fiber_restart_length", "60");
     print.apply(model, config);
     CHECK(print.objects().front()->is_step_done(posInfill) == !fibre_on);
+}
+
+TEST_CASE("Seeker 3 plastic part cooling names the plastic nozzle's fan", "[Fibreseek][FibreseekSlicing]")
+{
+    // The Seeker 3's M106 without P runs the plastic (P1) and composite (P2) nozzle fans together, so the
+    // plastic's part cooling, off on the first layer and 40% after it, must name P1.
+    DynamicPrintConfig config = composite_only_config();
+    config.set_deserialize_strict({
+        { "fiber_plastic_extruder_has_fan", "1" },
+        { "fiber_composite_extruder_has_fan", "1" },
+        { "fiber_plastic_extruder_fan_index", "1" },
+        { "fiber_composite_extruder_fan_index", "2" },
+        { "close_fan_the_first_x_layers", "1,1" },
+        { "reduce_fan_stop_start_freq", "1,1" },
+        { "fan_min_speed", "40,40" },
+        { "fan_max_speed", "40,40" },
+    });
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    const std::string gcode = Test::gcode(print);
+
+    const std::string cooling_pwm = std::to_string(int(255.5 * 40 / 100.));
+    CHECK(count(gcode, "\nM106 P1 S" + cooling_pwm) > 0);
+    CHECK(count(gcode, "\nM106 P1 S0") > 0);
+    CHECK(count(gcode, "\nM106 S") == 0);
+    CHECK(count(gcode, "\nM107") == 0);
 }
