@@ -4678,7 +4678,10 @@ void GCodeProcessor::process_tags(const std::string_view comment, bool producers
         return;
     }
 
-    if (m_orcaslicer_codex_inside_fiber_route && starts_with_trimmed_comment(comment, "CUT DISTANCE")) {
+    // Both fibre writers write "; Start to cut" before the profile's cut G-code. Older files only
+    // have the ";CUT DISTANCE" line the writers used to add.
+    if (m_orcaslicer_codex_inside_fiber_route &&
+        (starts_with_trimmed_comment(comment, "Start to cut") || starts_with_trimmed_comment(comment, "CUT DISTANCE"))) {
         m_orcaslicer_codex_fiber_tail_after_cut = true;
         return;
     }

@@ -264,6 +264,9 @@ public:
     // throws std::runtime_exception on error,
     // throws CanceledException through print->throw_if_canceled().
     void            do_export(Print* print, const char* path, GCodeProcessorResult* result = nullptr, ThumbnailsGeneratorCallback thumbnail_cb = nullptr);
+    // Whether do_export() started psGCodeExport. It does not when an earlier export finished the step: a
+    // repeat export to another path writes the G-code outside the step, where no step warning can be added.
+    bool            export_step_started() const { return m_export_step_started; }
     void            export_layer_filaments(GCodeProcessorResult* result);
     //BBS: set offset for gcode writer
     void set_gcode_offset(double x, double y) { m_writer.set_xy_offset(x, y); m_processor.set_xy_offset(x, y);}
@@ -667,6 +670,7 @@ protected:
     std::string     extrude_support(const ExtrusionEntityCollection& support_fills, const ExtrusionRole support_extrusion_role);
 
     bool            m_tinman_native_fiber_planner_started { false };
+    bool            m_export_step_started { false };
 
     // Farthest-point timelapse: find the extrusion point farthest from camera (0,0)
     void compute_farthest_point(const std::vector<LayerToPrint> &layers, int most_used_extruder,

@@ -345,8 +345,9 @@ std::vector<std::string> missing_continuous_fiber_settings(const Preset &composi
         missing.emplace_back("Fiber diameter");
     if (!positive_at(composite.config, "fiber_linear_density", 0))
         missing.emplace_back("Fiber linear density");
-    if (!positive_at(composite.config, "fiber_feed_factor", 0))
-        missing.emplace_back("Fiber feed factor");
+    // Either model of the composite plastic: the multiplier, or the legacy feed factor.
+    if (!positive_at(composite.config, "fiber_composite_plastic_multiplier", 0) && !positive_at(composite.config, "fiber_feed_factor", 0))
+        missing.emplace_back("Composite plastic multiplier");
     return missing;
 }
 

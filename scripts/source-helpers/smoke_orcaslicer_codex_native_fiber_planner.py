@@ -11,6 +11,7 @@ import tempfile
 from types import SimpleNamespace
 
 from shapely.geometry import LineString, Polygon
+from shapely.ops import unary_union
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -301,6 +302,144 @@ def synthetic_local_hole_cluster_gcode() -> str:
     )
 
 
+def rectangle_wall_gcode(x0: float, y0: float, x1: float, y1: float, e_start: float, role: str) -> tuple[str, float]:
+    lines = [f"G0 X{x0:.3f} Y{y0:.3f} F9000", f";TYPE:{role}"]
+    e_value = e_start
+    for x, y in ((x1, y0), (x1, y1), (x0, y1), (x0, y0)):
+        e_value += 1.0
+        lines.append(f"G1 X{x:.3f} Y{y:.3f} E{e_value:.4f} F1800")
+    return "\n".join(lines), e_value
+
+
+def synthetic_pillars_and_pegs_gcode() -> str:
+    """Two 30 x 60 mm pillars with three 6 mm pegs standing in the 20 mm gap between them, each
+    island with its outer wall and an inner wall, as Tinman prints them. A peg is not a hole: an orbit
+    around one runs through the air and across both pillars."""
+    e_value = 0.0
+    lines: list[str] = []
+    for z in (0.2, 0.4, 0.6, 0.8):
+        lines.extend([";LAYER_CHANGE", f";Z:{z:.1f}", ";HEIGHT:0.2", "G90", "M82"])
+        for x0 in (0.0, 50.0):
+            block, e_value = rectangle_wall_gcode(x0, 0.0, x0 + 30.0, 60.0, e_value, "Outer wall")
+            lines.append(block)
+            block, e_value = rectangle_wall_gcode(x0 + 0.45, 0.45, x0 + 29.55, 59.55, e_value, "Inner wall")
+            lines.append(block)
+        for cy in (12.0, 30.0, 48.0):
+            block, e_value = circular_wall_gcode(40.0, cy, 2.8, e_value, segments=32, role="Outer wall")
+            lines.append(block)
+            block, e_value = circular_wall_gcode(40.0, cy, 2.35, e_value, segments=32, role="Inner wall")
+            lines.append(block)
+    lines.extend(
+        [
+            "; fiber_generate_perimeters = 1",
+            "; fiber_generate_infill = 0",
+            "; fiber_reinforcement_mode = heavy",
+            "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
+            "; fiber_slow_length = 10",
+            "; fiber_min_radius = 12",
+            "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
+            "; fiber_line_width = 0.8",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def synthetic_narrow_islands_gcode() -> str:
+    """Two 1 mm wide islands: the perimeter inset leaves nothing of either."""
+    e_value = 0.0
+    lines = [";LAYER_CHANGE", ";Z:0.2", ";HEIGHT:0.2", "G90", "M82"]
+    for x0 in (0.0, 10.0):
+        block, e_value = rectangle_wall_gcode(x0, 0.0, x0 + 1.0, 60.0, e_value, "Outer wall")
+        lines.append(block)
+    lines.extend(
+        [
+            "; fiber_generate_perimeters = 1",
+            "; fiber_generate_infill = 0",
+            "; fiber_reinforcement_mode = heavy",
+            "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
+            "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def synthetic_by_object_gcode() -> str:
+    """Two 60 mm squares printed by object, three 0.2 mm layers each: Z drops back to 0.2 for the second."""
+    e_value = 0.0
+    lines: list[str] = []
+    for x0 in (0.0, 100.0):
+        for z in (0.2, 0.4, 0.6):
+            lines.extend([";LAYER_CHANGE", f";Z:{z:.1f}", ";HEIGHT:0.2", "G90", "M82"])
+            block, e_value = rectangle_wall_gcode(x0, 0.0, x0 + 60.0, 60.0, e_value, "Outer wall")
+            lines.append(block)
+            block, e_value = rectangle_wall_gcode(x0 + 0.45, 0.45, x0 + 59.55, 59.55, e_value, "Inner wall")
+            lines.append(block)
+    lines.extend(
+        [
+            "; fiber_generate_perimeters = 1",
+            "; fiber_generate_infill = 0",
+            "; fiber_reinforcement_mode = heavy",
+            "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
+            "; fiber_slow_length = 10",
+            "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
+            "; fiber_composite_plastic_multiplier = 0.8",
+            "; layer_height = 0.2",
+            "; print_sequence = by object",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def synthetic_serrated_hole_gcode() -> str:
+    """A 100 mm plate with one serrated 12 mm hole: its outer wall zigzags between radius 5.4 and 6,
+    so it is longer (about 43 mm) than the smooth inner wall around it (radius 6.45, 40.5 mm)."""
+    import math
+
+    e_value = 0.0
+    plate, e_value = rectangle_wall_gcode(0.0, 0.0, 100.0, 100.0, e_value, "Outer wall")
+    teeth = [
+        (50.0 + (5.4 if index % 2 else 6.0) * math.cos(2.0 * math.pi * index / 40),
+         50.0 + (5.4 if index % 2 else 6.0) * math.sin(2.0 * math.pi * index / 40))
+        for index in range(41)
+    ]
+    serrated = [f"G0 X{teeth[0][0]:.3f} Y{teeth[0][1]:.3f} F9000", ";TYPE:Outer wall"]
+    for x, y in teeth[1:]:
+        e_value += 0.1
+        serrated.append(f"G1 X{x:.3f} Y{y:.3f} E{e_value:.4f} F1800")
+    inner, e_value = circular_wall_gcode(50.0, 50.0, 6.45, e_value, segments=48, role="Inner wall")
+    return "\n".join(
+        [
+            ";LAYER_CHANGE",
+            ";Z:0.2",
+            ";HEIGHT:0.2",
+            "G90",
+            "M82",
+            plate,
+            *serrated,
+            inner,
+            "; fiber_generate_perimeters = 1",
+            "; fiber_generate_infill = 0",
+            "; fiber_reinforcement_mode = heavy",
+            "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
+            "; fiber_slow_length = 10",
+            "; fiber_min_radius = 12",
+            "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
+            "",
+        ]
+    )
+
+
 def synthetic_internal_void_stitch_gear_gcode() -> str:
     centers = [
         (50.0, 50.0),
@@ -323,7 +462,7 @@ def synthetic_internal_void_stitch_gear_gcode() -> str:
                 "G90",
                 "M82",
                 "G0 X0 Y0 F9000",
-                ";TYPE:Inner wall",
+                ";TYPE:Outer wall",
                 f"G1 X100 Y0 E{e_value:.4f} F1800",
             ]
         )
@@ -503,6 +642,22 @@ def synthetic_fiberseek_contract_gcode() -> str:
             "; fiber_diameter = 0.25",
             "; fiber_feed_factor = 0.8",
             "; fiber_linear_density = 102",
+            # FibreSeek's Seeker 3 values: its cut G-code and extended contact radius, the materials'
+            # standby temperatures, and the composite's retraction as Orca settings, with filament
+            # overrides on top of the printer's values.
+            "; fiber_composite_plastic_multiplier = 0.8",
+            "; fiber_cut_gcode = M2800\\nM400\\n;CUT DISTANCE 54.8",
+            "; fiber_nozzle_contact_radius_extended = 1.8",
+            "; fiber_nozzle_temperature_standby = 120,150",
+            "; filament_map = 1,2",
+            "; retraction_length = 1,1",
+            "; retract_restart_extra = -1,-1",
+            "; retract_length_toolchange = 10,10",
+            "; filament_retract_length_toolchange = nil,5",
+            "; retract_restart_extra_toolchange = 0,-1",
+            "; retraction_speed = 30,30",
+            "; filament_retraction_speed = 20,10",
+            "; printable_area = 0x0,305x0,305x305,0x305",
             "M106 S0",
             ";TYPE:Custom",
             "; filament end gcode",
@@ -827,7 +982,7 @@ def main() -> int:
         try:
             planner.planner_config(planner.parse_gcode(three_materials("0,0,0.6")), default_planner_args())
         except SystemExit as error:
-            if "Fiber feed factor" not in str(error):
+            if "Composite plastic multiplier" not in str(error):
                 raise
         else:
             raise SystemExit("Another material's feed factor was used for an unset composite")
@@ -838,7 +993,7 @@ def main() -> int:
         try:
             planner.planner_config(planner.parse_gcode(no_factor), default_planner_args())
         except SystemExit as error:
-            if "Fiber feed factor" not in str(error):
+            if "Composite plastic multiplier" not in str(error):
                 raise
         else:
             raise SystemExit("A missing fiber feed factor was not reported")
@@ -1305,6 +1460,60 @@ def main() -> int:
         else:
             raise SystemExit("FibreSeek planner accepted a generic MyMarlin process for a CFC FibreSeek job.")
 
+        # Pegs between two pillars are islands, not holes: no route orbits them, and every route's
+        # bead stays on the part.
+        pegs_fixture = Path(tmpdir) / "pillars_and_pegs_fixture.gcode"
+        pegs_fixture.write_text(synthetic_pillars_and_pegs_gcode(), encoding="utf-8")
+        pegs_parsed = planner.parse_gcode(pegs_fixture)
+        pegs_cfg = planner.planner_config(
+            pegs_parsed,
+            default_planner_args(fiber_reinforcement_mode="heavy", fiber_generate_perimeters="1", fiber_generate_infill="0", layer_step=1),
+        )
+        pegs_routes, pegs_skipped = planner.plan_routes(pegs_parsed, pegs_cfg)
+        if not pegs_routes:
+            raise SystemExit(f"Pillar fixture generated no routes: {pegs_skipped}")
+        if any(route.kind.startswith("hole") for route in pegs_routes):
+            raise SystemExit(f"Pegs were reinforced as holes: {[route.kind for route in pegs_routes]}")
+        for route in pegs_routes:
+            part = unary_union(planner.layer_part_regions(pegs_parsed.layers[route.layer_index]))
+            off_part = LineString(route.points).buffer(pegs_cfg.fiber_width / 2.0).difference(part.buffer(planner.PART_EDGE_BEYOND_OUTER_WALL))
+            if off_part.area > 0.01:
+                raise SystemExit(f"A {route.kind} route's bead leaves the part by {off_part.area:.2f} mm2")
+
+        # Islands too narrow for the perimeter inset have no holes to reinforce, and no error.
+        narrow_fixture = Path(tmpdir) / "narrow_islands_fixture.gcode"
+        narrow_fixture.write_text(synthetic_narrow_islands_gcode(), encoding="utf-8")
+        narrow_parsed = planner.parse_gcode(narrow_fixture)
+        narrow_cfg = planner.planner_config(
+            narrow_parsed,
+            default_planner_args(fiber_reinforcement_mode="heavy", fiber_generate_perimeters="1", fiber_generate_infill="0", layer_step=1),
+        )
+        if len(planner.closed_outer_polygons(narrow_parsed.layers[0])) != 2:
+            raise SystemExit("The narrow-island fixture lost an island.")
+        narrow_routes, _ = planner.plan_routes(narrow_parsed, narrow_cfg)
+        if any(route.kind.startswith("hole") for route in narrow_routes):
+            raise SystemExit("Narrow islands were given hole routes.")
+
+        # A serrated hole whose outer wall is longer than the inner wall around it is still a hole:
+        # the inner wall encloses it.
+        serrated_fixture = Path(tmpdir) / "serrated_hole_fixture.gcode"
+        serrated_fixture.write_text(synthetic_serrated_hole_gcode(), encoding="utf-8")
+        serrated_parsed = planner.parse_gcode(serrated_fixture)
+        serrated_cfg = planner.planner_config(
+            serrated_parsed,
+            default_planner_args(fiber_reinforcement_mode="heavy", fiber_generate_perimeters="1", fiber_generate_infill="0", layer_step=1),
+        )
+        serrated_routes, serrated_skipped = planner.plan_routes(serrated_parsed, serrated_cfg)
+        serrated_hole_routes = [
+            route
+            for route in serrated_routes
+            if "expanded_hole_orbit" in route.warnings
+            and abs(route_center(route)[0] - 50.0) < 1.0
+            and abs(route_center(route)[1] - 50.0) < 1.0
+        ]
+        if not serrated_hole_routes:
+            raise SystemExit(f"The serrated hole was not reinforced: {[route.kind for route in serrated_routes]} {serrated_skipped}")
+
         fan_schedule_fixture = Path(tmpdir) / "fiberseek_fan_schedule_fixture.gcode"
         fan_schedule_fixture.write_text(synthetic_fan_schedule_gcode(), encoding="utf-8")
         fan_schedule_parsed = planner.parse_gcode(fan_schedule_fixture)
@@ -1403,8 +1612,8 @@ def main() -> int:
         raise SystemExit("Minimum pocket fixture no longer proves the old 90 mm floor was removed.")
     if short_pocket_skipped.get("short_perimeter_stitched_routes") != 0:
         raise SystemExit(f"Minimum pocket routes should not require stitching at the 55 mm floor: {short_pocket_skipped}")
-    # One cut distance: the profile's fiber_cut_distance (58), which the ;CUT DISTANCE marker
-    # now prints too. Before, the planner read 54.8 back from a marker that said cut - 3.2.
+    # One cut distance: the profile's fiber_cut_distance (58). Before, the planner read 54.8 back
+    # from the cut G-code's ;CUT DISTANCE line.
     if abs(short_pocket_cfg.cut_distance - 58.0) > 1e-6:
         raise SystemExit(f"Cut distance should be the profile's fiber_cut_distance: {short_pocket_cfg.cut_distance}")
     if abs(planner.standalone_cuttable_min_route_length(short_pocket_cfg) - 68.0) > 1e-6:
@@ -1695,7 +1904,7 @@ def main() -> int:
             "; ORCA_CODEX_FIBER_PRIME_START",
             "M1001 L90",
             "M2800",
-            ";CUT DISTANCE 58",
+            ";CUT DISTANCE 54.8",
             "M1002",
             "; ORCA_CODEX_FIBER_PRIME_END",
             "; ORCA_CODEX_FIBER_LAYER",
@@ -1719,6 +1928,98 @@ def main() -> int:
             "M106 P5 S255",
         ],
     )
+    # Rocket's machine protocol. The cut G-code is written as the profile gives it, with no marker of
+    # Tinman's own, and fires when cut distance - extended contact radius (58 - 1.8) of path is left.
+    cut_count = contract_merged.count("\nM2800\n")
+    if contract_merged.count("; Start to cut\nM2800\nM400\n;CUT DISTANCE 54.8\n") != cut_count or cut_count < 2:
+        raise SystemExit("FibreSeek contract did not write the profile's cut G-code verbatim at every cut.")
+    if ";CUT DISTANCE 58" in contract_merged:
+        raise SystemExit("FibreSeek contract still writes a CUT DISTANCE marker of its own.")
+    if "G1 X0.85 Y0.85 V2.07322 F180" not in contract_merged or "G1 X141.3 V1.32733 U33.8 " not in contract_merged:
+        raise SystemExit("FibreSeek contract did not cut 56.2 mm before the end of the route and the priming line.")
+    # With a Composite plastic multiplier, P from the bead geometry on routes,
+    # 0.8 x (0.8 x 0.2 - pi 0.25^2 / 4) / (pi 1.75^2 / 4); the priming line keeps the legacy model,
+    # pi 0.25^2 / 4 x 0.8. Without one, the legacy Fiber feed factor model applies unchanged.
+    route_p = {line.split(" P", 1)[1].split()[0] for line in contract_lines if line.startswith("G1 X") and " Y" in line and " P" in line}
+    if route_p != {"0.03689"} or "U33.8 P0.03927 " not in contract_merged:
+        raise SystemExit(f"FibreSeek contract P is not from the bead geometry: routes {route_p}")
+    # P takes the fibre layer's own height, not that of a bridge printed at 0.39 mm on it.
+    with tempfile.TemporaryDirectory() as bridged_dir:
+        bridged = Path(bridged_dir) / "bridged_layer_fixture.gcode"
+        bridged.write_text(
+            synthetic_fiberseek_contract_gcode().replace(
+                "G1 X0 Y0 E4\n; fiber_generate_perimeters",
+                "G1 X0 Y0 E4\n;TYPE:Bridge\n;HEIGHT:0.39\nG1 X50 Y50 E5\n; fiber_generate_perimeters",
+            ),
+            encoding="utf-8",
+        )
+        bridged_parsed = planner.parse_gcode(bridged)
+    bridged_cfg = planner.planner_config(
+        bridged_parsed,
+        default_planner_args(fiber_reinforcement_mode="heavy", fiber_generate_perimeters="1", fiber_generate_infill="0"),
+    )
+    if bridged_parsed.layers[1].height != 0.39 or planner.route_p_value(bridged_cfg, 1) != 0.03689:
+        raise SystemExit(f"P used a feature's height: {planner.route_p_value(bridged_cfg, 1)}")
+    # Two objects printed by object: the second starts from the bed again, so its layers are 0.2 mm too.
+    with tempfile.TemporaryDirectory() as sequential_dir:
+        sequential = Path(sequential_dir) / "by_object_fixture.gcode"
+        sequential.write_text(synthetic_by_object_gcode(), encoding="utf-8")
+        sequential_parsed = planner.parse_gcode(sequential)
+    sequential_cfg = planner.planner_config(
+        sequential_parsed,
+        default_planner_args(fiber_reinforcement_mode="heavy", fiber_generate_perimeters="1", fiber_generate_infill="0", layer_step=1),
+    )
+    if [round(sequential_cfg.layer_heights[layer.index], 3) for layer in sequential_parsed.layers] != [0.2] * 6:
+        raise SystemExit(f"By-object layer heights are wrong: {sequential_cfg.layer_heights}")
+    sequential_routes, _ = planner.plan_routes(sequential_parsed, sequential_cfg)
+    sequential_merged = planner.emit_append_after_layer(sequential_parsed, sequential_routes, sequential_cfg)
+    sequential_p = {line.split(" P", 1)[1].split()[0] for line in sequential_merged.splitlines() if line.startswith("G1 X") and " Y" in line and " P" in line}
+    if not sequential_routes or sequential_p != {"0.03689"} or sequential_cfg.layer_height_warned:
+        raise SystemExit(f"By-object P is wrong: {sequential_p}")
+    legacy_cfg = planner.replace(contract_cfg, fiber_plastic_multiplier=0.0)
+    if planner.route_p_value(legacy_cfg, 0) != 0.03927:
+        raise SystemExit(f"The legacy feed factor model changed: P {planner.route_p_value(legacy_cfg, 0)}")
+    # The tool-change lift stays within the printable height.
+    lift_cfg = planner.replace(contract_cfg, printable_height=245.0)
+    if "G0 Z245 F600" not in planner.emit_change_to_fiber(lift_cfg, 243.0) or "G0 Z245 F600" not in planner.emit_change_to_plastic(lift_cfg, 243.0):
+        raise SystemExit("The tool-change lift left the printable height.")
+    # The priming line is placed with the final settings, on the bed polygon and clear of the print.
+    moved = planner.replace(contract_cfg, fiber_prime_line_y_requested=50.0, fiber_prime_line_center_x=100.0)
+    if "too close to the print" not in (planner.place_fiber_prime_line(contract_parsed, contract_parsed.config_comments, moved) or "") or moved.fiber_prime_line_y != 102.0:
+        raise SystemExit(f"A priming line Y inside the print was used: {moved.fiber_prime_line_y}")
+    kept = planner.replace(contract_cfg, fiber_prime_line_y_requested=150.0)
+    if planner.place_fiber_prime_line(contract_parsed, contract_parsed.config_comments, kept) or kept.fiber_prime_line_y != 150.0:
+        raise SystemExit("A valid priming line Y was not used.")
+    off_bed = planner.replace(contract_cfg, fiber_prime_line_center_x=290.0)
+    if "no room" not in (planner.place_fiber_prime_line(contract_parsed, contract_parsed.config_comments, off_bed) or "") or off_bed.fiber_prime_enabled:
+        raise SystemExit("A priming line off the bed was kept.")
+    # A triangular bed: Y 102 is inside its bounding box but not inside the bed.
+    triangle = dict(contract_parsed.config_comments, printable_area="0x0,305x0,0x250")
+    triangle_cfg = planner.replace(contract_cfg)
+    if "no room" not in (planner.place_fiber_prime_line(contract_parsed, triangle, triangle_cfg) or ""):
+        raise SystemExit(f"The priming line was placed off a non-rectangular bed at Y {triangle_cfg.fiber_prime_line_y}.")
+    if "G0 Z3 F600" not in planner.emit_fiber_prime_line(planner.replace(contract_cfg, printable_height=3.0, fiber_prime_travel_z=10.0), 0.2):
+        raise SystemExit("The priming line's approach left the printable height.")
+    # M1001 L covers the restart plus the fibre fed before the cut: 60 + 33.8 on the priming line.
+    if "M1001 L94" not in planner.emit_fiber_prime_line(planner.replace(contract_cfg, restart_length=60.0), 0.2):
+        raise SystemExit("The priming line's M1001 L is smaller than the fibre it feeds.")
+    for required, label in (
+        # Standby from each material: 120 for the plastic while fibre prints, 150 for the composite.
+        ("\nG0 Z5.2 F600\nM104 S120 T1\n", "a 5 mm lift and the plastic's standby before the brush station"),
+        ("\nM104 S150 T0\n", "the composite's standby"),
+        # The composite's filament overrides: 5 mm and extra -1 on tool change at 10 mm/s, 1 mm and -1 on travel.
+        ("T0 R ; switch extruder type to:FIBER", "the feeder reset at the first fibre tool change"),
+        ("\nG1 F600 V4 ; Extrude restart\nG4 P0\n", "the tool-change unretract 5 - 1"),
+        ("\nG1 F600 V0 ; Extrude restart\nG4 P0\n", "the travel unretract 1 - 1"),
+        ("; Cutting completed.\nG1 F600 V-1 ; Retract\n", "the travel retraction after the cut"),
+        ("\nG1 F600 V-4 ; Retract\nG0 Z5.2 F600\n", "the top-up to the tool-change retraction and the lift"),
+        # The priming line behind the first layer (no room in front of Y 0), reached at the lifted Z.
+        ("\nG0 X106.5 Y102 F30000\nG0 Z1.2 F600\n", "the priming line's place"),
+        ("; ORCA_CODEX_FIBER_PRIME_END\nG0 Z5.2 F600\n", "the lift after the priming line"),
+    ):
+        if required not in contract_merged:
+            raise SystemExit(f"FibreSeek contract is missing {label}: {required!r}")
+
     executable_end_index = contract_merged.find("; EXECUTABLE_BLOCK_END")
     if executable_end_index < 0:
         raise SystemExit("FibreSeek contract fixture lost EXECUTABLE_BLOCK_END.")

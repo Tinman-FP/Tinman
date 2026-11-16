@@ -40,7 +40,7 @@ don't break it:
 | infill inset | `fiber_infill_inset` (0) | Extra clearance between walls (or holes) and infill ribs. |
 | walls / infill | `fiber_generate_perimeters`, `fiber_generate_infill` | Turn each candidate family on or off. |
 | outer / hole loops | `fiber_outer_perimeter_loops` (1), `fiber_inner_perimeter_loops` (1) | Number of concentric fibre loops along the outside and around each hole. |
-| cut distance `L_cut` | `fiber_cut_distance` (required; 0 stops the slice) | Length of strand between the cutter and the nozzle tip. The writers cut and print `;CUT DISTANCE` with this same value. |
+| cut distance `L_cut` | `fiber_cut_distance` (required; 0 stops the slice) | Length of strand between the cutter and the nozzle tip. The writers cut when `L_cut` less `fiber_nozzle_contact_radius_extended` is left of the route, and size `M1001 L` with `L_cut`. |
 | hardware minimum | `fiber_mechanical_min_route_length` (55 mm) | Hard floor: no route is ever shorter. |
 | wall minimum | `fiber_perimeter_min_route_length` (55 mm) | Extra floor for wall routes. |
 | user minimum | `fiber_min_route_length` (0 = planner default) | Extra floor for all routes. |
@@ -419,8 +419,8 @@ The coupon harness (`tests/libslic3r/test_fibreseek_route_coupons.cpp`) slices e
 STL from `scripts/generate_fiberseek_test_coupons.py` at 0.2 mm and plans every fibre
 layer. It converts the plans with the writer adapter and emits G-code with the writer's
 exact fibre command sequence: header summary, machine contract, initial plastic tool,
-the per-layer tool change, `M1001` / restart / segments / `M2800` + `CUT DISTANCE` at
-`length − 58` / V-only tail / `M1002`, the return to plastic, and shutdown. Plastic moves
+the per-layer tool change, `M1001` / restart / segments / the cut G-code at
+`length − (58 − 1.8)` / V-only tail / `M1002`, the return to plastic, and shutdown. Plastic moves
 are left out. It also writes the audit's summary JSON and an SVG of the first two fibre
 layers. Results are in the PR.
 

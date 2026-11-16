@@ -96,7 +96,7 @@
       },
       "command_counts": {
         "CLEAN_NOZZLE": 4,
-        "G0": 15,
+        "G0": 16,
         "G1": 33,
         "G21": 2,
         "G4": 3,
@@ -173,6 +173,14 @@
           ],
           "hole_reinforcement_loop": [
             [
+              20.0,
+              50.0
+            ],
+            [
+              35.0,
+              24.019
+            ],
+            [
               35.0,
               24.019
             ],
@@ -181,7 +189,23 @@
               75.981
             ],
             [
+              35.0,
+              75.981
+            ],
+            [
               50.0,
+              50.0
+            ],
+            [
+              50.0,
+              50.0
+            ],
+            [
+              65.0,
+              75.981
+            ],
+            [
+              80.0,
               50.0
             ],
             [
@@ -207,6 +231,18 @@
               50.0
             ],
             [
+              20.0,
+              50.0
+            ],
+            [
+              35.0,
+              75.981
+            ],
+            [
+              50.0,
+              50.0
+            ],
+            [
               50.0,
               50.0
             ],
@@ -216,7 +252,19 @@
             ],
             [
               65.0,
+              24.019
+            ],
+            [
+              65.0,
               75.981
+            ],
+            [
+              65.0,
+              75.981
+            ],
+            [
+              80.0,
+              50.0
             ]
           ]
         },
@@ -233,6 +281,14 @@
           ],
           "hole_reinforcement_loop": [
             [
+              20.0,
+              50.0
+            ],
+            [
+              35.0,
+              24.019
+            ],
+            [
               35.0,
               24.019
             ],
@@ -241,7 +297,23 @@
               75.981
             ],
             [
+              35.0,
+              75.981
+            ],
+            [
               50.0,
+              50.0
+            ],
+            [
+              50.0,
+              50.0
+            ],
+            [
+              65.0,
+              75.981
+            ],
+            [
+              80.0,
               50.0
             ],
             [
@@ -267,6 +339,18 @@
               50.0
             ],
             [
+              20.0,
+              50.0
+            ],
+            [
+              35.0,
+              75.981
+            ],
+            [
+              50.0,
+              50.0
+            ],
+            [
               50.0,
               50.0
             ],
@@ -276,7 +360,19 @@
             ],
             [
               65.0,
+              24.019
+            ],
+            [
+              65.0,
               75.981
+            ],
+            [
+              65.0,
+              75.981
+            ],
+            [
+              80.0,
+              50.0
             ]
           ]
         },
@@ -293,6 +389,14 @@
           ],
           "hole_reinforcement_loop": [
             [
+              20.0,
+              50.0
+            ],
+            [
+              35.0,
+              24.019
+            ],
+            [
               35.0,
               24.019
             ],
@@ -301,7 +405,23 @@
               75.981
             ],
             [
+              35.0,
+              75.981
+            ],
+            [
               50.0,
+              50.0
+            ],
+            [
+              50.0,
+              50.0
+            ],
+            [
+              65.0,
+              75.981
+            ],
+            [
+              80.0,
               50.0
             ],
             [
@@ -327,6 +447,18 @@
               50.0
             ],
             [
+              20.0,
+              50.0
+            ],
+            [
+              35.0,
+              75.981
+            ],
+            [
+              50.0,
+              50.0
+            ],
+            [
               50.0,
               50.0
             ],
@@ -336,70 +468,85 @@
             ],
             [
               65.0,
+              24.019
+            ],
+            [
+              65.0,
               75.981
+            ],
+            [
+              65.0,
+              75.981
+            ],
+            [
+              80.0,
+              50.0
             ]
           ]
         }
       },
       "length_mm_by_kind": {
         "hole_cluster_reinforcement_loop": 1135.75,
-        "hole_reinforcement_loop": 1842.765
+        "hole_reinforcement_loop": 6582.568
       },
       "route_count_by_layer": {
-        "0": 6,
-        "1": 6,
-        "2": 6,
-        "3": 6,
-        "4": 6,
-        "5": 6
+        "0": 12,
+        "1": 12,
+        "2": 12,
+        "3": 12,
+        "4": 12,
+        "5": 12
       },
       "route_kinds_by_layer": {
         "0": {
           "hole_cluster_reinforcement_loop": 2,
-          "hole_reinforcement_loop": 4
+          "hole_reinforcement_loop": 10
         },
         "1": {
           "hole_cluster_reinforcement_loop": 2,
-          "hole_reinforcement_loop": 4
+          "hole_reinforcement_loop": 10
         },
         "2": {
           "hole_cluster_reinforcement_loop": 2,
-          "hole_reinforcement_loop": 4
+          "hole_reinforcement_loop": 10
         },
         "3": {
           "hole_cluster_reinforcement_loop": 2,
-          "hole_reinforcement_loop": 4
+          "hole_reinforcement_loop": 10
         },
         "4": {
           "hole_cluster_reinforcement_loop": 2,
-          "hole_reinforcement_loop": 4
+          "hole_reinforcement_loop": 10
         },
         "5": {
           "hole_cluster_reinforcement_loop": 2,
-          "hole_reinforcement_loop": 4
+          "hole_reinforcement_loop": 10
         }
       },
       "route_summary": {
         "by_kind": {
           "hole_cluster_reinforcement_loop": 12,
-          "hole_reinforcement_loop": 24
+          "hole_reinforcement_loop": 60
         },
-        "count": 36,
+        "count": 72,
         "layers_with_routes": 6,
-        "max_routes_on_layer": 6,
-        "total_length_mm": 2978.514,
+        "max_routes_on_layer": 12,
+        "total_length_mm": 7718.318,
         "warning_counts": {
-          "below_min_bend_radius": 12,
+          "below_min_bend_radius": 48,
+          "cut_window_extended_closed_route_2x_lap": 36,
           "expanded_hole_orbit": 24,
-          "hole_reinforcement": 36,
-          "hole_reinforcement_region_core": 6,
-          "hole_reinforcement_region_phase_0": 4,
-          "hole_reinforcement_region_phase_1": 4,
-          "hole_reinforcement_region_phase_2": 4,
-          "hole_reinforcement_region_phase_3": 4,
-          "hole_reinforcement_region_phase_4": 4,
-          "hole_reinforcement_region_phase_5": 4,
-          "hole_reinforcement_region_sector_total": 18,
+          "hole_reinforcement": 72,
+          "hole_reinforcement_2x_lap": 6,
+          "hole_reinforcement_3x_lap": 30,
+          "hole_reinforcement_region_core": 12,
+          "hole_reinforcement_region_phase_0": 10,
+          "hole_reinforcement_region_phase_1": 10,
+          "hole_reinforcement_region_phase_2": 10,
+          "hole_reinforcement_region_phase_3": 10,
+          "hole_reinforcement_region_phase_4": 10,
+          "hole_reinforcement_region_phase_5": 10,
+          "hole_reinforcement_region_sector_total": 48,
           "internal_void_phase_0": 2,
           "internal_void_phase_1": 2,
           "internal_void_phase_2": 2,
@@ -408,16 +555,17 @@
           "internal_void_phase_5": 2,
           "internal_void_sector_total": 12,
           "internal_void_stitch": 12,
-          "mechanical_min_route_55mm": 36
+          "mechanical_min_route_55mm": 72,
+          "standalone_cut_window_min_68mm": 36
         }
       },
       "skipped_nonzero": {
         "hole_cluster_reinforcement_routes": 12,
-        "hole_reinforcement_routes": 36,
-        "hole_reinforcement_skipped_by_radius": 48,
+        "hole_reinforcement_routes": 72,
+        "hole_reinforcement_skipped_by_radius": 42,
         "internal_void_stitch_routes": 12
       },
-      "total_mass_g": 0.3038
+      "total_mass_g": 0.7873
     },
     "isolated_tiny_hole_orbit": {
       "centers_by_layer": {

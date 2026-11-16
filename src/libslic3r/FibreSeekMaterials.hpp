@@ -100,7 +100,7 @@ void apply_continuous_fiber_strand_data(DynamicPrintConfig &config);
 int continuous_fiber_part_cooling_fan_index(const PrintConfig &config, size_t filament_id);
 
 // The composite settings a fibre slice needs that this profile leaves unset, by
-// their labels: Fiber diameter, Fiber linear density, Fiber feed factor.
+// their labels: Fiber diameter, Fiber linear density, Composite plastic multiplier.
 std::vector<std::string> missing_continuous_fiber_settings(const Preset &composite);
 
 // The bundle fields a fibre choice can change (slots, project, palette, role-map

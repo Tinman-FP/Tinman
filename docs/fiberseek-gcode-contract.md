@@ -22,9 +22,11 @@ part of the public release tree.
   seam placement (`source`, `nearest`, `aligned`, `rear`, `random`) without
   changing plastic seam behavior.
 - Cut/restart routing uses a 55 mm mechanical minimum route length and the
-  printer profile's cut distance (58 mm on the Seeker 3 profiles). The
-  emitted `;CUT DISTANCE` marker carries that same value; it used to print
-  the cut distance minus 3.2 mm (54.8), a value with no recorded source.
+  printer profile's cut distance (58 mm on the Seeker 3 profiles). As in
+  Rocket, the cut fires when the cut distance less the extended nozzle
+  contact radius is left of the route, and the profile's cut G-code is
+  written verbatim after `; Start to cut`. FibreSeek's cut code ends in
+  `;CUT DISTANCE 54.8`, a literal of that code, not the cut position.
 - Bend radius is treated as a user-selected quality target. Routes below that
   target are advisory warnings, not automatic hard failures.
 - TinManX1 must emit managed FibreSeek tool commands instead of bare `T0` or
@@ -40,8 +42,8 @@ The release audit requires these sequence-level behaviors:
 - Initial managed selection of plastic tool 1.
 - Managed switch to fiber tool 0 only inside the native fiber planner block.
 - Exactly one fiber prime block when fiber routes are emitted.
-- Every fiber route has `M1001`, `M2800`, `CUT DISTANCE`, and `M1002` in that
-  order.
+- Every fiber route has `M1001`, `M2800`, and `M1002` in that order. A
+  `;CUT DISTANCE` line from the cut G-code, when it has one, is at every cut.
 - Post-cut tail motion uses the V axis only and does not advance the U fiber
   axis.
 - Shutdown happens before `EXECUTABLE_BLOCK_END`.
