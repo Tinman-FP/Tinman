@@ -140,6 +140,8 @@ class PlannerConfig:
     fiber_p_value: float = 0.0
     fiber_v_per_mm: float = 0.0
     layer_heights: dict[int, float] = field(default_factory=dict)  # parsed layer index -> layer height
+    layer_height: float = 0.2  # the process's layer height, for a layer whose own height is unknown
+    layer_height_warned: bool = False
     fiber_width: float = 0.80
     min_radius: float = 12.0
     max_arc_segment_length: float = 3.0
@@ -1361,13 +1363,17 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
                                   or slot_float(comments, "filament_diameter", slot)
                                   or cfg.fiber_plastic_diameter)
     # Each layer's own height, its Z above the layer below; not a ;HEIGHT comment, which features such
-    # as bridges set to their own heights.
+    # as bridges set to their own heights. When Z drops, a print by object has moved on to the next
+    # object, which starts from the bed again.
+    cfg.layer_height = parse_first_positive_float(comments.get("layer_height"), cfg.layer_height)
     cfg.layer_heights = {}
     below_z = 0.0
     for layer in parsed.layers:
+        if layer.z + EPSILON < below_z:
+            below_z = 0.0
         if layer.z - below_z > EPSILON:
             cfg.layer_heights[layer.index] = layer.z - below_z
-        below_z = max(below_z, layer.z)
+        below_z = layer.z
     # The legacy model, which the priming line keeps with either setting: Rocket's P there (0.07)
     # follows another rule that is not known yet.
     cfg.fiber_p_value = round(
@@ -3531,7 +3537,16 @@ def route_p_value(cfg: PlannerConfig, layer_index: int) -> float:
     plastic filament's cross-section. Without one, the legacy Fiber feed factor model, unchanged."""
     if cfg.fiber_plastic_multiplier <= EPSILON:
         return cfg.fiber_p_value
-    height = cfg.layer_heights.get(layer_index, cfg.macro_layer_height)
+    height = cfg.layer_heights.get(layer_index)
+    if height is None:
+        height = cfg.layer_height
+        if not cfg.layer_height_warned:
+            cfg.layer_height_warned = True
+            print(
+                f"warning: a fiber layer has no height above the layer below, so its composite plastic uses the layer "
+                f"height {fmt_float(height)} mm.",
+                file=sys.stderr,
+            )
     matrix_area = cfg.fiber_width * height - math.pi * (cfg.fiber_diameter / 2.0) ** 2
     if matrix_area <= EPSILON:
         raise SystemExit(
