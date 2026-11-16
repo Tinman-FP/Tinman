@@ -2125,11 +2125,15 @@ PresetCollection::UserPresetLoad PresetCollection::resolve_user_preset(
 
         std::string version_str = key_values[BBL_JSON_KEY_VERSION];
         boost::optional<Semver> version = Semver::parse(version_str);
-        if (!version) {
+        // Tinman: a preset that states no version, as one written by hand or by another
+        // tool may not, takes its parent's below, or this build's. One that states a
+        // version that cannot be read is still refused.
+        if (!version && !version_str.empty()) {
             out.errors.push_back((boost::format("invalid version %1% in config %2%") % version_str % preset.file).str());
             return out;
         }
-        preset.version = *version;
+        if (version)
+            preset.version = *version;
 
         if (key_values.find(BBL_JSON_KEY_FILAMENT_ID) != key_values.end())
             preset.filament_id = key_values[BBL_JSON_KEY_FILAMENT_ID];
@@ -2157,6 +2161,8 @@ PresetCollection::UserPresetLoad PresetCollection::resolve_user_preset(
             return out;
         }
         const Preset& default_preset = this->default_preset_for(config);
+        if (!version)
+            preset.version = inherit_preset ? inherit_preset->version : Semver::parse(SoftFever_VERSION).value_or(Semver());
         if (inherit_preset) {
             preset.config = inherit_preset->config;
             preset.filament_id = inherit_preset->filament_id;
@@ -2169,6 +2175,7 @@ PresetCollection::UserPresetLoad PresetCollection::resolve_user_preset(
             auto inherits_config2 = dynamic_cast<ConfigOptionString *>(inherits_config);
             if ((inherits_config2 && !inherits_config2->value.empty())) {
                 out.errors.push_back((boost::format("can not find parent %1% for config %2%!") % inherits_config2->value % preset.file).str());
+                out.missing_parent = inherits_config2->value;
                 return out;
             }
             // We support custom root preset now
@@ -2318,48 +2325,81 @@ void PresetCollection::load_presets(
         }
     }
 
-    resolve_then_commit<CNumericLocalesSetter>(files.size(),
-        [&](size_t i) {
-            return this->resolve_user_preset(files[i].path, files[i].canonical_name, resolved_origin, substitution_rule,
-                                             extruder_id_name, extruder_variant_name, key_set1, key_set2, read_only);
-        },
-        [&](size_t i, UserPresetLoad &&loaded) {
-            // Resolve read the files without the lock, so another instance may have saved
-            // over them since. A file that changed is resolved again under the lock before
-            // commit removes or rewrites it, which also keeps its .json and .info from two
-            // different saves apart. Without the lock nothing is checked, so commit leaves
-            // the files alone.
-            const std::string lock_path = user_presets_lock_path(read_only);
-            InstanceLock      instance_lock(lock_path);
-            if (instance_lock.locked()) {
-                const PresetFilesOnDisk   on_disk = PresetFilesOnDisk::read(files[i].path);
-                boost::system::error_code ec;
-                // The link itself, and a stat error counts as present, so a file that is
-                // there but cannot be read is still counted and removed by commit.
-                if (! on_disk.json && fs::symlink_status(files[i].path, ec).type() == fs::file_not_found)
-                    return; // removed by another instance since it was read
-                if (! (on_disk == loaded.on_disk)) {
-                    CNumericLocalesSetter locales_setter;
-                    loaded = this->resolve_user_preset(files[i].path, files[i].canonical_name, resolved_origin, substitution_rule,
-                                                       extruder_id_name, extruder_variant_name, key_set1, key_set2, read_only);
-                }
+    auto resolve = [&](size_t i) {
+        return this->resolve_user_preset(files[i].path, files[i].canonical_name, resolved_origin, substitution_rule,
+                                         extruder_id_name, extruder_variant_name, key_set1, key_set2, read_only);
+    };
+    // Tinman: a preset whose parent is another preset of this directory waits for it, as
+    // one inheriting a preset in base/ would have been loaded after it.
+    std::set<std::string> names_here;
+    for (const UserPresetFile &file : files)
+        names_here.insert(file.canonical_name);
+    std::vector<size_t> waiting;
+    auto commit = [&](size_t i, UserPresetLoad &&loaded, bool may_wait) {
+        // Resolve read the files without the lock, so another instance may have saved
+        // over them since. A file that changed is resolved again under the lock before
+        // commit removes or rewrites it, which also keeps its .json and .info from two
+        // different saves apart. Without the lock nothing is checked, so commit leaves
+        // the files alone.
+        const std::string lock_path = user_presets_lock_path(read_only);
+        InstanceLock      instance_lock(lock_path);
+        if (instance_lock.locked()) {
+            const PresetFilesOnDisk   on_disk = PresetFilesOnDisk::read(files[i].path);
+            boost::system::error_code ec;
+            // The link itself, and a stat error counts as present, so a file that is
+            // there but cannot be read is still counted and removed by commit.
+            if (! on_disk.json && fs::symlink_status(files[i].path, ec).type() == fs::file_not_found)
+                return; // removed by another instance since it was read
+            if (! (on_disk == loaded.on_disk)) {
+                CNumericLocalesSetter locales_setter;
+                loaded = resolve(i);
             }
-            const bool leave_files = read_only || (! lock_path.empty() && ! instance_lock.locked());
-            // Committing can remove an unreadable preset's file, and a filesystem error
-            // there is reported without stopping the rest of the directory.
-            try {
-                this->commit_user_preset(std::move(loaded), presets_loaded, substitutions, preset_loaded_fn, leave_files);
-            } catch (const std::runtime_error &err) {
-                errors_cummulative += err.what();
-                errors_cummulative += "\n";
-            }
-        });
+        }
+        if (may_wait && names_here.count(loaded.missing_parent) != 0 && loaded.missing_parent != files[i].canonical_name) {
+            waiting.push_back(i);
+            return;
+        }
+        const bool leave_files = read_only || (! lock_path.empty() && ! instance_lock.locked());
+        // Committing can remove an unreadable preset's file, and a filesystem error
+        // there is reported without stopping the rest of the directory.
+        try {
+            this->commit_user_preset(std::move(loaded), presets_loaded, substitutions, preset_loaded_fn, leave_files);
+        } catch (const std::runtime_error &err) {
+            errors_cummulative += err.what();
+            errors_cummulative += "\n";
+        }
+    };
+    resolve_then_commit<CNumericLocalesSetter>(files.size(), resolve,
+        [&](size_t i, UserPresetLoad &&loaded) { commit(i, std::move(loaded), true); });
 
-    if (presets_loaded.size() > 0)
-        m_presets.insert(m_presets.end(), std::make_move_iterator(presets_loaded.begin()), std::make_move_iterator(presets_loaded.end()));
-    sort_presets();
+    size_t loaded_count = 0;
+    auto add_loaded = [&]() {
+        loaded_count += presets_loaded.size();
+        if (presets_loaded.size() > 0)
+            m_presets.insert(m_presets.end(), std::make_move_iterator(presets_loaded.begin()), std::make_move_iterator(presets_loaded.end()));
+        presets_loaded.clear();
+        sort_presets();
+    };
+    add_loaded();
+    // A round for each generation of user parents. The presets still waiting when a
+    // round loads nothing are committed as they are, with the error that says why.
+    while (! waiting.empty()) {
+        const std::vector<size_t> round = std::move(waiting);
+        waiting.clear();
+        CNumericLocalesSetter locales_setter;
+        for (size_t i : round)
+            commit(i, resolve(i), true);
+        const bool progressed = ! presets_loaded.empty();
+        add_loaded();
+        if (! progressed) {
+            for (size_t i : waiting)
+                commit(i, resolve(i), false);
+            waiting.clear();
+            add_loaded();
+        }
+    }
     //BBS: add config related logs
-    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": loaded %1% presets from %2%, type %3%")%presets_loaded.size() %dir %Preset::get_type_string(m_type);
+    BOOST_LOG_TRIVIAL(info) << __FUNCTION__ << boost::format(": loaded %1% presets from %2%, type %3%")%loaded_count %dir %Preset::get_type_string(m_type);
     //this->select_preset(first_visible_idx());
     if (! errors_cummulative.empty())
         throw Slic3r::RuntimeError(errors_cummulative);

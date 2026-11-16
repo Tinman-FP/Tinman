@@ -829,7 +829,9 @@ Semver resource_vendor_version(const std::string& vendor);
 // Install vendors from the resources directory into the data directory, each as
 // its preset cache or as its profile and preset JSONs — whichever of the two the
 // build ships at the newer version. Anything the previous install of that vendor
-// left behind goes, so only the form just installed is there to be loaded.
+// left behind goes, so only the form just installed is there to be loaded — except
+// (Tinman) the presets it listed that the user still needs and the new form lacks,
+// which move to the vendor's local presets first (LocalVendorPresets.hpp).
 // bundle_names: vendor names, without extension.
 // Every bundle that can be installed is, whatever the others do. Returns false
 // if any named bundle could not be installed.

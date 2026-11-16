@@ -69,6 +69,7 @@
 // (get_version_from_json) and the preset cache stamp (VendorCacheFile).
 #include "Preset.hpp"
 #include "PresetCacheFormat.hpp"
+#include "LocalVendorPresets.hpp"
 #include "libslic3r_version.h"
 
 #ifdef __APPLE__
@@ -2138,6 +2139,7 @@ bool install_vendor_bundles_from_resources(
     // leave the rest uninstalled. The caller is told, and every bundle that can
     // be laid down is.
     bool all_installed = true;
+    LocalVendorPresetKeeper keeper;
 
     for (const auto &bundle : bundle_names) {
         try {
@@ -2164,9 +2166,18 @@ bool install_vendor_bundles_from_resources(
             if (!fs::exists(vendor_path))
                 fs::create_directories(vendor_path);
 
+            // Tinman: what the installed vendor lists that this bundle no longer ships and
+            // the user still needs moves to the vendor's local presets first. Where it
+            // cannot, the vendor stays as it is installed.
+            const bool ships_cache = installable_cache_version(rsrc_path, bundle).valid();
+            if (! keeper.keep(bundle, ships_cache ? cache_in_rsrc : path_in_rsrc)) {
+                all_installed = false;
+                continue;
+            }
+
             std::string error_message;
             bool installed_cache = false;
-            if (installable_cache_version(rsrc_path, bundle).valid()) {
+            if (ships_cache) {
                 installed_cache = copy_file(cache_in_rsrc.string(), cache_in_vendors.string(), error_message, false) == CopyFileResult::SUCCESS;
                 if (! installed_cache) {
                     BOOST_LOG_TRIVIAL(warning) << "Failed to copy " << bundle << ".opc: " << error_message;

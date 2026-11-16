@@ -840,10 +840,28 @@ private:
     // installing the entries before a sub-file that could not be parsed.
     std::pair<PresetsConfigSubstitutions, size_t> install_vendor_read(VendorRead&& read, const PresetBundle* base_bundle);
 
-    // Install a cache's entries. False, with this bundle left clean, when one of them
-    // cannot be installed.
+    // Tinman: a vendor's local presets (LocalVendorPresets.hpp), parsed from `dir`, the
+    // directory holding <vendor>/ with their files, each list ordered so every entry
+    // comes after the local ones it inherits or includes.
+    struct LocalVendorEntries
+    {
+        std::string               dir;
+        std::vector<CachedPreset> process_entries;
+        std::vector<CachedPreset> filament_entries;
+        std::vector<CachedPreset> machine_entries;
+        bool empty() const { return process_entries.empty() && filament_entries.empty() && machine_entries.empty(); }
+    };
+
+    // The local presets of the vendor read from `dir`, for a whole-vendor load of the
+    // vendor as installed in data_dir()/system; none for any other load. A local preset
+    // that cannot be parsed is reported and left out.
+    LocalVendorEntries read_local_vendor_entries(const std::string& dir, const std::string& vendor_name,
+                                                 LoadConfigBundleAttributes flags);
+
+    // Install a cache's entries, then `local`'s. False, with this bundle left clean, when
+    // one of the cache's entries cannot be installed.
     bool install_vendor_cache(const std::string& cache_path, const std::string& vendor_name, VendorCacheData&& data,
-                              const PresetBundle* base_bundle);
+                              const PresetBundle* base_bundle, const LocalVendorEntries* local = nullptr);
 
     // Log and count errors reported by a resolve or a parse.
     void log_errors(const std::vector<std::string>& errors);
@@ -873,6 +891,8 @@ private:
         std::map<std::string, std::string>        filament_id_maps;
         std::unordered_set<std::string>           installed_names;
         size_t                     count { 0 };
+        // Tinman: installing the vendor's local presets, whose files are under `path`.
+        bool                       local { false };
     };
 
     // Install a vendor's source-form entries, parsed from its JSON or read from its
@@ -882,14 +902,23 @@ private:
     // are the vendor's whole lists; only then are the filament library's configs
     // and filament ids left in m_config_maps and m_filament_id_maps. Returns the
     // number of presets installed, and throws ConfigurationError at the first
-    // entry that cannot be installed.
+    // entry that cannot be installed. Tinman: each collection's `local` entries go in
+    // after the vendor's own, which they may inherit or include; one that cannot be
+    // installed is reported and left out.
     size_t install_vendor(const std::string& path, const std::string& vendor_name, const PresetBundle* base_bundle,
                           LoadConfigBundleAttributes flags, const VendorCacheData& entries,
-                          VendorParse* parsed, bool complete, PresetsConfigSubstitutions& substitutions);
+                          VendorParse* parsed, bool complete, PresetsConfigSubstitutions& substitutions,
+                          const LocalVendorEntries* local = nullptr);
 
     // Install one collection's entries in the order they are listed.
     void install_vendor_entries(VendorInstall& install, const std::vector<CachedPreset>& entries,
                                 std::vector<EntryParse>* parsed);
+
+    // Tinman: install one collection's local entries, from the files under `dir`, one at
+    // a time, after the vendor's own. One that a preset of the vendor already names, or
+    // that cannot be installed, is reported and left out.
+    void install_local_vendor_entries(VendorInstall& install, const std::vector<CachedPreset>& entries,
+                                      const std::string& dir);
 
     // One entry flattened against the preset it inherits, before anything this
     // bundle shares has been touched.
