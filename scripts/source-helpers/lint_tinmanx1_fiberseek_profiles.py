@@ -51,22 +51,28 @@ FIBERS = {
 }
 PROCESS_MODES = {"Light": "light", "Medium": "medium", "Heavy": "heavy"}
 PROCESS_LAYER_STEPS = {"Light": 3, "Medium": 2, "Heavy": 1}
+# FibreSeek's Reinforced PETG route physics, the same in every mode.
+PROCESS_FIBER_PHYSICS = {
+    "fiber_min_radius": 12,
+    "fiber_max_arc_segment_length": 7,
+    "fiber_start_length": 6,
+    "fiber_slow_length": 5,
+    "fiber_start_max_speed": 4,
+    "fiber_start_min_speed": 3,
+    "fiber_start_min_limit_speed": 2,
+    "fiber_normal_max_speed": 30,
+    "fiber_normal_min_speed": 5,
+    "fiber_normal_min_limit_speed": 2,
+    "fiber_finish_max_speed": 10,
+    "fiber_finish_min_speed": 3,
+    "fiber_finish_min_limit_speed": 2,
+    "fiber_tension_length": 2,
+    "fiber_tension_feedrate": 50,
+    "fiber_after_cut_plastic_extrusion_multiplier": 0.70,
+}
 PROCESS_FIBER_EXPECTED = {
     "Light": {
-        "fiber_min_radius": 12,
-        "fiber_max_arc_segment_length": 3,
-        "fiber_start_length": 15,
-        "fiber_slow_length": 5,
-        "fiber_start_max_speed": 5,
-        "fiber_start_min_speed": 3,
-        "fiber_start_min_limit_speed": 3,
-        "fiber_normal_max_speed": 30,
-        "fiber_normal_min_speed": 5,
-        "fiber_normal_min_limit_speed": 3,
-        "fiber_finish_max_speed": 15,
-        "fiber_finish_min_speed": 5,
-        "fiber_finish_min_limit_speed": 3,
-        "fiber_after_cut_plastic_extrusion_multiplier": 0.58,
+        **PROCESS_FIBER_PHYSICS,
         "fiber_line_width": 0.68,
         "fiber_outer_perimeter_loops": 1,
         "fiber_inner_perimeter_loops": 1,
@@ -74,20 +80,7 @@ PROCESS_FIBER_EXPECTED = {
         "fiber_plastic_inner_loops_with_fiber": 0,
     },
     "Medium": {
-        "fiber_min_radius": 12,
-        "fiber_max_arc_segment_length": 3,
-        "fiber_start_length": 15,
-        "fiber_slow_length": 10,
-        "fiber_start_max_speed": 5,
-        "fiber_start_min_speed": 3,
-        "fiber_start_min_limit_speed": 3,
-        "fiber_normal_max_speed": 30,
-        "fiber_normal_min_speed": 5,
-        "fiber_normal_min_limit_speed": 3,
-        "fiber_finish_max_speed": 15,
-        "fiber_finish_min_speed": 5,
-        "fiber_finish_min_limit_speed": 8,
-        "fiber_after_cut_plastic_extrusion_multiplier": 0.72,
+        **PROCESS_FIBER_PHYSICS,
         "fiber_line_width": 0.80,
         "fiber_outer_perimeter_loops": 2,
         "fiber_inner_perimeter_loops": 2,
@@ -95,20 +88,7 @@ PROCESS_FIBER_EXPECTED = {
         "fiber_plastic_inner_loops_with_fiber": 0,
     },
     "Heavy": {
-        "fiber_min_radius": 10,
-        "fiber_max_arc_segment_length": 4,
-        "fiber_start_length": 5,
-        "fiber_slow_length": 5,
-        "fiber_start_max_speed": 2,
-        "fiber_start_min_speed": 2,
-        "fiber_start_min_limit_speed": 2,
-        "fiber_normal_max_speed": 40,
-        "fiber_normal_min_speed": 5,
-        "fiber_normal_min_limit_speed": 3,
-        "fiber_finish_max_speed": 15,
-        "fiber_finish_min_speed": 3,
-        "fiber_finish_min_limit_speed": 3,
-        "fiber_after_cut_plastic_extrusion_multiplier": 0.72,
+        **PROCESS_FIBER_PHYSICS,
         "fiber_line_width": 0.70,
         "fiber_outer_perimeter_loops": 2,
         "fiber_inner_perimeter_loops": 2,
@@ -255,10 +235,9 @@ def check_index() -> dict[str, Any]:
             fail(f"profile index missing composite machine {composite_machine}")
     for nozzle in PLASTIC_NOZZLES:
         for mode in PROCESS_MODES:
-            for prefix in ("0.20mm Plastic + Continuous Fiber", "0.20mm Rocket Compare Composite Only"):
-                process = f"{prefix} {mode} @FibreSeek Seeker 3 {nozzle}+{COMPOSITE_NOZZLE} nozzle"
-                if process not in process_names:
-                    fail(f"profile index missing process {process}")
+            process = f"0.20mm Plastic + Continuous Fiber {mode} @FibreSeek Seeker 3 {nozzle}+{COMPOSITE_NOZZLE} nozzle"
+            if process not in process_names:
+                fail(f"profile index missing process {process}")
 
     return index
 
@@ -316,6 +295,8 @@ def check_composite_machines() -> None:
         require_boolish(source, "fiber_shared_nozzle", source_path, "1")
         if as_list(source.get("filament_map")) != ["1", "2"]:
             fail(f"{source_path.relative_to(ROOT)} filament_map should isolate slot 2 for CFC")
+        require_float(source, "fiber_nozzle_contact_radius", source_path, 0.4)
+        require_float(source, "fiber_nozzle_contact_radius_extended", source_path, 0.8)
 
         path = PROFILE_ROOT / "machine" / "TinMan Codex" / (
             f"FibreSeek Seeker 3 {nozzle} nozzle - TinMan Codex.json"
@@ -392,21 +373,24 @@ def check_processes() -> int:
     count = 0
     for nozzle in PLASTIC_NOZZLES:
         for mode_label, mode_value in PROCESS_MODES.items():
-            for prefix, compare_mode in (
-                ("0.20mm Plastic + Continuous Fiber", False),
-                ("0.20mm Rocket Compare Composite Only", True),
+            # The Rocket Compare lanes are written only with --rocket-compare.
+            for prefix, compare_mode, manufacturing_mode in (
+                ("0.20mm Plastic + Continuous Fiber", False, "plastic_plus_fiber_overlay"),
+                ("0.20mm Rocket Compare Composite Only", True, "composite_only"),
             ):
                 path = PROFILE_ROOT / "process" / (
                     f"{prefix} {mode_label} @FibreSeek Seeker 3 "
                     f"{nozzle}+{COMPOSITE_NOZZLE} nozzle.json"
                 )
+                if compare_mode and not path.is_file():
+                    continue
                 data = load_json(path)
                 count += 1
                 if data.get("fiber_reinforcement_mode") != mode_value:
                     fail(f"{path.relative_to(ROOT)} has wrong fiber_reinforcement_mode")
                 require_string(data, "fiber_manufacturing_mode", path)
-                if data["fiber_manufacturing_mode"] != "composite_only":
-                    fail(f"{path.relative_to(ROOT)} must set fiber_manufacturing_mode=composite_only")
+                if data["fiber_manufacturing_mode"] != manufacturing_mode:
+                    fail(f"{path.relative_to(ROOT)} must set fiber_manufacturing_mode={manufacturing_mode}")
                 solid_payload = require_json_object(data, "fiber_infill_solid_payload", path)
                 if solid_payload.get("angle_list_raw") != "0/90/0":
                     fail(f"{path.relative_to(ROOT)} solid payload must preserve 0/90/0 solid angles")
