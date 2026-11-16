@@ -9758,7 +9758,7 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
             prime_y = printed.max.y() + prime_gap;
         if (!prime_y) {
             gcode += "; TINMANX1_FIBER_PRIME_SKIPPED no room on the bed in front of or behind the print\n";
-            m_print->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL,
+            m_print->add_gcode_export_warning(
                 _(L("There is no room on the bed in front of or behind the print for the fiber priming line, so the first fiber route starts without one.")));
         } else {
             const double line_z = tinman_positive_or_default(tinman_float_at_or_default(m_config.fiber_priming_line_height, fiber_filament_id, 0.), 0.2);

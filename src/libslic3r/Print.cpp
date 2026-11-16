@@ -4504,7 +4504,7 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
     std::vector<std::string> native_fiber_planner_warnings;
     const bool native_fiber_planner_ran = run_orcaslicer_codex_native_fiber_planner(*this, path, native_fiber_planner_warnings);
     for (const std::string &warning : native_fiber_planner_warnings)
-        this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL, warning);
+        this->add_gcode_export_warning(warning);
     if (native_fiber_planner_ran && result != nullptr) {
         BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek native planner rewrote the G-code output after preview generation for " << path;
         reload_orcaslicer_codex_native_fiber_preview_result(*this, path, result);
@@ -4520,6 +4520,16 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
         result->nozzle_group_result = this->get_layered_nozzle_group_result();
     }
     return path.c_str();
+}
+
+void Print::add_gcode_export_warning(const std::string &message)
+{
+    if (this->is_step_started_unguarded(psGCodeExport)) {
+        this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL, message);
+    } else {
+        BOOST_LOG_TRIVIAL(warning) << message;
+        this->status_update_warnings(int(psGCodeExport), PrintStateBase::WarningLevel::NON_CRITICAL, message);
+    }
 }
 
 void Print::_make_skirt()

@@ -7220,6 +7220,15 @@ int CLI::run(int argc, char **argv)
                                     BOOST_LOG_TRIVIAL(info) << "process finished, will export gcode temporarily to " << outfile << std::endl;
                                     temp_time = (long long)Slic3r::Utils::get_current_time_utc();
                                     outfile = print_fff->export_gcode(outfile, gcode_result, nullptr);
+                                    // Warnings raised during the export (Print::add_gcode_export_warning), such as a
+                                    // skipped fibre priming line, arrive after the check above.
+                                    for (const PrintBase::SlicingStatus &status : g_slicing_warnings)
+                                        if (status.warning_step != -1 && status.warning_level == PrintStateBase::WarningLevel::NON_CRITICAL) {
+                                            BOOST_LOG_TRIVIAL(warning) << "plate " << index + 1 << ": found NON_CRITICAL slicing warnings: " << status.text << std::endl;
+                                            cli_record_warning(sliced_info, "slicing_warning_non_critical",
+                                                               nlohmann::json{{"plate_id", index + 1}, {"text", status.text}});
+                                        }
+                                    g_slicing_warnings.clear();
                                     time_using_cache = time_using_cache + ((long long)Slic3r::Utils::get_current_time_utc() - temp_time);
                                     BOOST_LOG_TRIVIAL(info) << "export_gcode finished: time_using_cache update to " << time_using_cache << " secs.";
                                     if (gcode_result && gcode_result->gcode_check_result.error_code) {
