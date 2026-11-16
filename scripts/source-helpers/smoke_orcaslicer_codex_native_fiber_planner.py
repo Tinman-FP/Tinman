@@ -1913,6 +1913,23 @@ def main() -> int:
     route_p = {line.split(" P", 1)[1].split()[0] for line in contract_lines if line.startswith("G1 X") and " Y" in line and " P" in line}
     if route_p != {"0.03689"} or "U33.8 P0.03927 " not in contract_merged:
         raise SystemExit(f"FibreSeek contract P is not from the bead geometry: routes {route_p}")
+    # P takes the fibre layer's own height, not that of a bridge printed at 0.39 mm on it.
+    with tempfile.TemporaryDirectory() as bridged_dir:
+        bridged = Path(bridged_dir) / "bridged_layer_fixture.gcode"
+        bridged.write_text(
+            synthetic_fiberseek_contract_gcode().replace(
+                "G1 X0 Y0 E4\n; fiber_generate_perimeters",
+                "G1 X0 Y0 E4\n;TYPE:Bridge\n;HEIGHT:0.39\nG1 X50 Y50 E5\n; fiber_generate_perimeters",
+            ),
+            encoding="utf-8",
+        )
+        bridged_parsed = planner.parse_gcode(bridged)
+    bridged_cfg = planner.planner_config(
+        bridged_parsed,
+        default_planner_args(fiber_reinforcement_mode="heavy", fiber_generate_perimeters="1", fiber_generate_infill="0"),
+    )
+    if bridged_parsed.layers[1].height != 0.39 or planner.route_p_value(bridged_cfg, 1) != 0.03689:
+        raise SystemExit(f"P used a feature's height: {planner.route_p_value(bridged_cfg, 1)}")
     legacy_cfg = planner.replace(contract_cfg, fiber_plastic_multiplier=0.0)
     if planner.route_p_value(legacy_cfg, 0) != 0.03927:
         raise SystemExit(f"The legacy feed factor model changed: P {planner.route_p_value(legacy_cfg, 0)}")

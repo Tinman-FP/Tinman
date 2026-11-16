@@ -1360,7 +1360,14 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
     cfg.fiber_plastic_diameter = (slot_float(comments, "fiber_plastic_diameter", slot)
                                   or slot_float(comments, "filament_diameter", slot)
                                   or cfg.fiber_plastic_diameter)
-    cfg.layer_heights = {layer.index: layer.height for layer in parsed.layers if layer.height > EPSILON}
+    # Each layer's own height, its Z above the layer below; not a ;HEIGHT comment, which features such
+    # as bridges set to their own heights.
+    cfg.layer_heights = {}
+    below_z = 0.0
+    for layer in parsed.layers:
+        if layer.z - below_z > EPSILON:
+            cfg.layer_heights[layer.index] = layer.z - below_z
+        below_z = max(below_z, layer.z)
     # The legacy model, which the priming line keeps with either setting: Rocket's P there (0.07)
     # follows another rule that is not known yet.
     cfg.fiber_p_value = round(
