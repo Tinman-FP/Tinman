@@ -14,8 +14,12 @@ passed.
 under Host Type) and the continuous-fibre panel. The panel appears under the
 filament list when a Seeker 3 profile is selected.
 
-**Printer profile.** Tinman does not ship a Seeker 3 profile yet, so use your
-own. Check that it has:
+**Printer profile.** Tinman ships a FibreSeek vendor bundle. Add the FibreSeek
+Seeker 3 under **Select/Remove printers (system presets)** and choose
+**FibreSeek Seeker 3 0.4+0.7 composite nozzle**. Use the printer list, not the
+nozzle menu, to change the plastic nozzle: for these profiles the nozzle menu
+reports "Configuration incompatible". Editing the connection marks the printer
+profile as modified; save it as your own profile. The profile has:
 
 - Printer model `FibreSeek Seeker 3`.
 - Two nozzles. Nozzle 1 is the 0.4 mm polymer nozzle (T1 on the printer) and
@@ -24,12 +28,18 @@ own. Check that it has:
 - Single Extruder Multi Material turned off, since each material has its own
   nozzle. With it on, a new project starts with only one material.
 - Plastic nozzle diameter 0.4 and composite nozzle diameter 0.7.
-- Fiber enabled turned on, with your fibre cut G-code and cut distance.
-- Material 1: an ordinary PCTG profile. Material 2: a composite profile whose
-  filament type is `CFC`, for example CFC PCTG + X-CCF.
-- In that composite profile's fibre settings, fill in three values. Tinman
-  ships no fibre material data, so a fibre slice stops and names any of these
-  that are missing:
+- Fiber enabled turned on, with FibreSeek's fibre cut G-code, cut distance
+  58 mm and restart length 55 mm.
+- FibreSeek's Reinforced start G-code: corner velocities for both tools and,
+  when material 1 is PETG, FibreSeek's PETG pressure advance for T1.
+- Material 1: FibreSeek PCTG @FibreSeek Seeker 3. Material 2: a composite
+  profile whose filament type is `CFC`, for example CFC PCTG + X-CCF. The PETG
+  and CFC PETG profiles carry FibreSeek's own temperatures, standby
+  temperatures, fan and retraction; most other materials are Tinman estimates.
+- The composite profiles carry the three fibre values below: FibreSeek's for
+  X-CCF (0.25 mm, 102 g/km, 0.8) and CGF (0.35 mm, 170 g/km, 0.68), estimates
+  for CKF and CBF. In a composite profile of your own, fill them in: a fibre
+  slice stops and names any of these that are missing:
   - **Fiber diameter** (mm), from the fibre's datasheet.
   - **Fiber linear density** (g/km), from the datasheet. This is only used for
     the fibre weight estimate.
@@ -127,10 +137,10 @@ later, after these pass.
 
 - Layer height 0.20 mm. One coupon per plate, in the middle of the bed.
 - Fiber manufacturing mode: **Plastic + fiber overlay**. It is Tinman's
-  default, but the generated Seeker 3 process profiles ("0.20mm Plastic +
-  Continuous Fiber Light/Medium/Heavy") select "Fiber-owned composite roads",
-  so check it after choosing one. Leave composite roads for later: that mode
-  now uses the new route planner, which has never been printed.
+  default, and the shipped Seeker 3 process profiles ("0.20mm Plastic +
+  Continuous Fiber Light/Medium/Heavy") select it. Leave "Fiber-owned
+  composite roads" for later: that mode uses the new route planner, which has
+  never been printed.
 - PCTG temperatures, bed and chamber as in your earlier plastic prints.
 - In the preview, check before you send: the fibre summary (number of routes
   and fibre length), the first and last layer with fibre, and that no fibre
@@ -201,8 +211,9 @@ if one causes trouble:
   line before the first layer instead, so watch the idle nozzle's clearance
   over the part while the line is laid at 0.2 mm.
 - **Cut position.** Both modes cut when Fiber cut distance less Extended
-  fiber contact radius is left of a route (58 − 1.8 = 56.2 mm in the Seeker 3
-  test profiles). Check where the fibre ends against the preview.
+  fiber contact radius is left of a route (58 − 0.8 = 57.2 mm in the shipped
+  Seeker 3 profiles, as in Rocket's Reinforced mode). Check where the fibre
+  ends against the preview.
 - **Fixed values.** Fan speeds in the default mode are fixed values with no
   documented source. Note what the printer does at each tool change.
 
@@ -218,7 +229,7 @@ The planner swap (PR #25) changes what the printer receives. Old → new:
 - **`;CUT DISTANCE` line:** 54.8 → 58.
 - **`M1001 L`:** ceil(L + 54.8) → ceil(L + 58), about 3 mm more fibre loaded per route.
 - **Shortest standalone route:** 64.8 → 68 mm (cut distance + slow length). Routes from 64.8 to 68 mm long are now left out.
-- **Restart, start and slow lengths:** taken from the profile, with no stand-ins. The Seeker 3 test profiles set 55 / 15 / 10, so these numbers don't change. A profile that leaves Fiber cut distance or Fiber restart length at 0 now stops the slice; before, 58 / 55 were used silently.
+- **Restart, start and slow lengths:** taken from the profile, with no stand-ins. The shipped Seeker 3 profiles set FibreSeek's 55 / 6 / 5. A profile that leaves Fiber cut distance or Fiber restart length at 0 now stops the slice; before, 58 / 55 were used silently.
 
 **Fibre-owned composite roads** (composite-only, the C++ writer):
 
@@ -235,10 +246,10 @@ The planner swap (PR #25) changes what the printer receives. Old → new:
 **Both modes, Rocket parity.** Later changes bring both writers to Rocket's machine protocol, measured on Rocket's own G-code:
 
 - **Cut G-code:** written exactly as the printer profile gives it at every cut, after `; Start to cut`. FibreSeek's own cut code ends in `;CUT DISTANCE 54.8`, a literal of that code, so a profile with it prints that line; Tinman adds no marker of its own and no longer warns.
-- **Cut position:** L − 58 → L − (58 − Extended fiber contact radius), L − 56.2 with the Seeker 3 profile's 1.8 mm. The cut strand ends that radius short of the route's end, under the nozzle, as Rocket's does. `M1001 L` stays ceil(L + Fiber cut distance), or the restart plus the fibre fed before the cut when that is more (the prime line: at least its 90 mm).
-- **Standby temperatures:** each idle nozzle waits at its own material's Composite standby temperature (Rocket: 120 °C for PETG, 150 °C for CFC PETG). A material that leaves it at 0 keeps 150 °C plastic and 180 °C composite. The generated Seeker 3 test profiles set 150 and 180, so enter 120 and 150 to match Rocket.
+- **Cut position:** L − 58 → L − (58 − Extended fiber contact radius), L − 57.2 with the shipped Seeker 3 profiles' 0.8 mm (FibreSeek's Reinforced PETG value; the extruder's own is 1.8). The cut strand ends that radius short of the route's end, under the nozzle, as Rocket's does. `M1001 L` stays ceil(L + Fiber cut distance), or the restart plus the fibre fed before the cut when that is more (the prime line: at least its 90 mm).
+- **Standby temperatures:** each idle nozzle waits at its own material's Composite standby temperature (Rocket: 120 °C for PETG, 150 °C for CFC PETG). A material that leaves it at 0 keeps 150 °C plastic and 180 °C composite. The shipped Seeker 3 profiles set FibreSeek's values: 120 for PETG, 150 for CFC PETG.
 - **Tool changes:** both lift Z 5 mm above the layer before the brush station (FibreSeek's Z lift on tool change), never above the printer's printable height. Composite-only mode had no lift.
-- **Prime at each route start:** the composite material's retraction plus Extra length on restart, at its retraction speed, then `G4 P0`: the tool-change values after a tool change, the travel values between routes. FibreSeek's preset gives 5 − 1 = V4 and 1 − 1 = V0 at 10 mm/s. The generated test profiles set no tool-change retraction, so Tinman's default of 10 mm applies (V10, then `V-9` below) until the composite profile sets 5 and −1. After each cut the travel retraction is taken back (`V-1`) and topped up to the tool-change retraction before the change to plastic (`V-4`, was `V-14`). The default mode's prime line used V15 at F720 and `G4 P1000`, composite-only mode Fiber start length × P.
+- **Prime at each route start:** the composite material's retraction plus Extra length on restart, at its retraction speed, then `G4 P0`: the tool-change values after a tool change, the travel values between routes. FibreSeek's preset gives 5 − 1 = V4 and 1 − 1 = V0 at 10 mm/s. Rocket's own G-code primes 1 + 0 = V1 between routes, and the shipped composite profiles set 1 and 0 on travel, 5 and −1 on tool change: V4 after a tool change, V1 between routes. After each cut the travel retraction is taken back (`V-1`) and topped up to the tool-change retraction before the change to plastic (`V-4`, was `V-14`). The default mode's prime line used V15 at F720 and `G4 P1000`, composite-only mode Fiber start length × P.
 - **Composite-only retract lines:** they now put F last (`G1 V-1 F600`). With F first, the G-code export dropped `G1 F600` from a line whose feedrate repeated the previous one, leaving ` V-1 ; Retract` or ` V-14 ; Retract`, which the printer skips. That hit most cuts and every change to plastic.
 - **P (plastic per mm of fibre):** with a Composite plastic multiplier, multiplier × (Fiber line width × layer height − π(d/2)²) / (π(D/2)²), as Rocket computes it, with D the composite's Composite plastic diameter (Filament diameter when 0). With 0.8 on 0.2 mm layers that is 0.03689 (the legacy feed factor 0.8 gives 0.03927); on Rocket's 0.24 mm layers 0.0475 (Rocket writes `P0.048`). A profile with only Fiber feed factor keeps the legacy P. The prime line keeps the legacy rule for now.
 - **Prime line:** composite-only mode now lays the same prime line as the default mode. In both, the line moves from Y 119 to 2 mm in front of everything the print lays down (it is laid at the first fibre layer, not before the first layer as in Rocket), stays on the bed, and is reached at the tool-change height before coming down.
