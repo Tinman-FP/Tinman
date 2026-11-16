@@ -9743,13 +9743,18 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
                 printed.merge(m_print->translate_to_print_space(Point(footprint.max + instance.shift)));
             }
         }
-        const BoundingBoxf bed(m_config.printable_area.values);
-        const double half_width = line_width_mm / 2.;
-        const bool fits_along_x = printed.defined && start_x - 1. >= bed.min.x() && end_x <= bed.max.x();
+        // The line, its approach and its width must lie on the bed polygon.
+        const Polygon bed = Polygon::new_scale(m_config.printable_area.values);
+        const auto on_bed = [&](double y) {
+            const double half_width = line_width_mm / 2.;
+            const Polygon line = Polygon::new_scale({ Vec2d(start_x - 1., y - half_width), Vec2d(end_x, y - half_width),
+                                                      Vec2d(end_x, y + half_width), Vec2d(start_x - 1., y + half_width) });
+            return bed.size() < 3 || diff(line, bed).empty();
+        };
         std::optional<double> prime_y;
-        if (fits_along_x && printed.min.y() - prime_gap - half_width >= bed.min.y())
+        if (printed.defined && on_bed(printed.min.y() - prime_gap))
             prime_y = printed.min.y() - prime_gap;
-        else if (fits_along_x && printed.max.y() + prime_gap + half_width <= bed.max.y())
+        else if (printed.defined && on_bed(printed.max.y() + prime_gap))
             prime_y = printed.max.y() + prime_gap;
         if (!prime_y) {
             gcode += "; TINMANX1_FIBER_PRIME_SKIPPED no room on the bed in front of or behind the print\n";
@@ -9771,7 +9776,8 @@ std::string GCode::extrude_fiberseek_composite_routes_for_layer(const LayerToPri
             gcode += "; ORCA_CODEX_FIBER_PRIME_START\n;TYPE:Custom\n";
             gcode += Slic3r::format(";WIDTH:%.3f\n;HEIGHT:%.3f\n", line_width_mm, line_z);
             gcode += Slic3r::format("G0 X%.3f Y%.3f F%.0f\n", start_x - 1., y, travel_feedrate);
-            emit_z(gcode, std::max(prime_travel_z, line_z + 0.2));
+            const double approach_z = std::max(prime_travel_z, line_z + 0.2);
+            emit_z(gcode, m_config.printable_height.value > 0. ? std::max(line_z, std::min(approach_z, m_config.printable_height.value)) : approach_z);
             // M1001 L covers the fibre the line feeds: the restart plus what is fed up to the cut.
             gcode += Slic3r::format("M1001 L%d\n", int(std::ceil(std::max(line_length, restart_length_mm + cut_at))));
             gcode += Slic3r::format("G1 U%.3f F%.0f ; Extrude restart\n", restart_length_mm, restart_feedrate);

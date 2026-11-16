@@ -93,6 +93,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <sstream>
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string/trim.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/format.hpp>
 #include <boost/log/trivial.hpp>
@@ -349,7 +351,8 @@ static int orcaslicer_codex_native_fiber_planner_timeout_seconds()
     return int(std::clamp(parsed, 1L, 24L * 60L * 60L));
 }
 
-static bool run_orcaslicer_codex_native_fiber_planner(const Print& print, const std::string& gcode_path)
+// `warnings` receives the planner's "warning: " lines from a successful run.
+static bool run_orcaslicer_codex_native_fiber_planner(const Print& print, const std::string& gcode_path, std::vector<std::string> &warnings)
 {
     const DynamicPrintConfig config = print.full_print_config();
     if (!orcaslicer_codex_native_fiber_planner_requested(config))
@@ -495,6 +498,11 @@ static bool run_orcaslicer_codex_native_fiber_planner(const Print& print, const 
             message << ":\n" << std_err;
         throw Slic3r::RuntimeError(message.str());
     }
+
+    std::istringstream lines(std_err);
+    for (std::string line; std::getline(lines, line);)
+        if (boost::algorithm::istarts_with(line, "warning: "))
+            warnings.emplace_back(boost::algorithm::trim_copy(line.substr(9)));
 
     BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek native planner wrote " << gcode_path
                             << " and " << summary_path.string();
@@ -4493,7 +4501,10 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
     const Vec2d imex_off = this->get_imex_slice_offset();
     gcode->set_gcode_offset_with_imex_shift(origin(0), origin(1), imex_off.x(), imex_off.y());
     gcode->do_export(this, path.c_str(), result, thumbnail_cb);
-    const bool native_fiber_planner_ran = run_orcaslicer_codex_native_fiber_planner(*this, path);
+    std::vector<std::string> native_fiber_planner_warnings;
+    const bool native_fiber_planner_ran = run_orcaslicer_codex_native_fiber_planner(*this, path, native_fiber_planner_warnings);
+    for (const std::string &warning : native_fiber_planner_warnings)
+        this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL, warning);
     if (native_fiber_planner_ran && result != nullptr) {
         BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek native planner rewrote the G-code output after preview generation for " << path;
         reload_orcaslicer_codex_native_fiber_preview_result(*this, path, result);

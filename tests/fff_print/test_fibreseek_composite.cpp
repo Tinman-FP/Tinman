@@ -455,6 +455,25 @@ TEST_CASE("Composite-only G-code lays one priming line, in front of the print, b
     CHECK(std::abs(std::stod(match[2].str()) - expected_y) < 0.001);
 }
 
+TEST_CASE("The priming line must fit on the bed polygon, not just its bounding box", "[Fibreseek][FibreseekSlicing]")
+{
+    // A triangular bed whose bounding box holds the line in front of and behind the part, while the
+    // bed itself holds neither: the line is skipped, with a warning.
+    DynamicPrintConfig config = seeker3_config();
+    config.set_deserialize_strict("printable_area", "-100x-100,200x-100,-100x200");
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    const std::string gcode = Test::gcode(print);
+
+    CHECK(count(gcode, "; ORCA_CODEX_FIBER_PRIME_START") == 0);
+    CHECK(count(gcode, "; TINMANX1_FIBER_PRIME_SKIPPED") == 1);
+    std::string warnings;
+    for (const auto &warning : print.step_state_with_warnings(psGCodeExport).warnings)
+        warnings += warning.message + "\n";
+    CHECK_THAT(warnings, ContainsSubstring("fiber priming line"));
+}
+
 TEST_CASE("Each fibre route runs at the start speed for exactly Fiber slow length", "[Fibreseek][FibreseekSlicing]")
 {
     // 3 mm is shorter than the planner's 7 mm anchor, so the slow zone ends inside the Start phase.
