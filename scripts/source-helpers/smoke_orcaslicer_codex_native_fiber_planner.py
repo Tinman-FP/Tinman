@@ -347,6 +347,47 @@ def synthetic_pillars_and_pegs_gcode() -> str:
     return "\n".join(lines)
 
 
+def synthetic_serrated_hole_gcode() -> str:
+    """A 100 mm plate with one serrated 12 mm hole: its outer wall zigzags between radius 5.4 and 6,
+    so it is longer (about 43 mm) than the smooth inner wall around it (radius 6.45, 40.5 mm)."""
+    import math
+
+    e_value = 0.0
+    plate, e_value = rectangle_wall_gcode(0.0, 0.0, 100.0, 100.0, e_value, "Outer wall")
+    teeth = [
+        (50.0 + (5.4 if index % 2 else 6.0) * math.cos(2.0 * math.pi * index / 40),
+         50.0 + (5.4 if index % 2 else 6.0) * math.sin(2.0 * math.pi * index / 40))
+        for index in range(41)
+    ]
+    serrated = [f"G0 X{teeth[0][0]:.3f} Y{teeth[0][1]:.3f} F9000", ";TYPE:Outer wall"]
+    for x, y in teeth[1:]:
+        e_value += 0.1
+        serrated.append(f"G1 X{x:.3f} Y{y:.3f} E{e_value:.4f} F1800")
+    inner, e_value = circular_wall_gcode(50.0, 50.0, 6.45, e_value, segments=48, role="Inner wall")
+    return "\n".join(
+        [
+            ";LAYER_CHANGE",
+            ";Z:0.2",
+            ";HEIGHT:0.2",
+            "G90",
+            "M82",
+            plate,
+            *serrated,
+            inner,
+            "; fiber_generate_perimeters = 1",
+            "; fiber_generate_infill = 0",
+            "; fiber_reinforcement_mode = heavy",
+            "; fiber_cut_distance = 58",
+            "; fiber_restart_length = 55",
+            "; fiber_slow_length = 10",
+            "; fiber_min_radius = 12",
+            "; fiber_diameter = 0.25",
+            "; fiber_feed_factor = 0.8",
+            "",
+        ]
+    )
+
+
 def synthetic_internal_void_stitch_gear_gcode() -> str:
     centers = [
         (50.0, 50.0),
@@ -552,6 +593,7 @@ def synthetic_fiberseek_contract_gcode() -> str:
             # FibreSeek's Seeker 3 values: its cut G-code and extended contact radius, the materials'
             # standby temperatures, and the composite's retraction as Orca settings, with filament
             # overrides on top of the printer's values.
+            "; fiber_composite_plastic_multiplier = 0.8",
             "; fiber_cut_gcode = M2800\\nM400\\n;CUT DISTANCE 54.8",
             "; fiber_nozzle_contact_radius_extended = 1.8",
             "; fiber_nozzle_temperature_standby = 120,150",
@@ -1386,6 +1428,26 @@ def main() -> int:
             if off_part.area > 0.01:
                 raise SystemExit(f"A {route.kind} route's bead leaves the part by {off_part.area:.2f} mm2")
 
+        # A serrated hole whose outer wall is longer than the inner wall around it is still a hole:
+        # the inner wall encloses it.
+        serrated_fixture = Path(tmpdir) / "serrated_hole_fixture.gcode"
+        serrated_fixture.write_text(synthetic_serrated_hole_gcode(), encoding="utf-8")
+        serrated_parsed = planner.parse_gcode(serrated_fixture)
+        serrated_cfg = planner.planner_config(
+            serrated_parsed,
+            default_planner_args(fiber_reinforcement_mode="heavy", fiber_generate_perimeters="1", fiber_generate_infill="0", layer_step=1),
+        )
+        serrated_routes, serrated_skipped = planner.plan_routes(serrated_parsed, serrated_cfg)
+        serrated_hole_routes = [
+            route
+            for route in serrated_routes
+            if "expanded_hole_orbit" in route.warnings
+            and abs(route_center(route)[0] - 50.0) < 1.0
+            and abs(route_center(route)[1] - 50.0) < 1.0
+        ]
+        if not serrated_hole_routes:
+            raise SystemExit(f"The serrated hole was not reinforced: {[route.kind for route in serrated_routes]} {serrated_skipped}")
+
         fan_schedule_fixture = Path(tmpdir) / "fiberseek_fan_schedule_fixture.gcode"
         fan_schedule_fixture.write_text(synthetic_fan_schedule_gcode(), encoding="utf-8")
         fan_schedule_parsed = planner.parse_gcode(fan_schedule_fixture)
@@ -1809,11 +1871,22 @@ def main() -> int:
         raise SystemExit("FibreSeek contract still writes a CUT DISTANCE marker of its own.")
     if "G1 X0.85 Y0.85 V2.07322 F180" not in contract_merged or "G1 X141.3 V1.32733 U33.8 " not in contract_merged:
         raise SystemExit("FibreSeek contract did not cut 56.2 mm before the end of the route and the priming line.")
-    # P from the bead geometry on routes, 0.8 x (0.8 x 0.2 - pi 0.25^2 / 4) / (pi 1.75^2 / 4); the
-    # priming line keeps the strand's cross-section times the multiplier, pi 0.25^2 / 4 x 0.8.
+    # With a Composite plastic multiplier, P from the bead geometry on routes,
+    # 0.8 x (0.8 x 0.2 - pi 0.25^2 / 4) / (pi 1.75^2 / 4); the priming line keeps the legacy model,
+    # pi 0.25^2 / 4 x 0.8. Without one, the legacy Fiber feed factor model applies unchanged.
     route_p = {line.split(" P", 1)[1].split()[0] for line in contract_lines if line.startswith("G1 X") and " Y" in line and " P" in line}
     if route_p != {"0.03689"} or "U33.8 P0.03927 " not in contract_merged:
         raise SystemExit(f"FibreSeek contract P is not from the bead geometry: routes {route_p}")
+    legacy_cfg = planner.replace(contract_cfg, fiber_plastic_multiplier=0.0)
+    if planner.route_p_value(legacy_cfg, 0) != 0.03927:
+        raise SystemExit(f"The legacy feed factor model changed: P {planner.route_p_value(legacy_cfg, 0)}")
+    # The tool-change lift stays within the printable height.
+    lift_cfg = planner.replace(contract_cfg, printable_height=245.0)
+    if "G0 Z245 F600" not in planner.emit_change_to_fiber(lift_cfg, 243.0) or "G0 Z245 F600" not in planner.emit_change_to_plastic(lift_cfg, 243.0):
+        raise SystemExit("The tool-change lift left the printable height.")
+    # M1001 L covers the restart plus the fibre fed before the cut: 60 + 33.8 on the priming line.
+    if "M1001 L94" not in planner.emit_fiber_prime_line(planner.replace(contract_cfg, restart_length=60.0), 0.2):
+        raise SystemExit("The priming line's M1001 L is smaller than the fibre it feeds.")
     for required, label in (
         # Standby from each material: 120 for the plastic while fibre prints, 150 for the composite.
         ("\nG0 Z5.2 F600\nM104 S120 T1\n", "a 5 mm lift and the plastic's standby before the brush station"),

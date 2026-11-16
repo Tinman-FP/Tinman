@@ -132,10 +132,11 @@ class PlannerConfig:
     # Material data comes from the G-code's config block (the composite profile); 0 = not set.
     fiber_diameter: float = 0.0
     fiber_linear_density: float = 0.0
-    fiber_feed_factor: float = 0.0  # composite plastic multiplier (FibreSeek's ExtrusionMultiplierP); no default
+    fiber_feed_factor: float = 0.0  # legacy "Fiber feed factor": P = pi (d/2)^2 x factor
+    fiber_plastic_multiplier: float = 0.0  # "Composite plastic multiplier" (FibreSeek's ExtrusionMultiplierP)
     fiber_plastic_diameter: float = 1.75  # the composite plastic filament's diameter
-    # P and V per mm on the priming line, which keeps the strand's cross-section times the multiplier;
-    # routes take P from the bead geometry (route_p_value()).
+    # P and V per mm with the legacy model, and on the priming line; with the multiplier set, routes
+    # take P from the bead geometry (route_p_value()).
     fiber_p_value: float = 0.0
     fiber_v_per_mm: float = 0.0
     layer_heights: dict[int, float] = field(default_factory=dict)  # parsed layer index -> layer height
@@ -218,6 +219,7 @@ class PlannerConfig:
     bed_temperature: float = 80.0
     chamber_temperature: float = 0.0
     toolchange_z_lift: float = 5.0  # FibreSeek's ZLiftOnToolChange: Rocket lifts this far above the layer
+    printable_height: float = 0.0  # the printer's printable height; 0 = unknown
     fiber_transition_fan_speed: int = 38
     fiber_laydown_fan_speed: int = 63
     active_tool_fan_speed: int = 255
@@ -722,19 +724,27 @@ def composite_retraction(comments: dict[str, str], slot: int, key: str, default:
 
 
 def fiber_prime_line_y_for(parsed: ParsedGCode, comments: dict[str, str], cfg: PlannerConfig) -> float | None:
-    """Rocket lays the priming line 2 mm in front of the first layer (behind it when the bed has no
-    room in front), the same place the C++ writer uses. None when it fits on neither side; the
-    configured Y when the G-code has no first layer."""
-    points = [point for path in (parsed.layers[0].extrusion_paths if parsed.layers else []) for point in path.points]
+    """Rocket lays the priming line 2 mm in front of the first layer. Tinman lays it at the first fibre
+    layer, several layers up, so it goes 2 mm in front of everything the print lays down on any layer
+    (behind it when the bed has no room in front), as the C++ writer does; the descent to the line
+    then never meets printed material. None when the line fits on the bed on neither side; the
+    configured Y when the G-code has no extrusions."""
+    points = [point for layer in parsed.layers for path in layer.extrusion_paths for point in path.points]
     if not points:
         return cfg.fiber_prime_line_y
-    bed_y = [float(corner.split("x")[1]) for corner in (comments.get("printable_area") or "").split(",") if "x" in corner]
-    bed_min, bed_max = (min(bed_y), max(bed_y)) if bed_y else (-math.inf, math.inf)
+    corners = [corner.split("x") for corner in (comments.get("printable_area") or "").split(",") if "x" in corner]
+    bed_x = [float(x) for x, _ in corners] or [-math.inf, math.inf]
+    bed_y = [float(y) for _, y in corners] or [-math.inf, math.inf]
+    line_length = max(cfg.fiber_prime_line_length, cfg.cut_distance + 1.0)
+    start_x = cfg.fiber_prime_line_center_x - line_length / 2.0
+    if start_x - 1.0 < min(bed_x) or start_x + line_length > max(bed_x):
+        return None
+    half_width = cfg.fiber_width / 2.0
     front = min(y for _, y in points) - 2.0
     back = max(y for _, y in points) + 2.0
-    if front >= bed_min:
+    if front - half_width >= min(bed_y):
         return front
-    if back <= bed_max:
+    if back + half_width <= max(bed_y):
         return back
     return None
 
@@ -1302,6 +1312,7 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
     cfg.start_length = max(parse_first_float(comments.get("fiber_start_length"), 0.0), 0.0)
     cfg.slow_length = max(parse_first_float(comments.get("fiber_slow_length"), 0.0), 0.0)
     cfg.nozzle_contact_radius_extended = max(parse_first_float(comments.get("fiber_nozzle_contact_radius_extended"), 0.0), 0.0)
+    cfg.printable_height = max(parse_first_float(comments.get("printable_height"), 0.0), 0.0)
     # Strand data comes from the composite profile (Tinman copies it into
     # continuous_fiber_*); "0" or a missing key means not set.
     # Per-material values come only from the composite's own slot, never from
@@ -1313,6 +1324,7 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
         first_set_float(comments, "continuous_fiber_linear_density")
         or slot_float(comments, "fiber_linear_density", slot))
     cfg.fiber_feed_factor = slot_float(comments, "fiber_feed_factor", slot)
+    cfg.fiber_plastic_multiplier = slot_float(comments, "fiber_composite_plastic_multiplier", slot)
     cfg.after_cut_plastic_extrusion_multiplier = parse_first_positive_float(
         comments.get("fiber_after_cut_plastic_extrusion_multiplier"), cfg.after_cut_plastic_extrusion_multiplier)
     cfg.fiber_width = parse_first_positive_float(comments.get("fiber_line_width"), cfg.fiber_width)
@@ -1320,7 +1332,7 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
         raise SystemExit(
             "The continuous fiber's diameter is not set. Enter Fiber diameter in the composite filament profile."
         )
-    if cfg.fiber_feed_factor <= 0.0:
+    if cfg.fiber_feed_factor <= 0.0 and cfg.fiber_plastic_multiplier <= 0.0:
         raise SystemExit(
             "The composite plastic multiplier is not set. Enter Composite plastic multiplier in the composite filament profile."
         )
@@ -1328,9 +1340,11 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
                                   or slot_float(comments, "filament_diameter", slot)
                                   or cfg.fiber_plastic_diameter)
     cfg.layer_heights = {layer.index: layer.height for layer in parsed.layers if layer.height > EPSILON}
-    # The priming line keeps the strand's cross-section times the multiplier: Rocket's P there (0.07)
+    # The legacy model, which the priming line keeps with either setting: Rocket's P there (0.07)
     # follows another rule that is not known yet.
-    cfg.fiber_p_value = round(math.pi * (cfg.fiber_diameter / 2.0) ** 2 * cfg.fiber_feed_factor, 5)
+    cfg.fiber_p_value = round(
+        math.pi * (cfg.fiber_diameter / 2.0) ** 2 * (cfg.fiber_feed_factor or cfg.fiber_plastic_multiplier), 5
+    )
     cfg.fiber_v_per_mm = cfg.fiber_p_value
     profile_min_radius = parse_first_positive_float(comments.get("fiber_min_radius"), cfg.min_radius)
     cfg.min_radius = max(profile_min_radius, cfg.min_radius)
@@ -1506,7 +1520,7 @@ def planner_config(parsed: ParsedGCode, args: argparse.Namespace) -> PlannerConf
     if prime_y is None:
         cfg.fiber_prime_enabled = False
         print(
-            "warning: there is no room on the bed in front of or behind the first layer for the fiber "
+            "warning: there is no room on the bed in front of or behind the print for the fiber "
             "priming line, so the first fiber route starts without one.",
             file=sys.stderr,
         )
@@ -2304,6 +2318,16 @@ def grouped_hole_loop_infos(
     return grouped
 
 
+def loop_polygon(loop_info: dict) -> Polygon | None:
+    polygon = loop_info.get("polygon")
+    if polygon is None:
+        try:
+            polygon = Polygon(loop_info["loop"]).buffer(0)
+        except Exception:
+            return None
+    return polygon if isinstance(polygon, Polygon) and not polygon.is_empty else None
+
+
 def loop_encloses_void(
     loop_info: dict,
     closed_loops: Sequence[dict],
@@ -2311,29 +2335,42 @@ def loop_encloses_void(
     cfg: PlannerConfig,
 ) -> bool:
     """A closed wall surrounds a real hole, a void inside the slice, not an island (a peg or a boss)
-    that an orbit would run around through the air. The outer wall the loop shares a centre with
-    tells them apart: a hole's inner walls lie outside it, an island's inside it. With no inner wall
-    there, the part regions decide: inside a part's outline but not part material. G-code that prints
-    no outer wall of its own around the loop gives nothing to go by; the loop counts as a hole, as
-    before."""
-    # The same wall group as grouped_hole_loop_infos(): concentric and within a few wall widths.
+    that an orbit would run around through the air. The outer wall nearest the loop that shares its
+    centre tells them apart by containment: a hole's inner walls enclose that outer wall, an
+    island's lie inside it. With no inner wall there, the part regions decide: inside a part's
+    outline but not part material. G-code that prints no outer wall of its own around the loop gives
+    nothing to go by; the loop counts as a hole, as before."""
     center_tolerance = max(0.45, cfg.fiber_width * 0.6)
-    radius_tolerance = max(cfg.fiber_width * 3.0, 3.0)
-    group = [
+    wall_tolerance = max(cfg.fiber_width * 3.0, 3.0)  # a few wall widths, as in grouped_hole_loop_infos()
+    loop_line = LineString(loop_info["loop"])
+
+    def wall_gap(other: dict) -> float:
+        return LineString(other["loop"]).hausdorff_distance(loop_line)
+
+    concentric = [
         other
         for other in closed_loops
         if distance(other["center"], loop_info["center"]) <= center_tolerance + EPSILON
-        and abs(other["equivalent_radius"] - loop_info["equivalent_radius"]) <= radius_tolerance + EPSILON
+        and loop_polygon(other) is not None
     ]
-    walls = [other for other in group if other.get("role") == "Outer wall" and other.get("polygon") is not None]
+    walls = [other for other in concentric if other.get("role") == "Outer wall" and wall_gap(other) <= wall_tolerance + EPSILON]
     if not walls:
         return True
-    wall = min(walls, key=lambda other: abs(other["equivalent_radius"] - loop_info["equivalent_radius"]))
-    inner_walls = [other for other in group if other.get("role") == "Inner wall"]
+    wall = min(walls, key=wall_gap)
+    wall_polygon = loop_polygon(wall)
+    wall_line = LineString(wall["loop"])
+    inner_walls = [
+        other
+        for other in concentric
+        if other.get("role") == "Inner wall" and LineString(other["loop"]).hausdorff_distance(wall_line) <= wall_tolerance + EPSILON
+    ]
     if inner_walls:
-        nearest = min(inner_walls, key=lambda other: abs(other["equivalent_radius"] - wall["equivalent_radius"]))
-        return nearest["equivalent_radius"] > wall["equivalent_radius"]
-    inside = wall["polygon"].representative_point()
+        nearest = loop_polygon(min(inner_walls, key=lambda other: LineString(other["loop"]).hausdorff_distance(wall_line)))
+        if nearest.buffer(0.05).covers(wall_polygon):
+            return True
+        if wall_polygon.buffer(0.05).covers(nearest):
+            return False
+    inside = wall_polygon.representative_point()
     if any(region.contains(inside) for region in part_regions):
         return False
     return any(Polygon(region.exterior).contains(inside) for region in part_regions)
@@ -3323,8 +3360,7 @@ def plan_routes(parsed: ParsedGCode, cfg: PlannerConfig) -> tuple[list[FiberRout
             )
             layer_routes.extend(perimeter_trace_routes)
             layer_routes.extend(traced_hole_reinforcement_routes(layer, polygons, route_cfg, skipped, part_center, part_regions))
-            for polygon in polygons[:1]:
-                layer_routes.extend(hole_reinforcement_routes(layer, polygon, route_cfg, skipped, part_center))
+            layer_routes.extend(hole_reinforcement_routes(layer, unary_union(list(polygons)), route_cfg, skipped, part_center))
         if route_cfg.generate_infill:
             if route_cfg.infill_source_policy == "generated-ribs":
                 for polygon in polygons[:1]:
@@ -3463,9 +3499,12 @@ def route_approach_feedrate(cfg: PlannerConfig) -> float:
 
 
 def route_p_value(cfg: PlannerConfig, layer_index: int) -> float:
-    """P, the composite plastic per mm of fibre (V per U), from the bead geometry as Rocket computes
-    it and as the C++ writer does: the multiplier times the bead's cross-section (line width x the
-    layer's height) less the fibre's, over the composite plastic filament's cross-section."""
+    """P, the composite plastic per mm of fibre (V per U), as the C++ writer computes it. With a
+    Composite plastic multiplier, from the bead geometry as Rocket does: the multiplier times the
+    bead's cross-section (line width x the layer's height) less the fibre's, over the composite
+    plastic filament's cross-section. Without one, the legacy Fiber feed factor model, unchanged."""
+    if cfg.fiber_plastic_multiplier <= EPSILON:
+        return cfg.fiber_p_value
     height = cfg.layer_heights.get(layer_index, cfg.macro_layer_height)
     matrix_area = cfg.fiber_width * height - math.pi * (cfg.fiber_diameter / 2.0) ** 2
     if matrix_area <= EPSILON:
@@ -3473,7 +3512,7 @@ def route_p_value(cfg: PlannerConfig, layer_index: int) -> float:
             "The fiber line width times the layer height is smaller than the fiber's cross-section. "
             "Raise Fiber line width or the layer height."
         )
-    return round(cfg.fiber_feed_factor * matrix_area / (math.pi * (cfg.fiber_plastic_diameter / 2.0) ** 2), 5)
+    return round(cfg.fiber_plastic_multiplier * matrix_area / (math.pi * (cfg.fiber_plastic_diameter / 2.0) ** 2), 5)
 
 
 def emit_path_moves(lines: list[str], route: FiberRoute, cfg: PlannerConfig, emit_cut: bool = True) -> None:
@@ -3544,10 +3583,9 @@ def emit_route(
     if len(route.points) < 2:
         return []
     start = route.points[0]
-    # M1001 L stays the route length plus the cut distance, as before the cut moved: the strand a
-    # route takes is the fibre fed up to the cut plus the cut distance behind the cutter, length +
-    # extended contact radius, which that still covers. The same as the C++ writer.
-    estimated_load = math.ceil(route.length + cfg.cut_distance)
+    # M1001 L: the route length plus the cut distance, as before the cut moved, and never less than
+    # the fibre the route feeds, the restart plus what is fed up to the cut. The same as the C++ writer.
+    estimated_load = max(math.ceil(route.length + cfg.cut_distance), math.ceil(cfg.restart_length + cut_position(route.length, cfg)))
     warning_text = ",".join(route.warnings) if route.warnings else "none"
     lines = [
         f"; ORCA_CODEX_FIBER_ROUTE layer={route.layer_index} z={fmt_float(route.z)} "
@@ -3644,8 +3682,14 @@ def fiber_tool_select_command(cfg: PlannerConfig, reset_feeder: bool = False) ->
     return f"{tool} R ; switch extruder type to:FIBER"
 
 
+def toolchange_z(cfg: PlannerConfig, z: float) -> float:
+    """The tool-change lift above a layer at `z`, kept within the printable height."""
+    lifted = max(z + cfg.toolchange_z_lift, cfg.toolchange_z_lift)
+    return max(min(lifted, cfg.printable_height), z) if cfg.printable_height > EPSILON else lifted
+
+
 def emit_change_to_fiber(cfg: PlannerConfig, z: float, reset_feeder: bool = False) -> list[str]:
-    safe_z = max(z + cfg.toolchange_z_lift, cfg.toolchange_z_lift)
+    safe_z = toolchange_z(cfg, z)
     return [
         "; Start change extruder",
         "M400",
@@ -3668,9 +3712,9 @@ def emit_change_to_fiber(cfg: PlannerConfig, z: float, reset_feeder: bool = Fals
 
 def emit_fiber_prime_line(cfg: PlannerConfig, z: float) -> list[str]:
     """One fibre priming line per print, before the first route, as Rocket lays it and as the C++
-    writer does: along X at fiber_prime_line_y (2 mm in front of the first layer), at Fiber priming
-    line height. It is laid at the first fibre layer `z`, so it travels there at the tool-change
-    height, comes down outside the part and lifts again afterwards."""
+    writer does: along X at fiber_prime_line_y (2 mm in front of everything printed), at Fiber
+    priming line height. It is laid at the first fibre layer `z`, so it travels there at the
+    tool-change height, comes down outside the part and lifts again afterwards."""
     line_length = max(cfg.fiber_prime_line_length, cfg.cut_distance + 1.0)
     start_x = cfg.fiber_prime_line_center_x - (line_length / 2.0)
     end_x = start_x + line_length
@@ -3688,7 +3732,7 @@ def emit_fiber_prime_line(cfg: PlannerConfig, z: float) -> list[str]:
         f";HEIGHT:{fmt_float(line_z, 3)}",
         f"G0 X{fmt_float(approach_x)} Y{fmt_float(y)} F{fmt_float(cfg.travel_feedrate, 0)}",
         f"G0 Z{fmt_float(travel_z)} F{fmt_float(cfg.z_feedrate, 0)}",
-        f"M1001 L{math.ceil(line_length)}",
+        f"M1001 L{max(math.ceil(line_length), math.ceil(cfg.restart_length + first_segment))}",
         f"G1 F{fmt_float(cfg.restart_feedrate, 0)} U{fmt_float(cfg.restart_length, 3)} ; Extrude restart",
         f"G0 X{fmt_float(start_x)} Z{fmt_float(line_z)} F{fmt_float(cfg.travel_feedrate, 0)}",
         f"G1 F{fmt_float(cfg.retract_feedrate, 0)} V{fmt_float(cfg.toolchange_prime_length, 5)} ; Extrude restart",
@@ -3715,14 +3759,14 @@ def emit_fiber_prime_line(cfg: PlannerConfig, z: float) -> list[str]:
             f"G0 X{fmt_float(max(start_x, end_x - 1.2))} F{fmt_float(cfg.priming_feedrate, 0)}",
             "M1002",
             "; ORCA_CODEX_FIBER_PRIME_END",
-            f"G0 Z{fmt_float(max(z + cfg.toolchange_z_lift, cfg.toolchange_z_lift))} F{fmt_float(cfg.z_feedrate, 0)}",
+            f"G0 Z{fmt_float(toolchange_z(cfg, z))} F{fmt_float(cfg.z_feedrate, 0)}",
         ]
     )
     return lines
 
 
 def emit_change_to_plastic(cfg: PlannerConfig, z: float) -> list[str]:
-    safe_z = max(z + cfg.toolchange_z_lift, cfg.toolchange_z_lift)
+    safe_z = toolchange_z(cfg, z)
     lines = ["; Start change extruder", "M400", f"M104 S{fmt_temp(cfg.plastic_nozzle_temperature)} T1"]
     # Top the travel retraction after the last cut up to the tool-change retraction.
     emit_retract(lines, cfg, cfg.toolchange_retract_length - cfg.travel_retract_length)
