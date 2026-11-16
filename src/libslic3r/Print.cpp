@@ -35,6 +35,7 @@
 #include "FilamentGroupUtils.hpp"
 #include "MultiNozzleUtils.hpp"
 #include <chrono>
+#include <system_error>
 #include <thread>
 #include <optional>
 #include "GCode/GCodeProcessor.hpp"
