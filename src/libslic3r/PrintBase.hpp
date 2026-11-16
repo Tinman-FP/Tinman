@@ -72,8 +72,9 @@ public:
         SlicingGcodeOverlap,
         SlicingExclusionVolumeToolpath,
         SlicingPreciseSeamWarning,
-        // Warnings of the native FibreSeek planner, which post-processes the exported G-code.
-        SlicingNativeFiberPlannerWarning
+        // Continuous-fibre warnings of the G-code export: the native FibreSeek planner's, which
+        // post-processes the exported G-code, and the composite writer's.
+        SlicingContinuousFiberWarning
     };
 
     typedef size_t TimeStamp;

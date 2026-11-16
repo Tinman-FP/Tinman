@@ -504,7 +504,7 @@ TEST_CASE("A warning of the native fibre planner is a slicing warning of the G-c
     const auto warnings = print.step_state_with_warnings(psGCodeExport).warnings;
     CHECK(std::any_of(warnings.begin(), warnings.end(), [](const PrintStateBase::Warning &warning) {
         return warning.message == "no room for the fiber priming line" &&
-               warning.message_id == PrintStateBase::SlicingNativeFiberPlannerWarning &&
+               warning.message_id == PrintStateBase::SlicingContinuousFiberWarning &&
                warning.level == PrintStateBase::WarningLevel::NON_CRITICAL;
     }));
 

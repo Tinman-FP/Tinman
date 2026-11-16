@@ -4515,10 +4515,10 @@ std::string Print::export_gcode(const std::string& path_template, GCodeProcessor
         if (!native_fiber_planner_warnings.empty()) {
             const std::string warning = boost::algorithm::join(native_fiber_planner_warnings, "\n");
             if (in_export_step)
-                this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL, warning, PrintStateBase::SlicingNativeFiberPlannerWarning);
+                this->active_step_add_warning(PrintStateBase::WarningLevel::NON_CRITICAL, warning, PrintStateBase::SlicingContinuousFiberWarning);
             else
                 this->status_update_warnings(int(psGCodeExport), PrintStateBase::WarningLevel::NON_CRITICAL, warning, nullptr,
-                                             PrintStateBase::SlicingNativeFiberPlannerWarning);
+                                             PrintStateBase::SlicingContinuousFiberWarning);
         }
         if (native_fiber_planner_ran && result != nullptr) {
             BOOST_LOG_TRIVIAL(info) << "Tinman FibreSeek native planner rewrote the G-code output after preview generation for " << path;
