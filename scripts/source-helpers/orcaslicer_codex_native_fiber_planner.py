@@ -2878,9 +2878,10 @@ def hole_reinforcement_routes(
 
     candidates: list[tuple[float, FiberRoute]] = []
     minimum_hardware_length = hardware_min_route_length(cfg)
-    boundary_polygons: list[Polygon] = []
-    for polygon in polygons:
-        boundary_polygons.extend(polygon_parts(polygon.buffer(-cfg.perimeter_inset, join_style=1)) or [polygon])
+    # Islands the inset removes have no room for a loop; only when it removes all of them do the
+    # islands themselves stand in, as for the single largest island before.
+    islands = unary_union(list(polygons))
+    boundary_polygons = polygon_parts(islands.buffer(-cfg.perimeter_inset, join_style=1)) or polygon_parts(islands)
     seen: set[tuple[float, float, float]] = set()
 
     for boundary_polygon in boundary_polygons:
