@@ -783,6 +783,14 @@ void DropDown::mouseReleased(wxMouseEvent& event)
             ReleaseMouse();
         if (hover_item < 0)
             return;
+        // A click chooses the row it was pressed on only when it is let go on that row too. A press
+        // that ends anywhere else, outside the list included, chooses nothing.
+        if (const int released_on = dropdown_row_at(event.GetPosition(), GetClientSize(), offset.y, rowSize.y, count);
+            released_on != hover_item) {
+            hover_item = released_on;
+            paintNow();
+            return;
+        }
         if (hover_item >= 0 && (subDropDown == nullptr || subDropDown->group.empty())) { // not moved
             int index = hoverIndex();
             if (index >= 0 && items[index].action_icon.IsOk()) {
@@ -804,8 +812,10 @@ void DropDown::mouseReleased(wxMouseEvent& event)
 
 void DropDown::mouseCaptureLost(wxMouseCaptureLostEvent &event)
 {
-    wxMouseEvent evt;
-    mouseReleased(evt);
+    // The press was not let go on the list, so it chooses nothing: choosing the row under it picked
+    // an item nobody clicked.
+    pressedDown = false;
+    dragStart   = wxPoint();
 }
 
 void DropDown::mouseMove(wxMouseEvent &event)
@@ -839,8 +849,7 @@ void DropDown::mouseMove(wxMouseEvent &event)
         }
     }
     if (!pressedDown || hover_item >= 0) {
-        int hover = (pt.y - offset.y) / rowSize.y;
-        if (hover >= (int) count) hover = -1;
+        int hover = dropdown_row_at(pt, GetClientSize(), offset.y, rowSize.y, count);
         if (hover == hover_item) return;
         hover_item = hover;
         int index  = hoverIndex();
@@ -886,8 +895,7 @@ void DropDown::mouseWheelMoved(wxMouseEvent &event)
     } else {
         return;
     }
-    int hover = (event.GetPosition().y - offset.y) / rowSize.y;
-    if (hover >= (int) count) hover = -1;
+    int hover = dropdown_row_at(event.GetPosition(), GetClientSize(), offset.y, rowSize.y, count);
     if (hover != hover_item) {
         hover_item = hover;
         if (auto index = hoverIndex(); index >= 0)
@@ -978,4 +986,12 @@ void DropDown::OnDismiss()
     hover_item  = -1;
     wxCommandEvent e(EVT_DISMISS);
     GetEventHandler()->ProcessEvent(e);
+}
+
+int dropdown_row_at(const wxPoint &pt, const wxSize &client, int scroll_y, int row_height, size_t rows)
+{
+    if (row_height <= 0 || pt.x < 0 || pt.y < 0 || pt.x >= client.x || pt.y >= client.y)
+        return -1;
+    const int row = (pt.y - scroll_y) / row_height;
+    return row < int(rows) ? row : -1;
 }

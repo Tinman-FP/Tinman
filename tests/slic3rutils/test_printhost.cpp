@@ -624,3 +624,29 @@ TEST_CASE("The running upload stops when it is canceled", "[PrintHost][Queue]")
     CHECK(log->wait_for("progress 1 100") ==
           std::vector<std::string>{"progress 0 0", "progress 0 0", "uploading", "cancel 0", "progress 1 0", "next started", "progress 1 100"});
 }
+
+// The 2026-11-17 Prusa CORE One L report: the first Upload and Print timed out (HTTP 408), and after
+// the retry succeeded with "Switch to Device tab after upload" ticked, Tinman stayed on Preview.
+TEST_CASE("A successful upload asks for the Device tab after a failed one", "[PrintHost][Queue]")
+{
+    auto log    = std::make_shared<QueueLog>();
+    auto events = logging_events(log);
+    events.device_tab = [log](size_t job) { log->add("device tab " + std::to_string(job)); };
+    PrintHostJobQueue queue(events);
+
+    PrintHostJob failed = job_for(std::make_unique<LastByteThenReplyHost>(false, log));
+    failed.switch_to_device_tab = true;
+    PrintHostJob retry = job_for(std::make_unique<LastByteThenReplyHost>(true, log));
+    retry.switch_to_device_tab = true;
+    PrintHostJob unticked = job_for(std::make_unique<LastByteThenReplyHost>(true, log));
+    queue.enqueue(std::move(failed));
+    queue.enqueue(std::move(retry));
+    queue.enqueue(std::move(unticked));
+
+    // Only the successful job with the box ticked asks, whatever failed before it.
+    CHECK(log->wait_for("progress 2 100") ==
+          std::vector<std::string>{"progress 0 0", "progress 0 50", "progress 0 99", "all bytes sent",
+                                   "error 0 File is loaded, upload not permitted",
+                                   "progress 1 0", "progress 1 50", "progress 1 99", "all bytes sent", "progress 1 100", "device tab 1",
+                                   "progress 2 0", "progress 2 50", "progress 2 99", "all bytes sent", "progress 2 100"});
+}

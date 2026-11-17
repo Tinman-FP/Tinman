@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "slic3r/GUI/GUI_ObjectList.hpp"
+#include "slic3r/GUI/ObjectDataViewModel.hpp"
 
 #include <libslic3r/Model.hpp>
 #include <libslic3r/Point.hpp>
@@ -87,4 +88,16 @@ TEST_CASE("Objects sort by bounding box volume", "[ObjectList]")
     add_box(model, "cube", {10., 10., 10.});  // 1000 mm3
 
     CHECK(sorted_names(model, ObjectOrder::Size) == std::vector<std::string>{"cube", "tall", "flat"});
+}
+
+TEST_CASE("On macOS a click on a selected object's name doesn't start a rename", "[ObjectList][Regression]")
+{
+    // The 2026-11-17 report: after a click on the selected object, pressing 4 renamed it "4" instead
+    // of setting filament 4. The click had opened the name's editor, which doesn't show on macOS.
+    CHECK_FALSE(object_list_native_edit_allowed(colName, true));
+    // The other cells keep their click actions there (OnEditingStarted), and other platforms keep
+    // renaming in place, where the editor shows.
+    CHECK(object_list_native_edit_allowed(colPrint, true));
+    CHECK(object_list_native_edit_allowed(colEditing, true));
+    CHECK(object_list_native_edit_allowed(colName, false));
 }

@@ -434,6 +434,14 @@ void ComboBox::keyDown(wxKeyEvent& event)
                 GetEventHandler()->ProcessEvent(e);
             }
             break;
+        case WXK_ESCAPE:
+            // wx closes an open list on a key only when the list has the focus, which it hadn't on
+            // macOS: Escape left the printer list open (2026-11-17 report).
+            if (drop_down)
+                drop.DismissAndNotify();
+            else
+                event.Skip();
+            break;
         case WXK_UP:
         case WXK_DOWN:
         case WXK_LEFT:

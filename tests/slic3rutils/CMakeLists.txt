@@ -66,6 +66,7 @@ add_executable(${_TEST_NAME}_tests
     test_user_manager.cpp
     test_sequential_clearance.cpp
     test_object_list.cpp
+    test_dropdown_rows.cpp
     ../fff_print/test_helpers.cpp
     )
 

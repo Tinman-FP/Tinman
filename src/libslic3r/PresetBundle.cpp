@@ -4312,9 +4312,10 @@ void PresetBundle::load_selections(AppConfig &config, const PresetPreferences& p
     }
     // A physical printer's own machine profile is never one of the curated names, but it is
     // not a stray copy either: replacing it would drop that printer's selection on restart.
+    // Neither is a user's own profile that the printer lists offer.
     const auto *initial_unit_id = initial_printer ? initial_printer->config.option<ConfigOptionString>("tinman_physical_printer_id") : nullptr;
     if (initial_printer != nullptr && !(initial_unit_id && is_valid_physical_printer_id(initial_unit_id->value)) &&
-        !tinmanx_machine_preset_allowed(initial_printer->name, initial_printer->config.opt_string("printer_model"))) {
+        !tinmanx_machine_preset_listed(*initial_printer)) {
         const std::string canonical_name = tinmanx_canonical_machine_preset_name(
             initial_printer->name,
             initial_printer->config.opt_string("printer_model"),

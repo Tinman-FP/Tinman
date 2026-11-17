@@ -754,3 +754,81 @@ TEST_CASE("A per-tool nozzle change that leaves every U1 tool equal opens the Ti
     CHECK(tinmanx_uniform_tool_nozzle_preset_name("Snapmaker U1", {}).empty());
     CHECK(tinmanx_uniform_tool_nozzle_preset_name("My Experimental Printer", {0.4, 0.4}).empty());
 }
+
+namespace {
+
+// The printers of the 2026-11-17 Prusa CORE One L and Snapmaker U1 print reports: the curated
+// profiles, stock vendor profiles, the user's own "Prusa CORE One L 0.4 HT", and the copies earlier
+// connection saves made of a curated or stock profile.
+struct PrinterList
+{
+    PresetBundle bundle;
+
+    PrinterList()
+    {
+        add("Prusa CORE One L 0.4 nozzle - TinMan Codex", "Prusa CORE One L", "0.4", true);
+        add("Prusa CORE One L 0.4 nozzle", "Prusa CORE One L", "0.4", true);
+        add("Snapmaker U1 0.4 nozzle - TinMan Codex", "Snapmaker U1", "0.4", true);
+        add("Prusa CORE One L 0.4 HT", "Prusa CORE One L", "0.4", false, "Prusa CORE One L 0.4 nozzle - TinMan Codex");
+        add("Prusa CORE One L 0.4 nozzle - TinMan Codex - Copy", "Prusa CORE One L", "0.4", false);
+        add("Snapmaker U1 0.4 nozzle - TinMan Codex - Copy", "Snapmaker U1", "0.4", false, "Snapmaker U1 0.4 nozzle - TinMan Codex");
+        add("Creality K2 Plus 0.4 nozzle - Copy", "Creality K2 Plus", "0.4", false, "Creality K2 Plus 0.4 nozzle");
+        add("Snapmaker U1 Tooling - TinMan Codex", "Snapmaker U1", "0.4", false, "Snapmaker U1 Live Mixed - TinMan Codex");
+        add("My Experimental Printer", "My Experimental Printer", "0.4", false);
+    }
+
+    void add(const std::string &name, const std::string &model, const std::string &variant, bool system,
+             const std::string &inherits = {})
+    {
+        DynamicPrintConfig config(bundle.printers.default_preset().config);
+        config.set_key_value("printer_model", new ConfigOptionString(model));
+        config.set_key_value("printer_variant", new ConfigOptionString(variant));
+        config.set_key_value("inherits", new ConfigOptionString(inherits));
+        bundle.printers.load_preset(std::string(), name, config, false).is_system = system;
+    }
+
+    bool listed(const std::string &name) const
+    {
+        const Preset *preset = bundle.printers.find_preset(name, false);
+        REQUIRE(preset != nullptr);
+        return tinmanx_machine_preset_listed(*preset);
+    }
+};
+
+} // namespace
+
+TEST_CASE("The printer lists offer a user's own profile of a curated machine", "[Preset][TinMan][PrinterList]")
+{
+    PrinterList list;
+    // The report: "Prusa CORE One L 0.4 HT" was missing from the Prepare list's user presets.
+    CHECK(list.listed("Prusa CORE One L 0.4 HT"));
+    CHECK(list.listed("Prusa CORE One L 0.4 nozzle - TinMan Codex"));
+    CHECK(list.listed("Snapmaker U1 Tooling - TinMan Codex"));
+    CHECK(list.listed("My Experimental Printer"));
+
+    // Copies named after the profile they copy would list the machine twice: its model entry opens
+    // the canonical profile. So would the stock vendor profiles of a curated machine.
+    CHECK_FALSE(list.listed("Prusa CORE One L 0.4 nozzle - TinMan Codex - Copy"));
+    CHECK_FALSE(list.listed("Snapmaker U1 0.4 nozzle - TinMan Codex - Copy"));
+    CHECK_FALSE(list.listed("Creality K2 Plus 0.4 nozzle - Copy"));
+    CHECK_FALSE(list.listed("Prusa CORE One L 0.4 nozzle"));
+}
+
+TEST_CASE("A restart keeps a user's own profile of a curated machine selected", "[Preset][TinMan][PrinterList]")
+{
+    PrinterList list;
+    DynamicPrintConfig filament(list.bundle.filaments.default_preset().config);
+    list.bundle.filaments.load_preset(std::string(), "Test Filament", filament, false);
+    AppConfig app_config;
+
+    SECTION("the user's own profile stays selected") {
+        app_config.set("presets", PRESET_PRINTER_NAME, "Prusa CORE One L 0.4 HT");
+        list.bundle.load_selections(app_config);
+        CHECK(list.bundle.printers.get_selected_preset_name() == "Prusa CORE One L 0.4 HT");
+    }
+    SECTION("a copy of the canonical profile still moves to the canonical profile") {
+        app_config.set("presets", PRESET_PRINTER_NAME, "Prusa CORE One L 0.4 nozzle - TinMan Codex - Copy");
+        list.bundle.load_selections(app_config);
+        CHECK(list.bundle.printers.get_selected_preset_name() == "Prusa CORE One L 0.4 nozzle - TinMan Codex");
+    }
+}

@@ -161,6 +161,8 @@ public:
         std::function<void(size_t job, wxString error)>                    error;
         std::function<void(size_t job)>                                    cancel;
         std::function<void(size_t job, wxString tag, wxString status)>    info;
+        // A job with switch_to_device_tab set finished successfully.
+        std::function<void(size_t job)>                                    device_tab;
     };
 
     PrintHostJobQueue(GUI::PrintHostQueueDialog *queue_dialog);

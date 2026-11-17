@@ -6774,6 +6774,10 @@ void GUI::ObjectList::OnStartEditing(wxDataViewEvent &event)
         return;
     }
 #endif // __WXOSX__
+    if (!object_list_native_edit_allowed(col, wxOSX)) {
+        event.Veto();
+        return;
+    }
 
     if (col == colName) {
         ObjectDataViewModelNode* node = (ObjectDataViewModelNode*)item.GetID();
@@ -7044,6 +7048,11 @@ void ObjectList::reload_all_plates(bool notify_partplate)
     wxGetApp().plater()->update();
     // update printable states on canvas
     wxGetApp().plater()->get_view3D_canvas3D()->update_instance_printable_state_for_objects(obj_idxs);
+}
+
+bool object_list_native_edit_allowed(int column, bool osx)
+{
+    return !(osx && column == colName);
 }
 
 void sort_objects(std::vector<ModelObject*>& objects, ObjectOrder order, bool descending)

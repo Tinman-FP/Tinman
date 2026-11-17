@@ -653,9 +653,7 @@ void PresetComboBox::update(std::string select_preset_name)
     {
         const Preset& preset = presets[i];
         const bool is_selected = preset.name == select_preset_name;
-        if (m_type == Preset::TYPE_PRINTER &&
-            !is_selected &&
-            !tinmanx_machine_preset_allowed(preset.name, preset.config.opt_string("printer_model")))
+        if (m_type == Preset::TYPE_PRINTER && !is_selected && !tinmanx_machine_preset_listed(preset))
             continue;
         if (m_type == Preset::TYPE_FILAMENT &&
             !tinmanx_filament_preset_allowed_for_slot(m_preset_bundle, m_filament_idx, preset))
@@ -1562,13 +1560,12 @@ void PlaterPresetComboBox::update()
                             m_type == Preset::TYPE_PRINTER && m_preset_bundle->physical_printers.has_selection() ? false :
                             i == m_collection->get_selected_idx();
 
-        const bool canonical_machine_preset = m_type != Preset::TYPE_PRINTER ||
-            tinmanx_machine_preset_allowed(preset.name, preset.config.opt_string("printer_model"));
-        // A host address is saved as a user preset derived from one of the four
+        const bool listed_machine_preset = m_type != Preset::TYPE_PRINTER || tinmanx_machine_preset_listed(preset);
+        // A host address used to be saved as a user preset derived from one of the four
         // curated nozzle profiles. Keep only the active derivative in the combo;
         // otherwise filtering it leaves the widget with no selection and it
         // paints the first unrelated model while the real config stays active.
-        if (!canonical_machine_preset && !is_selected)
+        if (!listed_machine_preset && !is_selected)
             continue;
 
         if (m_type == Preset::TYPE_FILAMENT &&
@@ -1588,7 +1585,7 @@ void PlaterPresetComboBox::update()
         bool single_bar = false;
         wxString name = from_u8(preset.name);
         preset_aliases[name] = get_preset_name(preset).utf8_string(); // ORCA
-        if (m_type == Preset::TYPE_PRINTER && is_selected && !canonical_machine_preset) {
+        if (m_type == Preset::TYPE_PRINTER && is_selected && !listed_machine_preset) {
             const std::string printer_model = preset.config.opt_string("printer_model");
             if (!tinmanx_canonical_machine_preset_name(
                     preset.name, printer_model, preset.config.opt_string("printer_variant")).empty())

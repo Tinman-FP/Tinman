@@ -163,4 +163,10 @@ private:
     DECLARE_EVENT_TABLE()
 };
 
+// The row under `pt`, a point in the client area (`client`) of a list of `rows` rows of `row_height`
+// scrolled by `scroll_y` (0 or less), or -1 off the rows: past the list's sides, above or below it, or
+// below its last row. On macOS the open list holds the mouse capture, so it sees the pointer outside
+// itself too.
+int dropdown_row_at(const wxPoint &pt, const wxSize &client, int scroll_y, int row_height, size_t rows);
+
 #endif // !slic3r_GUI_DropDown_hpp_
