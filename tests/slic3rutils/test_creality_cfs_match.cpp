@@ -235,3 +235,40 @@ TEST_CASE("A third party spool matches its preset inside the printer vendor's bu
     // carries Creality's profile too but adds a brand word the spool never claimed.
     CHECK(match(with_third_party, "Creality", "", "PLA") == "PLA-GENERIC");
 }
+
+// From a K2 Plus send (2026-11-17): two PCTG spools, orange-red in 1A and yellow in 1D, and a yellow
+// PCTG filament whose colour is close to, but not exactly, what the printer reports for 1D. Every
+// filament defaulted to 1A, the first PCTG slot, so the printer could have loaded the wrong spool.
+TEST_CASE("A filament maps to the CFS slot of its type with the closest colour", "[CFS][Creality][Regression]")
+{
+    const std::vector<CrealityMappingSlot> slots = {
+        {"PCTG", "#E8401C"},               // 1A, orange-red
+        {"PLA", "#F2D22E"},                // 1B, yellow but another material
+        {"PETG", "#FFFFFF"},               // 1C
+        {"PCTG", "#F4D01E"},               // 1D, yellow
+        {"PCTG", "#F7D51F", /*external*/ true},
+    };
+
+    CHECK(default_creality_mapping_slot(slots, "PCTG", "#FFD700", 0) == 3);
+    CHECK(default_creality_mapping_slot(slots, "PCTG", "#E8401C", 3) == 0); // an exact colour still wins
+    CHECK(default_creality_mapping_slot(slots, "PCTG", "#E5442A", 3) == 0);
+
+    SECTION("a CFS slot of the type beats a closer external spool")
+    {
+        CHECK(default_creality_mapping_slot(slots, "PCTG", "#F7D51F", 0) == 3);
+    }
+    SECTION("the external spool is used when no CFS slot has the type")
+    {
+        const std::vector<CrealityMappingSlot> ext = {{"PLA", "#000000"}, {"ABS", "#202020", true}};
+        CHECK(default_creality_mapping_slot(ext, "ABS", "#FFFFFF", 0) == 1);
+    }
+    SECTION("no slot of the type keeps the fallback")
+    {
+        CHECK(default_creality_mapping_slot(slots, "ASA", "#FFD700", 2) == 2);
+    }
+    SECTION("an unreadable colour falls back to the first slot of the type")
+    {
+        CHECK(default_creality_mapping_slot(slots, "PCTG", "", 4) == 0);
+        CHECK(default_creality_mapping_slot({{"PCTG", "?"}, {"PCTG", "#FFD700"}}, "PCTG", "#FFD700", 0) == 1);
+    }
+}
