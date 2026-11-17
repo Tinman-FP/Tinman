@@ -500,9 +500,19 @@ static std::vector<NozzleVolumeType> nozzle_volume_types_per_nozzle(const Dynami
     return result;
 }
 
+// The "found error" line alone doesn't say what went wrong, so print the reason first when the
+// exit code has one: a caller reading stdout then sees it without the log or result.json.
+static void print_cli_error_reason(int code)
+{
+    const auto it = cli_errors.find(code);
+    if (code != CLI_SUCCESS && it != cli_errors.end() && !it->second.empty())
+        boost::nowide::cout << "error " << code << ": " << it->second << std::endl;
+}
+
 //BBS: add flush and exit
 #if defined(__linux__) || defined(__LINUX__)
-#define flush_and_exit(ret)     { boost::nowide::cout << __FUNCTION__ << " found error, return "<<ret<<", exit..." << std::endl;\
+#define flush_and_exit(ret)     { print_cli_error_reason(ret);\
+    boost::nowide::cout << __FUNCTION__ << " found error, return "<<ret<<", exit..." << std::endl;\
     g_cli_callback_mgr.stop();\
     boost::nowide::cout.flush();\
     boost::nowide::cerr.flush();\
@@ -511,7 +521,8 @@ static std::vector<NozzleVolumeType> nozzle_volume_types_per_nozzle(const Dynami
     }\
     return(ret);}
 #else
-#define flush_and_exit(ret)     { boost::nowide::cout << __FUNCTION__ << " found error, exit" << std::endl;\
+#define flush_and_exit(ret)     { print_cli_error_reason(ret);\
+    boost::nowide::cout << __FUNCTION__ << " found error, exit" << std::endl;\
     boost::nowide::cout.flush();\
     boost::nowide::cerr.flush();\
     for (Model &model : m_models) {\
