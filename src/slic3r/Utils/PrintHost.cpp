@@ -258,6 +258,7 @@ struct PrintHostJobQueue::priv
     void emit_error(wxString error);
     void emit_cancel(size_t id);
     void emit_info(wxString tag, wxString status);
+    void emit_device_tab();
     void start_bg_thread();
     void stop_bg_thread();
     void bg_thread_main();
@@ -325,6 +326,15 @@ void PrintHostJobQueue::priv::emit_cancel(size_t id)
     }
     auto evt = new PrintHostQueueDialog::Event(GUI::EVT_PRINTHOST_CANCEL, queue_dialog->GetId(), id);
     wxQueueEvent(queue_dialog, evt);
+}
+
+void PrintHostJobQueue::priv::emit_device_tab()
+{
+    if (!queue_dialog) {
+        if (events.device_tab) events.device_tab(job_id);
+        return;
+    }
+    GUI::wxGetApp().mainframe->request_select_tab(TAB_ID_MONITOR);
 }
 
 void PrintHostJobQueue::priv::start_bg_thread()
@@ -515,10 +525,8 @@ void PrintHostJobQueue::priv::perform_job(PrintHostJob the_job)
 
     if (success) {
         emit_progress(100);
-        if (the_job.switch_to_device_tab) {
-            const auto mainframe = GUI::wxGetApp().mainframe;
-            mainframe->request_select_tab(TAB_ID_MONITOR);
-        }
+        if (the_job.switch_to_device_tab)
+            emit_device_tab();
     }
 }
 
