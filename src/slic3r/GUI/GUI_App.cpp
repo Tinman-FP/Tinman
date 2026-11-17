@@ -4457,9 +4457,9 @@ void GUI_App::switch_printer_agent(bool refresh_machine)
     if (!mainframe || !plater_)
         return;
 
-    Preset& edited_printer = preset_bundle->printers.get_edited_preset();
     if (app_config != nullptr)
-        tinmanx_restore_machine_connection(*app_config, edited_printer.name, edited_printer.config);
+        tinmanx_restore_selected_printer_connection(*app_config, preset_bundle->printers);
+    Preset& edited_printer = preset_bundle->printers.get_edited_preset();
 
     const DynamicPrintConfig& config = edited_printer.config;
     const std::string effective_agent_id =

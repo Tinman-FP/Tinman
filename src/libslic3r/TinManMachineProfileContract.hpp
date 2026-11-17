@@ -8,6 +8,7 @@ namespace Slic3r {
 
 class AppConfig;
 class DynamicPrintConfig;
+class PresetCollection;
 
 // Non-curated machines are unaffected. Curated machines expose only the four
 // generated "TinMan Codex" nozzle profiles plus declared mixed-tool profiles,
@@ -82,6 +83,12 @@ bool tinmanx_remember_machine_connection(AppConfig &app_config,
 bool tinmanx_restore_machine_connection(const AppConfig &app_config,
                                         const std::string &preset_name,
                                         DynamicPrintConfig &printer_config);
+
+// Restores the selected printer's connection onto its edited copy, as above. The contract's routing
+// repairs (for example the catalog moving a printer to another agent) go to the saved preset too, so
+// on a user copy that the connection overlay doesn't cover ("... - TinMan Codex - Copy") they don't
+// show up as the user's own unsaved changes.
+void tinmanx_restore_selected_printer_connection(const AppConfig &app_config, PresetCollection &printers);
 
 } // namespace Slic3r
 

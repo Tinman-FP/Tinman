@@ -1,4 +1,5 @@
 #include <catch2/catch_all.hpp>
+#include <catch2/catch_test_macros.hpp>
 
 #include "libslic3r/TinManMachineProfileContract.hpp"
 #include "libslic3r/AppConfig.hpp"
@@ -389,6 +390,48 @@ TEST_CASE("TinMan Prusa CORE One L keeps PrusaLink across dialog saves and resto
     CHECK(restored.opt_enum<PrintHostType>("host_type") == htPrusaLink);
     CHECK(restored.opt_string("print_host") == "192.0.2.177");
     CHECK(restored.opt_string("printhost_apikey") == "prusalink-key");
+}
+
+TEST_CASE("TinMan agent repairs on a user printer copy are not unsaved changes", "[Preset][TinMan][PrusaLink]")
+{
+    // A user copy of a catalog printer, saved while the catalog still routed it to Moonraker.
+    PrinterPresetCollection printers(Preset::TYPE_PRINTER, Preset::printer_options(),
+                                     static_print_config_ref(static_cast<const PrintRegionConfig &>(FullPrintConfig::defaults())));
+    const std::string copy = "Prusa CORE One L 0.6 nozzle - TinMan Codex - Copy";
+    DynamicPrintConfig config(printers.default_preset().config);
+    config.set_key_value("printer_model", new ConfigOptionString("Prusa CORE One L"));
+    config.set_key_value("printer_agent", new ConfigOptionString("moonraker"));
+    printers.load_preset(std::string(), copy, config, /*select=*/false);
+    REQUIRE(printers.select_preset_by_name(copy, true));
+    REQUIRE_FALSE(printers.get_selected_preset().is_system);
+    REQUIRE_FALSE(tinmanx_managed_machine_preset(copy, "Prusa CORE One L")); // the overlay doesn't cover it
+
+    // Selecting it moves both the edited copy and the saved preset to the catalog's agent.
+    const AppConfig app_config;
+    tinmanx_restore_selected_printer_connection(app_config, printers);
+    CHECK(printers.get_edited_preset().config.opt_string("printer_agent") == "orca");
+    CHECK(printers.get_selected_preset().config.opt_string("printer_agent") == "orca");
+    CHECK_FALSE(printers.current_is_dirty());
+
+    // The user's own edits still count.
+    printers.get_edited_preset().config.set_key_value("printer_notes", new ConfigOptionString("edited"));
+    CHECK(printers.current_is_dirty());
+}
+
+TEST_CASE("TinMan treats an empty printer agent as Orca", "[Preset][TinMan][PrusaLink]")
+{
+    // The agent picker stores Orca, the default for non-Bambu printers, as an empty value.
+    const std::string copy = "Prusa CORE One L 0.6 nozzle - TinMan Codex - Copy";
+    DynamicPrintConfig config;
+    config.set_key_value("printer_model", new ConfigOptionString("Prusa CORE One L"));
+    config.set_key_value("printer_agent", new ConfigOptionString());
+    CHECK_FALSE(tinmanx_enforce_machine_connection_contract(copy, config));
+    CHECK(config.opt_string("printer_agent").empty());
+
+    AppConfig app_config;
+    app_config.set_str("tinman_machine_connections", "Prusa CORE One L::printer_agent", "orca");
+    tinmanx_restore_machine_connection(app_config, copy, config);
+    CHECK(config.opt_string("printer_agent").empty());
 }
 
 TEST_CASE("TinMan repairs PrusaLink connections persisted as Moonraker", "[Preset][TinMan][PrusaLink]")

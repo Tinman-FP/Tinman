@@ -2,6 +2,7 @@
 
 #include "AppConfig.hpp"
 #include "Config.hpp"
+#include "Preset.hpp"
 #include "PrintConfig.hpp"
 #include "TinManHardwareCatalog.hpp"
 
@@ -65,6 +66,15 @@ std::string_view matched_model(std::string_view preset_name, std::string_view ma
 {
     const auto *definition = tinmanx_hardware_catalog().match(preset_name, machine_hint);
     return definition ? std::string_view(definition->model) : std::string_view();
+}
+
+// An empty printer agent is the default one, which is Orca for every non-Bambu machine (the agent
+// picker stores Orca that way), so it is the same agent as "orca", and replacing one with the other
+// would only show up as an unsaved change.
+bool same_printer_agent(std::string_view lhs, std::string_view rhs)
+{
+    const auto agent = [](std::string_view id) { return id.empty() ? std::string_view("orca") : id; };
+    return agent(lhs) == agent(rhs);
 }
 
 bool is_canonical_machine_name(std::string_view name, std::string_view model, std::string_view nozzle)
@@ -259,7 +269,7 @@ bool tinmanx_enforce_machine_connection_contract(const std::string &preset_name,
 
     bool changed = false;
     if (!expected_agent.empty() && printer_config.has("printer_agent") &&
-        printer_config.opt_string("printer_agent") != expected_agent) {
+        !same_printer_agent(printer_config.opt_string("printer_agent"), expected_agent)) {
         printer_config.set_key_value("printer_agent", new ConfigOptionString(expected_agent));
         changed = true;
     }
@@ -676,7 +686,8 @@ bool tinmanx_restore_machine_connection(const AppConfig &app_config,
         const std::string value = app_config.get(std::string(connection_section), key);
         if (value.empty())
             continue;
-        if (current_option->serialize() == value) {
+        if (current_option->serialize() == value ||
+            (option_name == "printer_agent" && same_printer_agent(printer_config.opt_string(option_name), value))) {
             restored = true;
             continue;
         }
@@ -700,6 +711,15 @@ bool tinmanx_restore_machine_connection(const AppConfig &app_config,
         }
     }
     return tinmanx_enforce_machine_connection_contract(preset_name, printer_config) || restored;
+}
+
+void tinmanx_restore_selected_printer_connection(const AppConfig &app_config, PresetCollection &printers)
+{
+    Preset &edited = printers.get_edited_preset();
+    tinmanx_restore_machine_connection(app_config, edited.name, edited.config);
+    Preset &saved = printers.get_selected_preset();
+    if (saved.name == edited.name && !saved.is_system && !saved.is_default)
+        tinmanx_enforce_machine_connection_contract(saved.name, saved.config);
 }
 
 } // namespace Slic3r

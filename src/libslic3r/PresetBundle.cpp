@@ -4337,8 +4337,8 @@ void PresetBundle::load_selections(AppConfig &config, const PresetPreferences& p
         preferred_printer = printers.find_preset(canonical_name);
     }
     printers.select_preset_by_name(preferred_printer ? preferred_printer->name : initial_printer_profile_name, true);
+    tinmanx_restore_selected_printer_connection(config, printers);
     Preset &selected_printer = printers.get_edited_preset();
-    tinmanx_restore_machine_connection(config, selected_printer.name, selected_printer.config);
     if (selected_printer.printer_technology() == ptFFF) {
         BedType bed_type = selected_printer.get_default_bed_type(this);
         const std::string saved_bed_type = config.get_printer_setting(selected_printer.name, "curr_bed_type");
