@@ -1147,7 +1147,7 @@ void BackgroundSlicingProcess::prepare_upload()
         zipper.finalize();
     }
 
-    m_print->set_status(100, (boost::format(_utf8(L("Scheduling upload to `%1%`. See Window -> Print Host Upload Queue"))) %
+    m_print->set_status(100, (boost::format(_utf8(L("Scheduling upload to `%1%`. See View > Print Host Upload Queue"))) %
                               m_upload_job.printhost->get_host())
                                  .str());
 

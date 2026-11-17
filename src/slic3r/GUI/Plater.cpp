@@ -22301,6 +22301,19 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn)
     if (upload_job.empty())
         return;
 
+    // Tinman: uploads run one at a time, so a second send to a printer waits, unseen, behind the first
+    // one and may start a print long after the click. Ask before queueing it.
+    if (const std::string host = upload_job.printhost->get_host();
+        !host.empty() && p->main_frame->printhost_queue_dlg()->has_active_job(host)) {
+        const std::string &printer = wxGetApp().preset_bundle->printers.get_edited_preset().name;
+        MessageDialog      dlg(this,
+                               format_wxstr(_L("An upload to %1% is already in progress. Send another?"), from_u8(printer) + " (" + from_u8(host) + ")") +
+                                   "\n\n" + _L("View > Print Host Upload Queue shows the uploads and can cancel them."),
+                               _L("Upload in progress"), wxICON_QUESTION | wxYES_NO | wxNO_DEFAULT);
+        if (dlg.ShowModal() != wxID_YES)
+            return;
+    }
+
     // Orca: the use_3mf printer option makes us send a .gcode.3mf to the printer
     const auto* use_3mf_opt = physical_printer_config->option<ConfigOptionBool>("use_3mf");
     const bool  use_3mf     = use_3mf_opt != nullptr && use_3mf_opt->value;

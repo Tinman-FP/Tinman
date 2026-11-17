@@ -3930,6 +3930,11 @@ void MainFrame::init_menubar_as_editor()
             [this]() { return m_plater->get_mouse3d_controller().is_settings_dialog_shown(); }, this);
         m_shortcut_menu_items.push_back({ mouse3d_settings, Shortcut::Mouse3DSettings, _L("Show 3Dconnexion Settings"), true });
 
+        // Tinman: the upload queue had no menu item, so a waiting upload could not be seen or canceled from there.
+        append_shortcut_item(viewMenu, Shortcut::PrintHostQueue, true, _L("Print Host Upload Queue"),
+            _L("Show the uploads to printers, waiting or under way, and cancel them"),
+            [this](wxCommandEvent&) { m_printhost_queue_dlg->Show(); }, "", nullptr, []() { return true; }, this);
+
         viewMenu->AppendSeparator();
         wxMenuItem* show_labels = append_menu_check_item(viewMenu, wxID_ANY, shortcut_label(_L("Show &Labels"), Shortcut::ShowLabels, true), _L("Show object labels in 3D scene."),
             [this](wxCommandEvent&) { m_plater->show_view3D_labels(!m_plater->are_view3D_labels_shown()); m_plater->get_current_canvas3D()->post_event(SimpleEvent(wxEVT_PAINT)); }, this,
