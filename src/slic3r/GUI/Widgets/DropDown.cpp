@@ -936,6 +936,27 @@ bool DropDown::ShouldDismissOnTopWindowDeactivate()
              (subDropDown  && subDropDown->IsShown()));
 }
 
+#ifdef __WXOSX__
+// On macOS an open side list holds the mouse capture, so a click on its main list arrives here first.
+// wx's popup handler would then close the side list and pass the click on to whatever window is under
+// it, which is rarely the main list. A click on the group row that opened this side list just closed
+// it, so the group seemed not to open. Keep the side list open for that click instead.
+bool DropDown::ProcessLeftDown(wxMouseEvent &event)
+{
+    if (mainDropDown && mainDropDown->IsShown() && mainDropDown->rowSize.y > 0) {
+        const auto  *source = static_cast<wxWindow *>(event.GetEventObject());
+        const wxPoint screen = source ? source->ClientToScreen(event.GetPosition()) : wxGetMousePosition();
+        if (mainDropDown->GetScreenRect().Contains(screen)) {
+            const wxPoint pt  = mainDropDown->ScreenToClient(screen);
+            const int     row = (pt.y - mainDropDown->offset.y) / mainDropDown->rowSize.y;
+            if (row == mainDropDown->hover_item && mainDropDown->hoverIndex() < -1)
+                return true;
+        }
+    }
+    return PopupWindow::ProcessLeftDown(event);
+}
+#endif
+
 void DropDown::OnDismiss()
 {
     if (mainDropDown) {
