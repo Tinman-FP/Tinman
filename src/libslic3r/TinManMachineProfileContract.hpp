@@ -3,6 +3,7 @@
 
 #include <string>
 #include <cstddef>
+#include <vector>
 
 namespace Slic3r {
 
@@ -62,6 +63,23 @@ bool tinmanx_normalize_multitool_config(DynamicPrintConfig &config,
 std::string tinmanx_canonical_machine_preset_name(const std::string &preset_name,
                                                   const std::string &machine_hint = {},
                                                   const std::string &nozzle_variant = {});
+
+// Records, per curated machine, the nozzle of a canonical profile when it is selected. Other
+// profiles (tooling, copies, a physical printer's own) are not recorded.
+void tinmanx_remember_machine_nozzle(AppConfig &config, const std::string &preset_name,
+                                     const std::string &machine_hint = {});
+
+// The canonical profile that choosing a curated machine's model opens: the current printer's
+// nozzle when it is that machine, else the nozzle recorded above, else the catalog's first (0.4).
+// Another printer's nozzle says nothing about this machine. Empty outside the catalog.
+std::string tinmanx_model_pick_machine_preset_name(const AppConfig *config, const std::string &model,
+                                                   const std::string &current_model,
+                                                   const std::string &current_variant);
+
+// The canonical profile that a per-tool nozzle change of a curated tool changer lands on when every
+// tool then has the same supported nozzle. Empty for a mixed set, which stays in the tooling profile.
+std::string tinmanx_uniform_tool_nozzle_preset_name(const std::string &model,
+                                                    const std::vector<double> &nozzle_diameters);
 
 // Curated machines use only processes that explicitly name the selected
 // canonical machine. This prevents inherited vendor conditions from leaking

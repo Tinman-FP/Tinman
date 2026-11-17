@@ -4,8 +4,12 @@
 #include "libslic3r/TinManMachineProfileContract.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "libslic3r/Preset.hpp"
+#include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "slic3r/Utils/MoonrakerStorage.hpp"
+
+#include <string>
+#include <vector>
 
 using namespace Slic3r;
 
@@ -632,4 +636,121 @@ TEST_CASE("Moonraker print uploads use only the virtual SD gcode root", "[Preset
 
     const boost::property_tree::ptree empty_response;
     CHECK(uploaded_path(empty_response, "fallback.gcode") == "fallback.gcode");
+}
+
+namespace {
+
+// The printers of the 2026-11-17 Snapmaker U1 print report: a K2 Plus on a 0.6 mm nozzle (the
+// project open before), the U1's four TinMan Codex nozzle profiles and its declared Live Mixed
+// profile, and the user's "Tooling" profile that the U1's per-tool nozzle controls save.
+struct U1PrinterPick
+{
+    PresetBundle bundle;
+    AppConfig    app_config;
+
+    U1PrinterPick()
+    {
+        add("Creality K2 Plus 0.6 nozzle - TinMan Codex", "Creality K2 Plus", "0.6", {0.6}, true);
+        add("Snapmaker U1 0.4 nozzle - TinMan Codex", "Snapmaker U1", "0.4", {0.4, 0.4, 0.4, 0.4}, true);
+        add("Snapmaker U1 0.6 nozzle - TinMan Codex", "Snapmaker U1", "0.6", {0.6, 0.6, 0.6, 0.6}, true);
+        add("Snapmaker U1 0.8 nozzle - TinMan Codex", "Snapmaker U1", "0.8", {0.8, 0.8, 0.8, 0.8}, true);
+        add("Snapmaker U1 1.0 nozzle - TinMan Codex", "Snapmaker U1", "1.0", {1.0, 1.0, 1.0, 1.0}, true);
+        add("Snapmaker U1 Live Mixed - TinMan Codex", "Snapmaker U1", "0.6", {0.6, 0.4, 0.4, 0.6}, true);
+        add("Snapmaker U1 Tooling - TinMan Codex", "Snapmaker U1", "0.4", {0.4, 0.6, 0.6, 0.6}, false);
+        select("Creality K2 Plus 0.6 nozzle - TinMan Codex");
+        // export_selections writes the project's per-filament arrays, which this sizes.
+        bundle.set_num_filaments(1u, std::string("#FFFFFF"));
+    }
+
+    void add(const std::string &name, const std::string &model, const std::string &variant,
+             const std::vector<double> &nozzles, bool system)
+    {
+        DynamicPrintConfig config(bundle.printers.default_preset().config);
+        config.set_key_value("printer_model", new ConfigOptionString(model));
+        config.set_key_value("printer_variant", new ConfigOptionString(variant));
+        config.set_key_value("nozzle_diameter", new ConfigOptionFloats(nozzles));
+        Preset &preset = bundle.printers.load_preset(std::string(), name, config, false);
+        preset.is_system = system;
+        // load_user_preset gives a user profile its own name as alias, which Orca's nozzle switch looks up.
+        if (!system)
+            preset.alias = name;
+    }
+
+    void select(const std::string &name) { REQUIRE(bundle.printers.select_preset_by_name(name, true)); }
+
+    // What choosing a model in the sidebar's printer selector opens (Plater::priv::on_select_preset).
+    std::string pick_model(const std::string &model)
+    {
+        const Preset *preset = bundle.get_similar_printer_preset(model, {}, &app_config);
+        return preset != nullptr ? preset->name : std::string();
+    }
+
+    // What choosing a nozzle in the sidebar's variant box opens (Sidebar::priv::switch_diameter_to).
+    std::string pick_nozzle(const std::string &nozzle)
+    {
+        const Preset *preset = bundle.get_similar_printer_preset({}, nozzle);
+        return preset != nullptr ? preset->name : std::string();
+    }
+};
+
+} // namespace
+
+TEST_CASE("Choosing the Snapmaker U1 opens its own nozzle profile, not the previous printer's nozzle", "[Preset][TinMan][MachinePick]")
+{
+    U1PrinterPick pick;
+    // The report: with the 0.6 mm K2 selected, choosing "Snapmaker U1" opened the U1's 0.6 profile.
+    CHECK(pick.pick_model("Snapmaker U1") == "Snapmaker U1 0.4 nozzle - TinMan Codex");
+    const Preset *without_memory = pick.bundle.get_similar_printer_preset("Snapmaker U1", {});
+    REQUIRE(without_memory != nullptr);
+    CHECK(without_memory->name == "Snapmaker U1 0.4 nozzle - TinMan Codex");
+
+    SECTION("the nozzle the U1 was last used with comes back") {
+        pick.select("Snapmaker U1 0.8 nozzle - TinMan Codex");
+        pick.bundle.export_selections(pick.app_config);
+        pick.select("Creality K2 Plus 0.6 nozzle - TinMan Codex");
+        pick.bundle.export_selections(pick.app_config);
+        CHECK(pick.pick_model("Snapmaker U1") == "Snapmaker U1 0.8 nozzle - TinMan Codex");
+    }
+    SECTION("the tooling profile is not remembered as the U1's nozzle") {
+        pick.select("Snapmaker U1 Tooling - TinMan Codex");
+        pick.bundle.export_selections(pick.app_config);
+        pick.select("Creality K2 Plus 0.6 nozzle - TinMan Codex");
+        CHECK(pick.pick_model("Snapmaker U1") == "Snapmaker U1 0.4 nozzle - TinMan Codex");
+    }
+    SECTION("choosing the model again keeps the U1's current nozzle") {
+        pick.select("Snapmaker U1 Tooling - TinMan Codex");
+        CHECK(pick.pick_model("Snapmaker U1") == "Snapmaker U1 0.4 nozzle - TinMan Codex");
+        pick.select("Snapmaker U1 Live Mixed - TinMan Codex");
+        CHECK(pick.pick_model("Snapmaker U1") == "Snapmaker U1 0.6 nozzle - TinMan Codex");
+    }
+}
+
+TEST_CASE("Choosing a model outside the TinMan catalog keeps Orca's nozzle", "[Preset][TinMan][MachinePick]")
+{
+    U1PrinterPick pick;
+    pick.add("Test Model 0.4 nozzle", "Test Model", "0.4", {0.4}, true);
+    pick.add("Test Model 0.6 nozzle", "Test Model", "0.6", {0.6}, true);
+    pick.select("Creality K2 Plus 0.6 nozzle - TinMan Codex");
+    CHECK(pick.pick_model("Test Model") == "Test Model 0.6 nozzle");
+}
+
+TEST_CASE("A nozzle choice on the Snapmaker U1 opens its TinMan Codex profile, not the tooling profile", "[Preset][TinMan][MachinePick]")
+{
+    U1PrinterPick pick;
+    pick.select("Snapmaker U1 Tooling - TinMan Codex");
+    // Orca looks for the selected profile's name with the nozzle swapped first, and "Tooling" names none.
+    CHECK(pick.pick_nozzle("0.4") == "Snapmaker U1 0.4 nozzle - TinMan Codex");
+    CHECK(pick.pick_nozzle("0.6") == "Snapmaker U1 0.6 nozzle - TinMan Codex");
+}
+
+TEST_CASE("A per-tool nozzle change that leaves every U1 tool equal opens the TinMan Codex profile", "[Preset][TinMan][MachinePick]")
+{
+    // Setting the last tool of a 0.4 set saved "Tooling" as an all-0.4 printer without the 0.4 profile's start G-code.
+    CHECK(tinmanx_uniform_tool_nozzle_preset_name("Snapmaker U1", {0.4, 0.4, 0.4, 0.4}) == "Snapmaker U1 0.4 nozzle - TinMan Codex");
+    CHECK(tinmanx_uniform_tool_nozzle_preset_name("Snapmaker U1", {1.0, 1.0, 1.0, 1.0}) == "Snapmaker U1 1.0 nozzle - TinMan Codex");
+    // A mixed set, or a nozzle the catalog doesn't list, stays in the tooling profile.
+    CHECK(tinmanx_uniform_tool_nozzle_preset_name("Snapmaker U1", {0.4, 0.6, 0.6, 0.6}).empty());
+    CHECK(tinmanx_uniform_tool_nozzle_preset_name("Snapmaker U1", {0.2, 0.2, 0.2, 0.2}).empty());
+    CHECK(tinmanx_uniform_tool_nozzle_preset_name("Snapmaker U1", {}).empty());
+    CHECK(tinmanx_uniform_tool_nozzle_preset_name("My Experimental Printer", {0.4, 0.4}).empty());
 }

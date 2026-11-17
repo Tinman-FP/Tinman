@@ -1484,6 +1484,16 @@ void Sidebar::priv::apply_tool_nozzle_diameter(size_t tool_index, double diamete
     std::vector<double> nozzle_diameters = current_nozzles->values;
     nozzle_diameters[tool_index] = diameter;
 
+    // Tinman: four equal nozzles are one of the model's own nozzle profiles, with its start G-code,
+    // not the tooling profile (setting the last tool to 0.4 used to save "Tooling" as an all-0.4 set).
+    const std::string canonical = tinmanx_uniform_tool_nozzle_preset_name(edited.config.opt_string("printer_model"), nozzle_diameters);
+    if (Preset *preset = canonical.empty() ? nullptr : preset_bundle->printers.find_preset(canonical, false, true); preset != nullptr) {
+        preset->is_visible = true;
+        printer_tab->select_preset(canonical);
+        update_tool_nozzle_controls();
+        return;
+    }
+
     std::vector<double> min_layer_heights;
     std::vector<double> max_layer_heights;
     min_layer_heights.reserve(nozzle_diameters.size());
@@ -14235,7 +14245,7 @@ void Plater::priv::on_select_preset(wxCommandEvent &evt)
                 physical_printers.unselect_printer();
 
             if (combo->is_selected_printer_model()) {
-                auto preset = wxGetApp().preset_bundle->get_similar_printer_preset(preset_name, {});
+                auto preset = wxGetApp().preset_bundle->get_similar_printer_preset(preset_name, {}, wxGetApp().app_config);
                 if (preset == nullptr) {
                     if (!previous_physical_printer.empty())
                         physical_printers.select_printer(previous_physical_printer);
