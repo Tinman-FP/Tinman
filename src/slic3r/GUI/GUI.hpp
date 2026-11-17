@@ -80,6 +80,10 @@ boost::filesystem::path	into_path(const wxString &str);
 // file:// URL of a local path, percent-encoded so characters such as '#', '%' and '?' stay part of the path.
 // Append any query or fragment to the result.
 wxString	file_url_from_path(const boost::filesystem::path &path);
+// The path ending in exactly one ".gcode.3mf". Save dialogs handle only the last part of the two-part
+// extension (wx on Windows appends ".3mf", NSSavePanel on macOS can add a second ".3mf"), so trailing
+// ".gcode" and ".3mf" parts, in any case, are dropped before ".gcode.3mf" is added.
+boost::filesystem::path	with_gcode_3mf_extension(boost::filesystem::path path);
 
 // Display an About dialog
 extern void about();

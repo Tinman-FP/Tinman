@@ -571,6 +571,13 @@ wxString file_url_from_path(const boost::filesystem::path &path)
 	return wxFileSystem::FileNameToURL(wxFileName(from_path(path)));
 }
 
+boost::filesystem::path with_gcode_3mf_extension(boost::filesystem::path path)
+{
+	while (boost::iequals(path.extension().string(), ".3mf") || boost::iequals(path.extension().string(), ".gcode"))
+		path.replace_extension();
+	return path += ".gcode.3mf";
+}
+
 void about()
 {
     AboutDialog dlg;
