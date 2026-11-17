@@ -4560,6 +4560,7 @@ void PresetBundle::export_selections(AppConfig &config)
     config.clear_section("presets");
     auto printer_name = printers.get_selected_preset_name();
     config.set("presets", PRESET_PRINTER_NAME, printer_name);
+    tinmanx_remember_machine_nozzle(config, printer_name, printers.get_selected_preset().config.opt_string("printer_model"));
 
     // Don't persist settings for the built-in "Default Printer" placeholder —
     // it's only the initial state before a real printer is loaded/selected.
@@ -5689,13 +5690,23 @@ bool PresetBundle::check_filament_temp_equation_by_printer_type_and_nozzle_for_m
     return is_equation;
 }
 
-Preset *PresetBundle::get_similar_printer_preset(std::string printer_model, std::string printer_variant)
+Preset *PresetBundle::get_similar_printer_preset(std::string printer_model, std::string printer_variant, const AppConfig *app_config)
 {
     if (printer_model.empty())
         printer_model = printers.get_selected_preset().config.opt_string("printer_model");
     if (printer_model.empty()) // ORCA ensure a compatible model exist. fixes switches to blank preset if preset has no inherited value
         return nullptr;
     auto printer_variant_old = printers.get_selected_preset().config.opt_string("printer_variant");
+    // Tinman: a curated machine lands on its own canonical nozzle profile, never on the tooling profile
+    // or a copy that shares the nozzle, and choosing its model doesn't carry over the previous
+    // printer's nozzle (a K2's 0.6 mm nozzle opened the U1's 0.6 profile).
+    const std::string canonical = printer_variant.empty() ?
+        tinmanx_model_pick_machine_preset_name(app_config, printer_model,
+                                               printers.get_selected_preset().config.opt_string("printer_model"),
+                                               printer_variant_old) :
+        tinmanx_canonical_machine_preset_name(printer_model, printer_model, printer_variant);
+    if (Preset *preset = canonical.empty() ? nullptr : printers.find_preset(canonical, false, true); preset != nullptr)
+        return preset;
     std::map<std::string, Preset*> printer_presets;
     for (auto &preset : printers.m_presets) {
         if (!tinmanx_machine_preset_allowed(preset.name, printer_model))

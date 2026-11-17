@@ -60,6 +60,7 @@
 
 #include <algorithm>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/filesystem/operations.hpp>
 #include <cstdlib>
 #include <sstream>
 #include <limits>
@@ -684,6 +685,38 @@ TEST_CASE("Output filenames with numeric statistics fail before slicing finishes
     init_print({cube(20)}, print, model, config);
 
     CHECK_THROWS_AS(print.output_filename(), PlaceholderParserError);
+}
+
+// The 2026-11-17 Snapmaker U1 print report: an object printing with filament 4 (ABS) got the default
+// upload name "retraction_tower_ASA_31m10s.gcode", the type of filament 1. That is the U1 file name of
+// Snapmaker profiles before 02.04.00.15, still installed in that Tinman Test under a newer version; the
+// U1 process Tinman ships names the filament that prints.
+TEST_CASE("Snapmaker U1 file names name the filament the object prints with", "[Print][Regression]")
+{
+    const std::string profile_path = std::string(PROFILES_DIR) + "/Snapmaker/process/fdm_process_U1_common.json";
+    // CI test artifacts may omit the shipped profiles.
+    if (!boost::filesystem::exists(profile_path))
+        SKIP("shipped profile not present: " << profile_path);
+    DynamicPrintConfig process;
+    ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Enable};
+    std::map<std::string, std::string> metadata;
+    std::string reason;
+    process.load_from_json(profile_path, substitutions, false, metadata, reason);
+    INFO("profile: " << profile_path << "\nload reason: " << reason);
+    REQUIRE(process.has("filename_format"));
+
+    const auto file_name = [](const std::string &format) {
+        DynamicPrintConfig config = multifilament_config(4, {{"filament_type", "ASA;PLA;PETG;ABS"}});
+        config.set_key_value("filename_format", new ConfigOptionString(format));
+        Print print;
+        Model model;
+        const std::vector<std::vector<ConfigBase::SetDeserializeItem>> on_filament_4{{{"extruder", "4"}}};
+        init_print({cube(10)}, print, model, config, &on_filament_4);
+        gcode(print);
+        return print.output_filename("retraction_tower");
+    };
+    CHECK(boost::starts_with(file_name("{input_filename_base}_{filament_type[0]}_{print_time}.gcode"), "retraction_tower_ASA_"));
+    CHECK(boost::starts_with(file_name(process.opt_string("filename_format")), "retraction_tower_ABS_"));
 }
 
 TEST_CASE("Print: {first_object_name} names the first printable object on the plate", "[Print]")

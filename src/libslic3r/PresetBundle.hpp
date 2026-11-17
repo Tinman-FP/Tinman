@@ -506,7 +506,10 @@ public:
                                                                                                std::string &      preset_setting_id,
                                                                                                int                extruder_id,
                                                                                                NozzleVolumeType   nozzle_volume_type);
-    Preset *                    get_similar_printer_preset(std::string printer_model, std::string printer_variant);
+    // Tinman: with app_config, choosing a curated machine's model brings back the nozzle that machine
+    // was last used with (see tinmanx_model_pick_machine_preset_name).
+    Preset *                    get_similar_printer_preset(std::string printer_model, std::string printer_variant,
+                                                           const AppConfig *app_config = nullptr);
 
     PresetCollection            prints;
     PresetCollection            sla_prints;

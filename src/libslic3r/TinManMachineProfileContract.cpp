@@ -2,15 +2,19 @@
 
 #include "AppConfig.hpp"
 #include "Config.hpp"
+#include "LocalesUtils.hpp"
 #include "Preset.hpp"
 #include "PrintConfig.hpp"
 #include "TinManHardwareCatalog.hpp"
+#include "libslic3r.h"
 
 #include <algorithm>
 #include <array>
 #include <boost/log/trivial.hpp>
+#include <cmath>
 #include <map>
 #include <string_view>
+#include <vector>
 
 namespace Slic3r {
 
@@ -18,6 +22,7 @@ namespace {
 
 constexpr std::string_view connection_section = "tinman_machine_connections";
 constexpr std::string_view nozzle_volume_section = "nozzle_volume_types";
+constexpr std::string_view machine_nozzle_section = "tinman_machine_nozzles";
 constexpr std::array<std::string_view, 13> connection_options {{
     "bbl_use_printhost",
     "host_type",
@@ -515,6 +520,51 @@ std::string tinmanx_canonical_machine_preset_name(const std::string &preset_name
         return {};
 
     return std::string(model) + " " + std::string(nozzle) + " nozzle - TinMan Codex";
+}
+
+void tinmanx_remember_machine_nozzle(AppConfig &config, const std::string &preset_name, const std::string &machine_hint)
+{
+    const std::string_view model = matched_model(preset_name, machine_hint);
+    if (model.empty())
+        return;
+    const std::string_view bare_name = bare_preset_name(preset_name);
+    for (const std::string &nozzle : tinmanx_hardware_catalog().nozzle_variants)
+        if (is_canonical_machine_name(bare_name, model, nozzle)) {
+            config.set_str(std::string(machine_nozzle_section), std::string(model), nozzle);
+            return;
+        }
+}
+
+std::string tinmanx_model_pick_machine_preset_name(const AppConfig *config, const std::string &model,
+                                                   const std::string &current_model,
+                                                   const std::string &current_variant)
+{
+    const std::string_view machine = matched_model(model, model);
+    if (machine.empty())
+        return {};
+    const auto &nozzles = tinmanx_hardware_catalog().nozzle_variants;
+    const auto supported = [&nozzles](const std::string &nozzle) {
+        return std::find(nozzles.begin(), nozzles.end(), nozzle) != nozzles.end();
+    };
+    std::string nozzle = nozzles.front();
+    if (matched_model(current_model, current_model) == machine && supported(current_variant))
+        nozzle = current_variant;
+    else if (const std::string remembered = config ? config->get(std::string(machine_nozzle_section), std::string(machine)) : std::string();
+             supported(remembered))
+        nozzle = remembered;
+    return tinmanx_canonical_machine_preset_name(model, model, nozzle);
+}
+
+std::string tinmanx_uniform_tool_nozzle_preset_name(const std::string &model, const std::vector<double> &nozzle_diameters)
+{
+    if (nozzle_diameters.empty() ||
+        std::any_of(nozzle_diameters.begin(), nozzle_diameters.end(),
+                    [&nozzle_diameters](double diameter) { return std::fabs(diameter - nozzle_diameters.front()) > EPSILON; }))
+        return {};
+    for (const std::string &nozzle : tinmanx_hardware_catalog().nozzle_variants)
+        if (std::fabs(string_to_double_decimal_point(nozzle) - nozzle_diameters.front()) < EPSILON)
+            return tinmanx_canonical_machine_preset_name(model, model, nozzle);
+    return {};
 }
 
 bool tinmanx_process_preset_allowed(const std::string &preset_name, const std::string &active_printer_name)
