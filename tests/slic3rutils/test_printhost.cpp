@@ -1,6 +1,10 @@
 #include <catch2/catch_all.hpp>
 
+#include <chrono>
+#include <condition_variable>
+#include <cstddef>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -19,6 +23,8 @@
 #include "slic3r/Utils/PrintHost.hpp"
 #include "slic3r/Utils/Flashforge.hpp"
 #include "slic3r/Utils/Http.hpp"
+
+#include <boost/filesystem/operations.hpp>
 
 using namespace Slic3r;
 
@@ -104,6 +110,69 @@ const std::vector<std::string> non_json_replies = {
     "{\"err\":",
     "{\"detail\":{\"matlStationInfo\":{\"slotInfos\":[{\"slotId\":1,",
 };
+
+// What a PrintHostJobQueue without a dialog reports, in order, until the job ends.
+struct QueueLog
+{
+    std::mutex               mutex;
+    std::condition_variable  changed;
+    std::vector<std::string> events;
+    bool                     finished{false};
+
+    void add(std::string event, bool final = false)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        events.push_back(std::move(event));
+        finished |= final;
+        changed.notify_all();
+    }
+    std::vector<std::string> wait_finished()
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        changed.wait_for(lock, std::chrono::seconds(10), [this] { return finished; });
+        return events;
+    }
+};
+
+// Sends every byte, then answers as a printer does once it has handled the file: stored, or refused.
+class LastByteThenReplyHost : public TestPrintHost
+{
+public:
+    LastByteThenReplyHost(bool accept, std::shared_ptr<QueueLog> log) : m_accept(accept), m_log(std::move(log)) {}
+
+    bool upload(PrintHostUpload, ProgressFn progress_fn, ErrorFn error_fn, InfoFn) const override
+    {
+        const std::string none;
+        bool              cancel = false;
+        progress_fn(Http::Progress(0, 0, 1000, 500, none), cancel);
+        progress_fn(Http::Progress(0, 0, 1000, 1000, none), cancel);
+        m_log->add("all bytes sent");
+        if (!m_accept)
+            error_fn("File is loaded, upload not permitted");
+        return m_accept;
+    }
+
+private:
+    bool                      m_accept;
+    std::shared_ptr<QueueLog> m_log;
+};
+
+std::vector<std::string> queue_events(bool accept)
+{
+    auto                      log = std::make_shared<QueueLog>();
+    PrintHostJobQueue::Events events;
+    events.progress = [log](size_t, int progress) { log->add("progress " + std::to_string(progress), progress >= 100); };
+    events.error    = [log](size_t, wxString error) { log->add("error " + error.ToStdString(), true); };
+    events.cancel   = [log](size_t) { log->add("cancel", true); };
+    PrintHostJobQueue queue(events);
+
+    PrintHostJob job;
+    job.printhost = std::make_unique<LastByteThenReplyHost>(accept, log);
+    // The queue deletes the job's source when it is done, so point it at a file that does not exist.
+    job.upload_data.source_path = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("tinman-%%%%-%%%%.gcode");
+    queue.enqueue(std::move(job));
+    return log->wait_finished();
+}
 
 } // namespace
 
@@ -380,4 +449,19 @@ TEST_CASE("A successful upload finishes without an error", "[PrintHost][Lifecycl
     CHECK(run.errors.empty());
     CHECK(run.events == std::vector<LifecycleEvent>{LifecycleEvent::UploadStarted, LifecycleEvent::UploadFinished});
     CHECK(run.codes == std::vector<LifecycleEvtCode>{LifecycleEvtCode::Ok, LifecycleEvtCode::Ok});
+}
+
+// A Snapmaker U1 took ~90 s after the last byte to store and start the file, and Tinman showed
+// COMPLETED for all of it: 100 is the finished state in the queue dialog and the notification.
+TEST_CASE("An upload reaches 100% only once the printer has accepted it", "[PrintHost][Queue][Regression]")
+{
+    SECTION("the printer stores the file")
+    {
+        CHECK(queue_events(true) == std::vector<std::string>{"progress 0", "progress 50", "progress 99", "all bytes sent", "progress 100"});
+    }
+    SECTION("the printer refuses the file after every byte arrived")
+    {
+        CHECK(queue_events(false) ==
+              std::vector<std::string>{"progress 0", "progress 50", "progress 99", "all bytes sent", "error File is loaded, upload not permitted"});
+    }
 }

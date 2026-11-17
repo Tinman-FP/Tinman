@@ -1,6 +1,7 @@
 #include "PrintHost.hpp"
 
 #include "libslic3r/Config.hpp"
+#include <algorithm>
 #include <string>
 #include <boost/algorithm/string/predicate.hpp>
 #include "slic3r/GUI/Gizmos/GLGizmoBase.hpp"
@@ -419,7 +420,10 @@ void PrintHostJobQueue::priv::progress_fn(Http::Progress progress, bool &cancel)
     }
 
     if (! cancel) {
-        int gui_progress = progress.ultotal > 0 ? 100*progress.ulnow / progress.ultotal : 0;
+        // Tinman: 100 is the finished state (COMPLETED in the queue dialog and the notification),
+        // so only perform_job() sends it, once upload() has succeeded. After the last byte a
+        // printer can still refuse the file, or take a while to store and start it (~90 s on a U1).
+        int gui_progress = progress.ultotal > 0 ? std::min(99, int(100 * progress.ulnow / progress.ultotal)) : 0;
         if (gui_progress != prev_progress) {
             emit_progress(gui_progress);
             prev_progress = gui_progress;
