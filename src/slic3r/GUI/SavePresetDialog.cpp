@@ -306,8 +306,13 @@ PresetNameStatus check_preset_name(const PresetCollection &presets, const std::s
 {
     info_line.clear();
 
+    const Preset *existing = presets.find_preset(name, false);
+    // A name one of your own profiles already has stays usable even if it has a character a new name
+    // can't (profiles written by other tools, such as "Plus4 0.4mm - Codex | PET-CF r1"). Saving over
+    // it adds no new file name, and refusing it left such a profile unable to save its connection.
+    const bool own_existing_name = existing && existing->can_overwrite();
     static const char *unusable_symbols = "<>[]:/\\|?*\"";
-    if (name.find_first_of(unusable_symbols) != std::string::npos) {
+    if (!own_existing_name && name.find_first_of(unusable_symbols) != std::string::npos) {
         info_line = _L("Name is invalid;") + "\n" + _L("illegal characters:") + " " + unusable_symbols;
         return PresetNameStatus::Invalid;
     }
@@ -322,7 +327,6 @@ PresetNameStatus check_preset_name(const PresetCollection &presets, const std::s
         return PresetNameStatus::Invalid;
     }
 
-    const Preset *existing = presets.find_preset(name, false);
     if (existing && !existing->can_overwrite()) {
         info_line = _L("Overwriting a system profile is not allowed.");
         return PresetNameStatus::Invalid;
