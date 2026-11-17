@@ -132,6 +132,8 @@
   <string>NSApplication</string>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Tinman connects to the 3D printers on your local network to send them print jobs and show their status.</string>
   <key>LSEnvironment</key>
   <dict>
     <key>ASAN_OPTIONS</key>
