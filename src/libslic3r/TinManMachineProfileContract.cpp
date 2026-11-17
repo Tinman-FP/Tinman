@@ -235,6 +235,24 @@ bool tinmanx_machine_preset_allowed(const std::string &preset_name, const std::s
     return tinmanx_managed_machine_preset(preset_name, machine_hint);
 }
 
+bool tinmanx_machine_preset_listed(const Preset &preset)
+{
+    const std::string &machine_hint = preset.config.opt_string("printer_model");
+    if (tinmanx_machine_preset_allowed(preset.name, machine_hint))
+        return true;
+    if (!preset.is_user())
+        return false;
+
+    const std::string_view name = bare_preset_name(preset.name);
+    const auto named_after = [name](std::string_view source) {
+        source = bare_preset_name(source);
+        return !source.empty() && name.size() > source.size() && name.substr(0, source.size()) == source;
+    };
+    return !named_after(preset.inherits()) &&
+           !named_after(tinmanx_canonical_machine_preset_name(preset.name, machine_hint,
+                                                              preset.config.opt_string("printer_variant")));
+}
+
 bool tinmanx_managed_machine_preset(const std::string &preset_name, const std::string &machine_hint)
 {
     const std::string_view model = matched_model(preset_name, machine_hint);

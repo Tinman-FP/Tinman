@@ -9,12 +9,20 @@ namespace Slic3r {
 
 class AppConfig;
 class DynamicPrintConfig;
+class Preset;
 class PresetCollection;
 
 // Non-curated machines are unaffected. Curated machines expose only the four
 // generated "TinMan Codex" nozzle profiles plus declared mixed-tool profiles,
 // regardless of local/cloud copies.
 bool tinmanx_machine_preset_allowed(const std::string &preset_name, const std::string &machine_hint = {});
+
+// Whether the printer lists offer this machine profile, and a restart keeps it selected. Besides the
+// profiles allowed above, that is the user's own profile of a curated machine: a user profile with a
+// name of its own, such as "Prusa CORE One L 0.4 HT". A user profile named after the profile it copies
+// ("Snapmaker U1 0.4 nozzle - TinMan Codex - Copy", which connection saves used to make) stays hidden,
+// as do stock vendor profiles: the machine's model entry opens its canonical profile.
+bool tinmanx_machine_preset_listed(const Preset &preset);
 
 // True only for a canonical TinMan machine/nozzle preset or a declared mixed-
 // tool preset. Runtime connection values on these presets are maintained
