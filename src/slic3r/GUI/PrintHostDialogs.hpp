@@ -98,13 +98,19 @@ public:
     PrintHostQueueDialog(wxWindow *parent);
 
     void append_job(const PrintHostJob &job);
+    // The host and file name of every job that is waiting or uploading.
     void get_active_jobs(std::vector<std::pair<std::string, std::string>>& ret);
+    bool has_active_job(const std::string &host);
 
     virtual bool Show(bool show = true) override
     {
         if(!show)
             save_user_data(UDT_SIZE | UDT_POSITION | UDT_COLS);
-        return DPIDialog::Show(show);
+        const bool changed = DPIDialog::Show(show);
+        // Tinman: opening the queue again brings it to the front instead of leaving it behind.
+        if (show)
+            Raise();
+        return changed;
     }
 protected:
     void on_dpi_changed(const wxRect &suggested_rect) override;
@@ -154,6 +160,8 @@ private:
     void on_error(Event&);
     void on_cancel(Event&);
     void on_info(Event&);
+    // Shows each waiting job's place in the queue, here and in its notification.
+    void update_queue_positions();
     // This vector keep adress and filename of uploads. It is used when checking for running uploads during exit.
     std::vector<std::pair<std::string, std::string>> upload_names;
     void save_user_data(int);

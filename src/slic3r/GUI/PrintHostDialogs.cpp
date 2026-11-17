@@ -1382,6 +1382,25 @@ void PrintHostQueueDialog::append_job(const PrintHostJob &job)
     upload_names.emplace_back(job.printhost->get_host(), job.upload_data.upload_path.string());
 
     wxGetApp().notification_manager()->push_upload_job_notification(job_list->GetItemCount(), (float)size_i / 1024 / 1024, job.upload_data.upload_path.string(), job.printhost->get_host());
+    update_queue_positions();
+}
+
+// Tinman: the queue runs one upload at a time, and a job waiting behind a slow one looked the same as
+// one stuck at 0%. Its status says it waits, and behind how many uploads.
+void PrintHostQueueDialog::update_queue_positions()
+{
+    int ahead = 0;
+    for (int i = 0; i < job_list->GetItemCount(); ++i) {
+        const JobState state = get_state(i);
+        if (state == ST_NEW) {
+            job_list->SetValue(ahead > 0 ? wxString::Format(_L_PLURAL("Queued, %d upload ahead", "Queued, %d uploads ahead", ahead), ahead) :
+                                           _L("Queued"),
+                               i, COL_STATUS);
+            wxGetApp().notification_manager()->set_upload_job_notification_queued(i + 1, ahead);
+        }
+        if (state == ST_NEW || state == ST_PROGRESS || state == ST_CANCELLING)
+            ++ahead;
+    }
 }
 
 void PrintHostQueueDialog::on_dpi_changed(const wxRect &suggested_rect)
@@ -1446,17 +1465,20 @@ void PrintHostQueueDialog::on_progress(Event &evt)
 {
     wxCHECK_RET(evt.job_id < (size_t)job_list->GetItemCount(), "Out of bounds access to job list");
 
+    const bool started = get_state(evt.job_id) == ST_NEW;
     if (evt.progress < 100) {
         set_state(evt.job_id, ST_PROGRESS);
         job_list->SetValue(wxVariant(evt.progress), evt.job_id, COL_PROGRESS);
     } else {
         set_state(evt.job_id, ST_COMPLETED);
         job_list->SetValue(wxVariant(100), evt.job_id, COL_PROGRESS);
+        update_queue_positions();
     }
 
     on_list_select();
 
-    if (evt.progress > 0)
+    // The first report (0%) is the one that takes the notification out of its queued state.
+    if (evt.progress > 0 || started)
     {
         wxVariant nm, hst;
         job_list->GetValue(nm, evt.job_id, COL_FILENAME);
@@ -1476,6 +1498,7 @@ void PrintHostQueueDialog::on_error(Event &evt)
     job_list->SetValue(wxVariant(errormsg), evt.job_id, COL_ERRORMSG);    // Stashes the error message into a hidden column for later
 
     on_list_select();
+    update_queue_positions();
 
     GUI::show_error(nullptr, errormsg);
 
@@ -1493,6 +1516,7 @@ void PrintHostQueueDialog::on_cancel(Event &evt)
     job_list->SetValue(wxVariant(0), evt.job_id, COL_PROGRESS);
 
     on_list_select();
+    update_queue_positions();
 
     wxVariant nm, hst;
     job_list->GetValue(nm, evt.job_id, COL_FILENAME);
@@ -1536,6 +1560,13 @@ void PrintHostQueueDialog::get_active_jobs(std::vector<std::pair<std::string, st
         if(st == JobState::ST_NEW || st == JobState::ST_PROGRESS)
             ret.emplace_back(upload_names[i]);       
     }
+}
+
+bool PrintHostQueueDialog::has_active_job(const std::string &host)
+{
+    std::vector<std::pair<std::string, std::string>> jobs;
+    get_active_jobs(jobs);
+    return std::any_of(jobs.begin(), jobs.end(), [&host](const auto &job) { return job.first == host; });
 }
 void PrintHostQueueDialog::save_user_data(int udt)
 {

@@ -251,6 +251,8 @@ public:
 		// print host upload
 	void push_upload_job_notification(int id, float filesize, const std::string& filename, const std::string& host, float percentage = 0);
 	void set_upload_job_notification_percentage(int id, const std::string& filename, const std::string& host, float percentage);
+	// Shows the job as waiting behind `ahead` unfinished uploads, until it reports progress.
+	void set_upload_job_notification_queued(int id, int ahead);
 	void upload_job_notification_show_canceled(int id, const std::string& filename, const std::string& host);
 	void upload_job_notification_show_error(int id, const std::string& filename, const std::string& host);
     void push_slicing_serious_warning_notification(const std::string &text, std::vector<ModelObject const *> objs);
@@ -783,6 +785,7 @@ private:
 	public:
 		enum class UploadJobState
 		{
+			PB_QUEUED,
 			PB_PROGRESS,
 			PB_ERROR,
 			PB_CANCELLED,
@@ -798,6 +801,8 @@ private:
 		}
 		static std::string	get_upload_job_text(int id, const std::string& filename, const std::string& host) { return /*"[" + std::to_string(id) + "] " + */filename + " -> " + host; }
 		void				set_percentage(float percent) override;
+		// True when the shown state changed.
+		bool				set_queued(int ahead);
 		void				cancel() { m_uj_state = UploadJobState::PB_CANCELLED; m_has_cancel_button = false; }
 		void				error()  { m_uj_state = UploadJobState::PB_ERROR;     m_has_cancel_button = false; init(); }
 		bool				compare_job_id(const int other_id) const { return m_job_id == other_id; }
@@ -819,6 +824,8 @@ private:
 		float			    m_file_size;
 		long				m_hover_time{ 0 };
 		UploadJobState		m_uj_state{ UploadJobState::PB_PROGRESS };
+		// Unfinished uploads ahead of a PB_QUEUED job.
+		int					m_queue_ahead{ 0 };
 	};
 
 	class ProgressIndicatorNotification : public ProgressBarNotification

@@ -237,8 +237,10 @@ struct PrintHostJobQueue::priv
     PrintHostJobQueue *q;
 
     Channel<PrintHostJob> channel_jobs;
+    // Cancels of a job that has left channel_jobs: the running one, or one about to run.
     Channel<size_t> channel_cancels;
-    size_t job_id = 0;
+    size_t job_id = 0;      // the running job's id (bg thread)
+    size_t next_job_id = 0; // the next enqueued job's id (enqueue() caller)
     int prev_progress = -1;
     fs::path source_to_remove;
 
@@ -259,6 +261,7 @@ struct PrintHostJobQueue::priv
     void start_bg_thread();
     void stop_bg_thread();
     void bg_thread_main();
+    bool take_cancel_request();
     void progress_fn(Http::Progress progress, bool &cancel);
     void error_fn(wxString error);
     void info_fn(wxString tag, wxString status);
@@ -356,7 +359,13 @@ void PrintHostJobQueue::priv::bg_thread_main()
                 break;
             }
 
+            job_id           = job.id;
             source_to_remove = job.upload_data.source_path;
+            // Canceled after it left the queue but before it started: it must not start.
+            if (!job.cancelled && take_cancel_request()) {
+                job.cancelled = true;
+                emit_cancel(job_id);
+            }
 
             BOOST_LOG_TRIVIAL(debug) << boost::format("PrintHostJobQueue/bg_thread: Received job: [%1%]: `%2%` -> `%3%`, cancelled: %4%")
                 % job_id
@@ -369,7 +378,6 @@ void PrintHostJobQueue::priv::bg_thread_main()
             }
 
             remove_source();
-            job_id++;
         }
     } catch (const std::exception &e) {
         emit_error(e.what());
@@ -398,26 +406,8 @@ void PrintHostJobQueue::priv::progress_fn(Http::Progress progress, bool &cancel)
         return;
     }
 
-    if (channel_cancels.size_hint() > 0) {
-        // Lock both queues
-        auto cancels = channel_cancels.lock_rw();
-        auto jobs = channel_jobs.lock_rw();
-
-        for (size_t cancel_id : *cancels) {
-            if (cancel_id == job_id) {
-                cancel = true;
-            } else if (cancel_id > job_id) {
-                const size_t idx = cancel_id - job_id - 1;
-                if (idx < jobs->size()) {
-                    jobs->at(idx).cancelled = true;
-                    BOOST_LOG_TRIVIAL(debug) << boost::format("PrintHostJobQueue: Job id %1% cancelled") % cancel_id;
-                    emit_cancel(cancel_id);
-                }
-            }
-        }
-
-        cancels->clear();
-    }
+    if (take_cancel_request())
+        cancel = true;
 
     if (! cancel) {
         // Tinman: 100 is the finished state (COMPLETED in the queue dialog and the notification),
@@ -433,34 +423,26 @@ void PrintHostJobQueue::priv::progress_fn(Http::Progress progress, bool &cancel)
 
 void PrintHostJobQueue::priv::error_fn(wxString error)
 {
-    // check if transfer was not canceled before error occured - than do not show the error
-    bool do_emit_err = true;
-    if (channel_cancels.size_hint() > 0) {
-        // Lock both queues
-        auto cancels = channel_cancels.lock_rw();
-        auto jobs = channel_jobs.lock_rw();
-
-        for (size_t cancel_id : *cancels) {
-            if (cancel_id == job_id) {
-                // A dispatched job's outcome (unknown, warning) must reach the user.
-                if (!job_dispatched) {
-                    do_emit_err = false;
-                    emit_cancel(job_id);
-                }
-            }
-            else if (cancel_id > job_id) {
-                const size_t idx = cancel_id - job_id - 1;
-                if (idx < jobs->size()) {
-                    jobs->at(idx).cancelled = true;
-                    BOOST_LOG_TRIVIAL(debug) << boost::format("PrintHostJobQueue: Job id %1% cancelled") % cancel_id;
-                    emit_cancel(cancel_id);
-                }
-            }
-        }
-        cancels->clear();
-    }
-    if (do_emit_err)
+    // A job canceled before its error shows Canceled, unless it was dispatched: then its
+    // outcome (unknown, warning) must reach the user.
+    if (take_cancel_request() && !job_dispatched)
+        emit_cancel(job_id);
+    else
         emit_error(std::move(error));
+}
+
+// Takes the pending cancels; true when one is for the running job. Any other one is stale: its job
+// has finished, and a waiting job's cancel never comes here (see cancel()).
+bool PrintHostJobQueue::priv::take_cancel_request()
+{
+    if (channel_cancels.size_hint() == 0)
+        return false;
+    auto       cancels = channel_cancels.lock_rw();
+    const bool found   = std::find(cancels->begin(), cancels->end(), job_id) != cancels->end();
+    cancels->clear();
+    if (found)
+        BOOST_LOG_TRIVIAL(debug) << boost::format("PrintHostJobQueue: Job id %1% cancelled") % job_id;
+    return found;
 }
 
 void PrintHostJobQueue::priv::info_fn(wxString tag, wxString status)
@@ -543,6 +525,7 @@ void PrintHostJobQueue::priv::perform_job(PrintHostJob the_job)
 void PrintHostJobQueue::enqueue(PrintHostJob job)
 {
     p->start_bg_thread();
+    job.id = p->next_job_id++;
     if (p->queue_dialog)
         p->queue_dialog->append_job(job);
     p->channel_jobs.push(std::move(job));
@@ -550,7 +533,25 @@ void PrintHostJobQueue::enqueue(PrintHostJob job)
 
 void PrintHostJobQueue::cancel(size_t id)
 {
-    p->channel_cancels.push(id);
+    // Tinman: a waiting job is dropped here rather than when the running upload next reports
+    // progress, which a slow printer may not do for minutes. It then never starts.
+    bool waiting = false;
+    bool dropped = false;
+    {
+        auto jobs = p->channel_jobs.lock_rw();
+        for (PrintHostJob &job : *jobs)
+            if (!job.empty() && job.id == id) {
+                waiting       = true;
+                dropped       = !job.cancelled;
+                job.cancelled = true;
+                break;
+            }
+    }
+    if (dropped) {
+        BOOST_LOG_TRIVIAL(debug) << boost::format("PrintHostJobQueue: Queued job id %1% cancelled") % id;
+        p->emit_cancel(id);
+    } else if (!waiting)
+        p->channel_cancels.push(id);
 }
 
 }

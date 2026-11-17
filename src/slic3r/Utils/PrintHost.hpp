@@ -110,6 +110,8 @@ struct PrintHostJob
     std::unique_ptr<PrintHost> printhost;
     bool switch_to_device_tab{false};
     bool cancelled = false;
+    // Set by PrintHostJobQueue::enqueue(): the job's row in the queue dialog, counted from 0.
+    size_t id = 0;
 
     PrintHostJob() {}
     PrintHostJob(const PrintHostJob&) = delete;
@@ -118,6 +120,7 @@ struct PrintHostJob
         , printhost(std::move(other.printhost))
         , switch_to_device_tab(other.switch_to_device_tab)
         , cancelled(other.cancelled)
+        , id(other.id)
     {}
 
     PrintHostJob(DynamicPrintConfig *config)
@@ -131,6 +134,7 @@ struct PrintHostJob
         printhost   = std::move(other.printhost);
         switch_to_device_tab = other.switch_to_device_tab;
         cancelled = other.cancelled;
+        id = other.id;
         return *this;
     }
 
@@ -169,6 +173,8 @@ public:
     PrintHostJobQueue& operator=(PrintHostJobQueue &&other) = delete;
 
     void enqueue(PrintHostJob job);
+    // A job that is still waiting is dropped at once and reports Canceled: it never starts.
+    // The running job stops at its next progress callback.
     void cancel(size_t id);
 
     // Uploads the job, firing UploadStarted and a matching UploadFinished. An exception thrown by

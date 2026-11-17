@@ -1,5 +1,6 @@
 #include <catch2/catch_all.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -7,6 +8,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -132,7 +134,109 @@ struct QueueLog
         changed.wait_for(lock, std::chrono::seconds(10), [this] { return finished; });
         return events;
     }
+    // Waits until `event` has been logged; returns everything logged so far.
+    std::vector<std::string> wait_for(const std::string& event)
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        changed.wait_for(lock, std::chrono::seconds(10), [&] { return std::find(events.begin(), events.end(), event) != events.end(); });
+        return events;
+    }
+    std::vector<std::string> snapshot()
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        return events;
+    }
 };
+
+// Held shut by the test: an upload behind it stalls with no progress report, like a printer whose link has slowed down.
+struct Gate
+{
+    std::mutex              mutex;
+    std::condition_variable changed;
+    bool                    is_open{false};
+
+    void open()
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        is_open = true;
+        changed.notify_all();
+    }
+    void wait()
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        changed.wait_for(lock, std::chrono::seconds(10), [this] { return is_open; });
+    }
+};
+
+// Logs "<name> started", waits for the gate (if any), then reports the file stored.
+class GatedHost : public TestPrintHost
+{
+public:
+    GatedHost(std::string name, std::shared_ptr<QueueLog> log, std::shared_ptr<Gate> gate = {})
+        : m_name(std::move(name)), m_log(std::move(log)), m_gate(std::move(gate))
+    {}
+
+    bool upload(PrintHostUpload, ProgressFn, ErrorFn, InfoFn) const override
+    {
+        m_log->add(m_name + " started");
+        if (m_gate)
+            m_gate->wait();
+        return true;
+    }
+
+private:
+    std::string               m_name;
+    std::shared_ptr<QueueLog> m_log;
+    std::shared_ptr<Gate>     m_gate;
+};
+
+// Reports progress until the queue asks it to stop, then aborts as Http does: one more call with cancel set.
+class ProgressUntilCanceledHost : public TestPrintHost
+{
+public:
+    explicit ProgressUntilCanceledHost(std::shared_ptr<QueueLog> log) : m_log(std::move(log)) {}
+
+    bool upload(PrintHostUpload, ProgressFn progress_fn, ErrorFn, InfoFn) const override
+    {
+        const std::string none;
+        bool              started = false;
+        progress_fn(Http::Progress(0, 0, 1000, 0, none), started);
+        m_log->add("uploading");
+        for (int i = 0; i < 1000; ++i) {
+            bool cancel = false;
+            progress_fn(Http::Progress(0, 0, 1000, 0, none), cancel);
+            if (cancel) {
+                bool aborted = true;
+                progress_fn(Http::Progress(0, 0, 0, 0, none), aborted);
+                return false;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return true;
+    }
+
+private:
+    std::shared_ptr<QueueLog> m_log;
+};
+
+// Logs every event of a queue without a dialog as "<event> <job id> [<value>]".
+PrintHostJobQueue::Events logging_events(const std::shared_ptr<QueueLog>& log)
+{
+    PrintHostJobQueue::Events events;
+    events.progress = [log](size_t job, int progress) { log->add("progress " + std::to_string(job) + " " + std::to_string(progress)); };
+    events.error    = [log](size_t job, wxString error) { log->add("error " + std::to_string(job) + " " + error.ToStdString()); };
+    events.cancel   = [log](size_t job) { log->add("cancel " + std::to_string(job)); };
+    return events;
+}
+
+// A job whose source does not exist: the queue deletes a job's source when it is done.
+PrintHostJob job_for(std::unique_ptr<PrintHost> host)
+{
+    PrintHostJob job;
+    job.printhost               = std::move(host);
+    job.upload_data.source_path = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("tinman-%%%%-%%%%.gcode");
+    return job;
+}
 
 // Sends every byte, then answers as a printer does once it has handled the file: stored, or refused.
 class LastByteThenReplyHost : public TestPrintHost
@@ -464,4 +568,59 @@ TEST_CASE("An upload reaches 100% only once the printer has accepted it", "[Prin
         CHECK(queue_events(false) ==
               std::vector<std::string>{"progress 0", "progress 50", "progress 99", "all bytes sent", "error File is loaded, upload not permitted"});
     }
+}
+
+// A Snapmaker U1 upload crawled for 7 minutes while two more sends waited behind it, unseen. One of them
+// started a print as soon as the first finished; only quitting the app stopped it.
+TEST_CASE("A queued upload can be canceled before it starts", "[PrintHost][Queue][Regression]")
+{
+    auto              log  = std::make_shared<QueueLog>();
+    auto              gate = std::make_shared<Gate>();
+    PrintHostJobQueue queue(logging_events(log));
+
+    queue.enqueue(job_for(std::make_unique<GatedHost>("first", log, gate)));
+    queue.enqueue(job_for(std::make_unique<GatedHost>("second", log)));
+    queue.enqueue(job_for(std::make_unique<GatedHost>("third", log)));
+    log->wait_for("first started");
+
+    // The first upload is stalled and reports no progress, yet the cancel takes effect at once.
+    queue.cancel(1);
+    CHECK(log->snapshot() == std::vector<std::string>{"progress 0 0", "first started", "cancel 1"});
+
+    gate->open();
+    // The canceled job never starts, and the one after it keeps its own id.
+    CHECK(log->wait_for("progress 2 100") ==
+          std::vector<std::string>{"progress 0 0", "first started", "cancel 1", "progress 0 100", "progress 2 0", "third started", "progress 2 100"});
+}
+
+TEST_CASE("Canceling a queued upload twice reports it once", "[PrintHost][Queue]")
+{
+    auto              log  = std::make_shared<QueueLog>();
+    auto              gate = std::make_shared<Gate>();
+    PrintHostJobQueue queue(logging_events(log));
+
+    queue.enqueue(job_for(std::make_unique<GatedHost>("first", log, gate)));
+    queue.enqueue(job_for(std::make_unique<GatedHost>("second", log)));
+    log->wait_for("first started");
+    queue.cancel(1);
+    queue.cancel(1);
+    gate->open();
+    queue.enqueue(job_for(std::make_unique<GatedHost>("third", log)));
+
+    CHECK(log->wait_for("progress 2 100") ==
+          std::vector<std::string>{"progress 0 0", "first started", "cancel 1", "progress 0 100", "progress 2 0", "third started", "progress 2 100"});
+}
+
+TEST_CASE("The running upload stops when it is canceled", "[PrintHost][Queue]")
+{
+    auto              log = std::make_shared<QueueLog>();
+    PrintHostJobQueue queue(logging_events(log));
+
+    queue.enqueue(job_for(std::make_unique<ProgressUntilCanceledHost>(log)));
+    queue.enqueue(job_for(std::make_unique<GatedHost>("next", log)));
+    log->wait_for("uploading");
+    queue.cancel(0);
+
+    CHECK(log->wait_for("progress 1 100") ==
+          std::vector<std::string>{"progress 0 0", "progress 0 0", "uploading", "cancel 0", "progress 1 0", "next started", "progress 1 100"});
 }

@@ -1666,10 +1666,28 @@ void NotificationManager::PrintHostUploadNotification::set_percentage(float perc
 		m_has_cancel_button = true;
 	}
 }
+bool NotificationManager::PrintHostUploadNotification::set_queued(int ahead)
+{
+	// A job that has started, or ended, never goes back to waiting.
+	if (m_uj_state != UploadJobState::PB_QUEUED && !(m_uj_state == UploadJobState::PB_PROGRESS && m_percentage <= 0.f))
+		return false;
+	const bool changed = m_uj_state != UploadJobState::PB_QUEUED || m_queue_ahead != ahead;
+	m_uj_state          = UploadJobState::PB_QUEUED;
+	m_queue_ahead       = ahead;
+	m_has_cancel_button = true;
+	return changed;
+}
 void NotificationManager::PrintHostUploadNotification::render_bar(ImGuiWrapper& imgui, const float win_size_x, const float win_size_y, const float win_pos_x, const float win_pos_y)
 {
 	std::string text;
 	switch (m_uj_state) {
+	case Slic3r::GUI::NotificationManager::PrintHostUploadNotification::UploadJobState::PB_QUEUED:
+		// Tinman: a job waiting behind another upload must not look like one stuck at 0%.
+		text = m_queue_ahead > 0 ? into_u8(wxString::Format(_L_PLURAL("QUEUED - %d upload ahead", "QUEUED - %d uploads ahead", m_queue_ahead), m_queue_ahead)) :
+		                           _u8L("QUEUED");
+		ImGui::SetCursorPosX(m_left_indentation);
+		ImGui::SetCursorPosY(win_size_y / 2 + win_size_y / 6 - (m_multiline ? m_line_height / 4 : m_line_height / 2));
+		break;
 	case Slic3r::GUI::NotificationManager::PrintHostUploadNotification::UploadJobState::PB_PROGRESS:
 	{
 		ProgressBarNotification::render_bar(imgui, win_size_x, win_size_y, win_pos_x, win_pos_y);
@@ -2682,6 +2700,19 @@ void NotificationManager::set_upload_job_notification_percentage(int id, const s
 			if (phun->compare_job_id(id)) {
 				phun->set_percentage(percentage);
 				wxGetApp().plater()->get_current_canvas3D()->schedule_extra_frame(0);
+				break;
+			}
+		}
+	}
+}
+void NotificationManager::set_upload_job_notification_queued(int id, int ahead)
+{
+	for (std::unique_ptr<PopNotification>& notification : m_pop_notifications) {
+		if (notification->get_type() == NotificationType::PrintHostUpload) {
+			PrintHostUploadNotification* phun = dynamic_cast<PrintHostUploadNotification*>(notification.get());
+			if (phun->compare_job_id(id)) {
+				if (phun->set_queued(ahead))
+					wxGetApp().plater()->get_current_canvas3D()->schedule_extra_frame(0);
 				break;
 			}
 		}
