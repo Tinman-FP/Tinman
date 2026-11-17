@@ -82,6 +82,7 @@
 #include "NotificationManager.hpp"
 #include "ExtraRenderers.hpp"
 #include "format.hpp"
+#include "../Utils/CrealityCfs.hpp"
 #include "../Utils/CrealityPrint.hpp"
 #include "../Utils/Http.hpp"
 #include "BitmapComboBox.hpp"
@@ -2143,6 +2144,10 @@ void CrealityPrintHostSendDialog::add_printer_box(const CrealityPrinterInfo& inf
         group_sizer->Add(label);
         group_sizer->AddSpacer(4);
 
+        std::vector<CrealityMappingSlot> mapping_slots;
+        for (const auto& slot : m_printer_slots)
+            mapping_slots.push_back({slot.type, slot.color, slot.box_id == 0});
+
         for (int i = 0; i < gcode_filament_count; i++) {
             auto* row_sizer = new wxBoxSizer(wxHORIZONTAL);
 
@@ -2184,30 +2189,10 @@ void CrealityPrintHostSendDialog::add_printer_box(const CrealityPrinterInfo& inf
                     label_str = wxString::Format("%s - %s", slot.tool_id.substr(1).c_str(), slot.type.c_str());
                 combo->Append(label_str, bmp ? *bmp : wxNullBitmap);
             }
-            // Find best default: CFS exact color+type, CFS type-only,
-            // Ext exact, Ext type-only, else positional
-            int default_sel = (i < (int)m_printer_slots.size()) ? i : 0;
-            bool matched = false;
-            for (int pass = 0; pass < 4 && !matched; pass++) {
-                for (int s = 0; s < (int)m_printer_slots.size(); s++) {
-                    bool is_ext = (m_printer_slots[s].box_id == 0);
-                    bool type_match = (m_printer_slots[s].type == gc_type);
-                    bool color_match = (wxColour(m_printer_slots[s].color) == wxColour(gc_color));
-                    bool hit = false;
-                    switch (pass) {
-                    case 0: hit = !is_ext && type_match && color_match; break;
-                    case 1: hit = !is_ext && type_match; break;
-                    case 2: hit = is_ext && type_match && color_match; break;
-                    case 3: hit = is_ext && type_match; break;
-                    }
-                    if (hit) {
-                        default_sel = s;
-                        matched = true;
-                        break;
-                    }
-                }
-            }
-            combo->SetSelection(default_sel);
+            // Default: the CFS slot of this type with the closest colour, then the external spool's,
+            // else the slot in the filament's own position.
+            combo->SetSelection(default_creality_mapping_slot(mapping_slots, gc_type, gc_color,
+                                                              i < (int)m_printer_slots.size() ? i : 0));
             row_sizer->Add(combo, 0, wxALIGN_CENTER_VERTICAL);
 
             group_sizer->Add(row_sizer);

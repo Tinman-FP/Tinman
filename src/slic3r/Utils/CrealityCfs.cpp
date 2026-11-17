@@ -1,6 +1,9 @@
 #include "CrealityCfs.hpp"
 #include "MoonrakerPrinterAgent.hpp"
 
+#include "libslic3r/Color.hpp"
+
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -84,6 +87,36 @@ bool parse_creality_cfs_response(const std::string& response, std::vector<Creali
         }
     }
     return true;
+}
+
+int default_creality_mapping_slot(const std::vector<CrealityMappingSlot>& slots, const std::string& type,
+                                  const std::string& color, int fallback)
+{
+    ColorRGB wanted;
+    const bool has_color = decode_color(color, wanted);
+    auto distance = [&](const CrealityMappingSlot& slot) {
+        ColorRGB have;
+        if (!has_color || !decode_color(slot.color, have))
+            return std::numeric_limits<float>::max();
+        const float dr = wanted.r() - have.r(), dg = wanted.g() - have.g(), db = wanted.b() - have.b();
+        return dr * dr + dg * dg + db * db;
+    };
+    for (const bool external : {false, true}) {
+        int   best          = -1;
+        float best_distance = std::numeric_limits<float>::max();
+        for (int i = 0; i < int(slots.size()); ++i) {
+            if (slots[i].external != external || slots[i].type != type)
+                continue;
+            const float d = distance(slots[i]);
+            if (best < 0 || d < best_distance) {
+                best          = i;
+                best_distance = d;
+            }
+        }
+        if (best >= 0)
+            return best;
+    }
+    return fallback;
 }
 
 } // namespace Slic3r
