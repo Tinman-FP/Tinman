@@ -20909,7 +20909,6 @@ void Plater::export_gcode_3mf(bool export_all)
 
     fs::path output_path;
     {
-        std::string ext = default_output_file.extension().string();
         wxFileDialog dlg(this, _L("Save Sliced file as:"),
             start_dir,
             from_path(default_output_file.filename()),
@@ -20917,10 +20916,16 @@ void Plater::export_gcode_3mf(bool export_all)
             wxFD_SAVE | wxFD_OVERWRITE_PROMPT
         );
         if (dlg.ShowModal() == wxID_OK) {
-            output_path = into_path(dlg.GetPath());
-            ext = output_path.extension().string();
-            if (ext != ".3mf")
-                output_path = output_path.string() + ".3mf";
+            const fs::path chosen_path = into_path(dlg.GetPath());
+            output_path = with_gcode_3mf_extension(chosen_path);
+            // The dialog only asked about replacing the file it returned, not the corrected name.
+            boost::system::error_code ec;
+            if (output_path != chosen_path && fs::exists(output_path, ec)) {
+                MessageDialog replace_dlg(this, wxString::Format(_L("The file %s already exists.\nDo you want to replace it\?"), from_path(output_path)),
+                                          _L("Confirm Save As"), wxYES_NO | wxICON_WARNING);
+                if (replace_dlg.ShowModal() != wxID_YES)
+                    output_path.clear();
+            }
         }
     }
 
