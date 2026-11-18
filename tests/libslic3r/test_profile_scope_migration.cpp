@@ -3,6 +3,7 @@
 #include <boost/nowide/fstream.hpp>
 #include <algorithm>
 #include <map>
+#include <string>
 
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/ProfileScopeMigration.hpp"
@@ -374,8 +375,14 @@ TEST_CASE("Profiles in a folder are imported onto the printer without touching t
     std::map<std::string, const ProfileMoveCandidate *> by_file;
     for (const auto &candidate : candidates)
         by_file[fs::path(candidate.source_file).filename().string()] = &candidate;
+    // "|" is a legal file name character on macOS, so the copy keeps it there, and the save below writes it.
+#ifdef __APPLE__
+    const std::string child_copy = "CANDIDATE | X | PLA (Pika) | r01 - Printer A";
+#else
+    const std::string child_copy = "CANDIDATE - X - PLA (Pika) - r01 - Printer A";
+#endif
     CHECK(by_file.at("child.json")->problem.empty());
-    CHECK(by_file.at("child.json")->copy_name == "CANDIDATE - X - PLA (Pika) - r01 - Printer A");
+    CHECK(by_file.at("child.json")->copy_name == child_copy);
     CHECK(by_file.at("child.json")->made_for == std::vector<std::string>{"Vendor X 0.4"});
     CHECK(by_file.at("root.json")->problem.empty());
     CHECK(by_file.at("vendor-style.json")->problem.empty());
@@ -394,7 +401,7 @@ TEST_CASE("Profiles in a folder are imported onto the printer without touching t
 
     PresetBundle reloaded;
     fixture.load(reloaded);
-    const Preset *filament = reloaded.filaments.find_preset("CANDIDATE - X - PLA (Pika) - r01 - Printer A", false, true);
+    const Preset *filament = reloaded.filaments.find_preset(child_copy, false, true);
     REQUIRE(filament);
     CHECK(filament->inherits() == "Vendor profile");
     CHECK(filament->config.option<ConfigOptionFloats>("filament_flow_ratio")->values == std::vector<double>{0.95});
