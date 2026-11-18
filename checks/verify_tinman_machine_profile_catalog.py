@@ -99,10 +99,13 @@ def validate_repo() -> list[str]:
     # The public, profile-neutral distribution (e4db1b03d0) no longer applies the curated machine
     # catalog when AppConfig is saved or presets are loaded, so AppConfig.cpp and PresetBundle.cpp
     # are not required to call tinmanx_apply_machine_catalog.
+    # The printer combos filter through tinmanx_machine_preset_listed (#43), which applies
+    # tinmanx_machine_preset_allowed first and then admits the user's own named profiles.
     source_contracts = (
         (CONTRACT_SOURCE, "tinmanx_apply_machine_catalog", 1),
         (CONTRACT_SOURCE, "tinmanx_process_preset_allowed", 1),
-        (COMBO_SOURCE, "tinmanx_machine_preset_allowed", 2),
+        (CONTRACT_SOURCE, "if (tinmanx_machine_preset_allowed(preset.name, machine_hint))", 1),
+        (COMBO_SOURCE, "tinmanx_machine_preset_listed", 2),
         (PRESET_SOURCE, "tinmanx_process_preset_allowed", 1),
     )
     for path, marker, minimum in source_contracts:

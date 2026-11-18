@@ -22,6 +22,11 @@ on:
     - 'src/libslic3r/PrintConfig.cpp'
     # Tinman: the hardware catalog and motion envelopes the Tinman checks below read.
     - 'checks/verify_tinman_machine_profile_catalog.py'
+    # It also checks how these sources apply the catalog; #43 changed one without running it.
+    - 'src/libslic3r/TinManMachineProfileContract.cpp'
+    - 'src/libslic3r/Preset.cpp'
+    - 'src/slic3r/GUI/PresetComboBoxes.cpp'
+    - 'src/slic3r/GUI/Plater.cpp'
     - 'resources/orcaslicer_codex/hardware/**'
     - 'resources/orcaslicer_codex/motion_envelope/**'
     - ".github/workflows/check_profiles.yml"
