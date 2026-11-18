@@ -12,6 +12,13 @@
 #include <catch2/catch_approx.hpp>
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Preset.hpp"
+#include "libslic3r/Utils.hpp"
+
+#include <sstream>
+#include <boost/log/core.hpp>
+#include <boost/log/sinks/sync_frontend.hpp>
+#include <boost/log/sinks/text_ostream_backend.hpp>
+#include <boost/smart_ptr/make_shared_object.hpp>
 
 using namespace Slic3r;
 
@@ -38,6 +45,38 @@ void add_print_variant_columns(DynamicPrintConfig &config)
                                                                                   "Direct Drive Standard", "Direct Drive High Flow"};
     config.option<ConfigOptionFloats>("outer_wall_speed", true)->values = {30., 200., 50., 500.};
 }
+
+// Collects the Boost.Log records written while it is in scope, at warning level or above.
+class LogCapture
+{
+public:
+    LogCapture() : m_saved_level(get_logging_level())
+    {
+        set_logging_level(2);
+        m_sink->locked_backend()->add_stream(m_stream);
+        boost::log::core::get()->add_sink(m_sink);
+    }
+    ~LogCapture()
+    {
+        boost::log::core::get()->remove_sink(m_sink);
+        set_logging_level(m_saved_level);
+    }
+    size_t count(const std::string &needle) const
+    {
+        m_sink->flush();
+        const std::string text = m_stream->str();
+        size_t n = 0;
+        for (size_t pos = text.find(needle); pos != std::string::npos; pos = text.find(needle, pos + needle.size()))
+            ++n;
+        return n;
+    }
+
+private:
+    using Sink = boost::log::sinks::synchronous_sink<boost::log::sinks::text_ostream_backend>;
+    unsigned                              m_saved_level;
+    boost::shared_ptr<std::ostringstream> m_stream = boost::make_shared<std::ostringstream>();
+    boost::shared_ptr<Sink>               m_sink   = boost::make_shared<Sink>();
+};
 
 } // namespace
 
@@ -465,6 +504,37 @@ TEST_CASE("update_values_to_printer_extruders synthesizes degenerate process var
         REQUIRE(config.option<ConfigOptionFloats>("outer_wall_speed")->values ==
                 once.option<ConfigOptionFloats>("outer_wall_speed")->values);
     }
+}
+
+TEST_CASE("Variant expansion logs only a short multi-value option, once per call", "[Config]")
+{
+    // A 4-tool printer like the Snapmaker U1: its process preset keeps one value per option.
+    DynamicPrintConfig config;
+    config.option<ConfigOptionEnumsGeneric>("extruder_type", true)->values = {etDirectDrive, etDirectDrive, etDirectDrive, etDirectDrive};
+    config.option<ConfigOptionEnumsGeneric>("nozzle_volume_type", true)->values = {nvtStandard, nvtStandard, nvtStandard, nvtStandard};
+    config.option<ConfigOptionStrings>("extruder_variant_list", true)->values = {"Direct Drive Standard", "Direct Drive Standard",
+                                                                                 "Direct Drive Standard", "Direct Drive Standard"};
+    config.option<ConfigOptionInts>("print_extruder_id", true)->values = {1};
+    config.option<ConfigOptionStrings>("print_extruder_variant", true)->values = {"Direct Drive Standard"};
+    config.option<ConfigOptionFloats>("outer_wall_speed", true)->values = {30.};
+    config.option<ConfigOptionFloats>("inner_wall_speed", true)->values = {40., 41.};
+
+    std::vector<std::vector<NozzleVolumeType>> nozzle_volume_types;
+    int extruder_count = 4;
+    int count = config.get_extruder_nozzle_volume_count(extruder_count, nozzle_volume_types);
+
+    LogCapture log;
+    config.update_values_to_printer_extruders(config, extruder_count, count, nozzle_volume_types,
+        print_options_with_variant, "print_extruder_id", "print_extruder_variant");
+
+    // the fallback is unchanged: out-of-range slots keep the first value
+    REQUIRE(config.option<ConfigOptionFloats>("outer_wall_speed")->values == std::vector<double>({30., 30., 30., 30.}));
+    REQUIRE(config.option<ConfigOptionFloats>("inner_wall_speed")->values == std::vector<double>({40., 41., 40., 40.}));
+    // a single value given to every tool is the normal layout and logs nothing
+    CHECK(log.count("option outer_wall_speed") == 0);
+    // two values for four tools is a real mismatch: one line, not one per slot
+    CHECK(log.count("option inner_wall_speed has 2 values, slot index 2 is out of range") == 1);
+    CHECK(log.count("option inner_wall_speed") == 1);
 }
 
 TEST_CASE("update_values_to_printer_extruders_for_multiple_filaments resolves per-filament slots", "[Config]")

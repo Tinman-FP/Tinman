@@ -13212,6 +13212,10 @@ static void ensure_process_variant_columns(DynamicPrintConfig &config, const Dyn
 
 // Regathers a vector option's values through per-slot source indices (one input index per
 // output slot). Out-of-range indices keep the first value, matching get_at's fallback.
+// A single value is the normal layout of a process preset on a custom multi-extruder printer
+// (see ensure_process_variant_columns), so giving it to every slot is silent. Only a multi-value
+// option that is still too short is logged, once per call: the app expands every variant option
+// on each preset refresh, and a line per slot filled the log.
 template<typename OptType, typename ValueType>
 static void gather_option_values(const char *caller, const std::string &key, OptType *opt, const std::vector<int> &slot_param_indices)
 {
@@ -13221,14 +13225,21 @@ static void gather_option_values(const char *caller, const std::string &key, Opt
     }
     std::vector<ValueType> new_values;
     new_values.reserve(slot_param_indices.size());
+    bool out_of_range = false;
+    int  first_out_of_range = 0;
     for (int idx : slot_param_indices) {
         if (idx < 0 || static_cast<size_t>(idx) >= opt->values.size()) {
-            BOOST_LOG_TRIVIAL(warning) << caller << boost::format(", Line %1%: option %2% slot index %3% out of range, keeping first value")%__LINE__%key%idx;
+            if (!out_of_range)
+                first_out_of_range = idx;
+            out_of_range = true;
             new_values.emplace_back(opt->values.front());
         }
         else
             new_values.emplace_back(opt->values[idx]);
     }
+    if (out_of_range && opt->values.size() > 1)
+        BOOST_LOG_TRIVIAL(warning) << caller << boost::format(", Line %1%: option %2% has %3% values, slot index %4% is out of range, keeping first value")
+            %__LINE__%key%opt->values.size()%first_out_of_range;
     opt->values = std::move(new_values);
 }
 
