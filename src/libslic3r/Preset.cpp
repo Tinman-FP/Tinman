@@ -540,6 +540,15 @@ const std::string& Preset::suffix_modified()
     return g_suffix_modified;
 }
 
+const char* Preset::forbidden_name_chars()
+{
+#ifdef __APPLE__
+    return "<>[]:/\\?*\"";
+#else
+    return "<>[]:/\\|?*\"";
+#endif
+}
+
 void Preset::update_suffix_modified(const std::string& new_suffix_modified)
 {
     g_suffix_modified = new_suffix_modified;

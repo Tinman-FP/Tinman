@@ -5,6 +5,7 @@
 #include <cmath>
 #include <set>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -222,7 +223,7 @@ std::string profile_copy_name(const std::string &name, const std::string &printe
             c = '(';
         else if (c == ']')
             c = ')';
-        else if (std::string("<>:/\\|?*\"").find(c) != std::string::npos)
+        else if (std::string_view(Preset::forbidden_name_chars()).find(c) != std::string_view::npos)
             c = '-';
         else if (c == '\r' || c == '\n' || c == '\t')
             c = ' ';

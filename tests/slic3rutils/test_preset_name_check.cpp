@@ -44,9 +44,16 @@ TEST_CASE("A user profile's existing name passes the name check even with charac
     // Saving over the user's own profile (e.g. setting its connection) keeps its name.
     CHECK(check_preset_name(printers, "Qidi Plus4 0.4mm - Codex | PET-CF r1", info) != PresetNameStatus::Invalid);
 
-    // A new name still can't use them.
+    // A new name still can't use them, except "|" on macOS, where it is a legal file name character.
+#ifdef __APPLE__
+    CHECK(check_preset_name(printers, "Qidi Plus4 0.4mm - Codex | PET-CF r2", info) == PresetNameStatus::Valid);
+#else
     CHECK(check_preset_name(printers, "Qidi Plus4 0.4mm - Codex | PET-CF r2", info) == PresetNameStatus::Invalid);
+#endif
     CHECK(check_preset_name(printers, "New: printer", info) == PresetNameStatus::Invalid);
+#ifdef __APPLE__
+    CHECK(info.Find('|') == wxNOT_FOUND); // the refusal doesn't list "|" as a refused character
+#endif
 
     // A system profile's name is no exception.
     CHECK(check_preset_name(printers, "Vendor | Printer 0.4", info) == PresetNameStatus::Invalid);

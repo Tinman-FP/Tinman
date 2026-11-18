@@ -27,7 +27,7 @@ struct ProfileScopeSaveSelection {
 };
 
 // A name the save dialog would accept for a profile or physical printer: not empty, no
-// leading or trailing space, none of <>[]:/\|?*" or line breaks, no "(modified)" suffix.
+// leading or trailing space, none of Preset::forbidden_name_chars() or line breaks, no "(modified)" suffix.
 bool is_valid_profile_name(const std::string &name);
 
 // The selected physical printer, if it has an identity that its selected machine
