@@ -478,6 +478,10 @@ public:
 	static void                             update_suffix_modified(const std::string& new_suffix_modified);
     static const std::string&               suffix_modified();
     static std::string                      remove_suffix_modified(const std::string& name);
+    // Characters a new profile name can't contain, because the name is also the profile's file name.
+    // macOS file names allow "|", and Tinman's tuned profile names use " | " as a separator, so only
+    // the other platforms refuse it.
+    static const char*                      forbidden_name_chars();
     static void                             normalize(DynamicPrintConfig &config);
     // Report configuration fields, which are misplaced into a wrong group, remove them from the config.
     // `added`, when given, is the diff applied over a copy of default_config, and only

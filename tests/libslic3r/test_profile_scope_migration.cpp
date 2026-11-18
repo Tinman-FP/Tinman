@@ -6,6 +6,7 @@
 
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/ProfileScopeMigration.hpp"
+#include "libslic3r/ProfileScopeSave.hpp"
 
 using namespace Slic3r;
 namespace fs = boost::filesystem;
@@ -295,9 +296,18 @@ TEST_CASE("Copy names avoid collisions and invalid requests save nothing", "[Tin
     // The taken name, the same name twice, and an invalid name are refused before anything is written.
     refused({{&vendor_only.source, "Vendor X only - Printer A", std::nullopt}, {&tuned.source, "Tuned on My X - Printer A", std::nullopt}});
     refused({{&vendor_only.source, "Same name", std::nullopt}, {&tuned.source, "Same name", std::nullopt}});
-    refused({{&tuned.source, "Bad | name", std::nullopt}});
+    refused({{&tuned.source, "Bad: name", std::nullopt}});
 
+    // "|" is a legal file name character on macOS, so a copy keeps it there.
+#ifdef __APPLE__
+    CHECK(is_valid_profile_name("CANDIDATE | U1 | PLA"));
+    CHECK(profile_copy_name("CANDIDATE | U1 | PLA [Pika]", "Printer A") == "CANDIDATE | U1 | PLA (Pika) - Printer A");
+#else
+    CHECK_FALSE(is_valid_profile_name("CANDIDATE | U1 | PLA"));
     CHECK(profile_copy_name("CANDIDATE | U1 | PLA [Pika]", "Printer A") == "CANDIDATE - U1 - PLA (Pika) - Printer A");
+#endif
+    CHECK_FALSE(is_valid_profile_name("CANDIDATE: U1"));
+    CHECK(profile_copy_name("CANDIDATE: U1 * PLA", "Printer A") == "CANDIDATE- U1 - PLA - Printer A");
 }
 
 TEST_CASE("A filament for a multi-nozzle printer needs the nozzle it was tuned on", "[TinMan][Preset][ScopeMigration]")

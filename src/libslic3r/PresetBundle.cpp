@@ -229,7 +229,8 @@ bool prepare_profile_scope_for_save(Preset &candidate, const PresetBundle &bundl
 bool is_valid_profile_name(const std::string &name)
 {
     return !name.empty() && name != "." && name != ".." && name.front() != ' ' && name.back() != ' ' &&
-           name.find_first_of("<>[]:/\\|?*\"\r\n\t") == std::string::npos && name.find(Preset::suffix_modified()) == std::string::npos;
+           name.find_first_of(std::string(Preset::forbidden_name_chars()) + "\r\n\t") == std::string::npos &&
+           name.find(Preset::suffix_modified()) == std::string::npos;
 }
 
 void PresetBundle::save_physical_unit(const Preset &source, PhysicalPrinter connection, const std::string &machine_name,
