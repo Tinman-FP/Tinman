@@ -31,10 +31,12 @@
 #include <memory>
 #include <string>
 #include "Lazy.hpp"
+#include "PrinterWebViewAuth.hpp"
 #include "libslic3r/PrintConfig.hpp"
 
 class Button;
 class wxMediaCtrl3;
+class wxStaticText;
 
 namespace Slic3r {
 namespace GUI {
@@ -71,12 +73,14 @@ private:
     void create_browser();
     void reset_browser();
     void update_prusa_camera(const wxString& printer_url);
+    void update_prusa_camera_title();
     void start_prusa_camera_discovery();
     void set_prusa_camera_url(const std::string& camera_url, bool persist);
     void prompt_for_prusa_camera_url();
 
     wxWebView* m_browser;
     wxPanel* m_prusa_camera_panel;
+    wxStaticText* m_prusa_camera_title;
     wxMediaCtrl3* m_prusa_camera_media;
     MediaPlayCtrl* m_prusa_camera_player;
     ::Button* m_prusa_camera_refresh;
@@ -84,6 +88,8 @@ private:
     long m_zoomFactor;
     wxString m_apikey;
     bool m_apikey_sent;
+    // The PrusaLink user and password the page answers its printer's HTTP digest sign-in with.
+    PrinterWebViewCredentials m_credentials;
     // Last url passed to load_url(), reloaded after reset_browser().
     wxString m_url;
     wxString m_url_deferred;
