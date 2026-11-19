@@ -4839,6 +4839,20 @@ void MainFrame::request_select_tab(const wxString& id)
     wxQueueEvent(this, evt);
 }
 
+void MainFrame::request_device_tab_after_upload()
+{
+    request_select_tab(TAB_ID_MONITOR);
+    // The printer's page may have been hidden since it loaded, and its live connection can drop
+    // meanwhile; selecting the tab only shows it again (PrinterWebView::load_url ignores the same
+    // address). Queued after the tab switch, so the page is shown when this runs.
+    CallAfter([] {
+        if (wxGetApp().is_closing())
+            return;
+        if (PrinterWebView* view = PrinterWebView::if_built())
+            view->reload_after_upload();
+    });
+}
+
 int MainFrame::get_calibration_curr_tab() {
     if (CalibrationPanel* calibration = CalibrationPanel::if_built())
         return calibration->get_tabpanel()->GetSelection();

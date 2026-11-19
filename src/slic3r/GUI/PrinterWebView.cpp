@@ -608,6 +608,15 @@ void PrinterWebView::reload()
     m_browser->Reload();
 }
 
+void PrinterWebView::reload_after_upload()
+{
+    // A hidden page, or one whose first load is still pending, is loaded fresh when shown.
+    if (!IsShownOnScreen() || !m_url_loaded || !m_url_deferred.empty())
+        return;
+    BOOST_LOG_TRIVIAL(info) << "PrinterWebView reloading after an upload";
+    m_browser->Reload();
+}
+
 void PrinterWebView::update_mode()
 {
     m_browser->EnableAccessToDevTools(wxGetApp().app_config->get_bool("developer_mode"));

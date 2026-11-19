@@ -334,7 +334,7 @@ void PrintHostJobQueue::priv::emit_device_tab()
         if (events.device_tab) events.device_tab(job_id);
         return;
     }
-    GUI::wxGetApp().mainframe->request_select_tab(TAB_ID_MONITOR);
+    GUI::wxGetApp().mainframe->request_device_tab_after_upload();
 }
 
 void PrintHostJobQueue::priv::start_bg_thread()
