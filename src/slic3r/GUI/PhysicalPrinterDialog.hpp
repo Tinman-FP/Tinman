@@ -23,6 +23,11 @@ namespace Slic3r {
 
 namespace GUI {
 
+// Tinman: a printer switched to PrusaLink with no API key, user or password yet signs in with a user
+// and password (HTTP digest), the default of current Prusa firmware. Printers already set up keep
+// their sign-in.
+bool prusalink_defaults_to_digest(const DynamicPrintConfig& config);
+
 //------------------------------------------
 //          PhysicalPrinterDialog
 //------------------------------------------

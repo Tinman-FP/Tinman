@@ -202,9 +202,24 @@ PhysicalPrinterDialog::~PhysicalPrinterDialog()
 {
 }
 
+bool prusalink_defaults_to_digest(const DynamicPrintConfig& config)
+{
+    const auto* host_type = config.option<ConfigOptionEnum<PrintHostType>>("host_type");
+    if (host_type == nullptr || host_type->value != htPrusaLink)
+        return false;
+    for (const char* key : {"printhost_apikey", "printhost_user", "printhost_password"}) {
+        const auto* option = config.option<ConfigOptionString>(key);
+        if (option != nullptr && !option->value.empty())
+            return false;
+    }
+    return true;
+}
+
 void PhysicalPrinterDialog::build_printhost_settings(ConfigOptionsGroup* m_optgroup)
 {
     m_optgroup->m_on_change = [this](t_config_option_key opt_key, boost::any value) {
+        if (opt_key == "host_type" && prusalink_defaults_to_digest(*m_config))
+            m_config->set_key_value("printhost_authorization_type", new ConfigOptionEnum<AuthorizationType>(atUserPassword));
         if (opt_key == "host_type" || opt_key == "printhost_authorization_type")
             this->update();
         if (opt_key == "print_host")

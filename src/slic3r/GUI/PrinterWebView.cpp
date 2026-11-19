@@ -1,5 +1,6 @@
 #include "PrinterWebView.hpp"
 
+#include "PrinterWebViewAuth.hpp"
 #include "PrinterWebViewHandler.hpp"
 #include "I18N.hpp"
 #include "GUI.hpp"
@@ -33,6 +34,7 @@
 #include <wx/panel.h>
 #include <wx/gdicmn.h>
 #include <wx/log.h>
+#include <wx/msgdlg.h>
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 #include <wx/string.h>
@@ -83,24 +85,15 @@ bool active_printer_is_prusa()
     return boost::algorithm::icontains(identity, "prusa");
 }
 
-std::string host_from_printer_url(std::string url)
+std::string host_from_printer_url(const std::string& url) { return printer_url_authority(url).host; }
+
+// Like the host type, a PrusaLink user and password come from the selected printer's connection,
+// and they answer only that printer's own sign-in challenge.
+PrinterWebViewCredentials active_printer_credentials()
 {
-    boost::algorithm::trim(url);
-    const size_t scheme = url.find("://");
-    if (scheme != std::string::npos)
-        url.erase(0, scheme + 3);
-    const size_t slash = url.find('/');
-    if (slash != std::string::npos)
-        url.resize(slash);
-    const size_t at = url.rfind('@');
-    if (at != std::string::npos)
-        url.erase(0, at + 1);
-    if (!url.empty() && url.front() == '[') {
-        const size_t end = url.find(']');
-        return end == std::string::npos ? std::string() : url.substr(1, end - 1);
-    }
-    const size_t port = url.find(':');
-    return port == std::string::npos ? url : url.substr(0, port);
+    if (wxGetApp().preset_bundle == nullptr)
+        return {};
+    return printer_webview_credentials(wxGetApp().preset_bundle->printers.get_edited_preset().config);
 }
 
 std::string normalized_printer_endpoint(std::string url)
@@ -302,6 +295,7 @@ PrinterWebView::PrinterWebView(wxWindow *parent)
         : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize)
     , m_browser(nullptr)
     , m_prusa_camera_panel(nullptr)
+    , m_prusa_camera_title(nullptr)
     , m_prusa_camera_media(nullptr)
     , m_prusa_camera_player(nullptr)
     , m_prusa_camera_refresh(nullptr)
@@ -324,13 +318,13 @@ PrinterWebView::PrinterWebView(wxWindow *parent)
     wxPanel* camera_header = new wxPanel(m_prusa_camera_panel);
     camera_header->SetBackgroundColour(*wxWHITE);
     wxBoxSizer* camera_header_sizer = new wxBoxSizer(wxHORIZONTAL);
-    wxStaticText* camera_title = new wxStaticText(camera_header, wxID_ANY, _L("CORE One L Camera"));
-    camera_title->SetFont(wxGetApp().bold_font());
+    m_prusa_camera_title = new wxStaticText(camera_header, wxID_ANY, _L("Printer Camera"));
+    m_prusa_camera_title->SetFont(wxGetApp().bold_font());
     m_prusa_camera_refresh = new Button(camera_header, "", "refresh", wxBORDER_NONE, 16);
     m_prusa_camera_refresh->SetToolTip(_L("Find camera"));
     m_prusa_camera_settings = new Button(camera_header, "", "settings", wxBORDER_NONE, 16);
     m_prusa_camera_settings->SetToolTip(_L("Camera address"));
-    camera_header_sizer->Add(camera_title, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(12));
+    camera_header_sizer->Add(m_prusa_camera_title, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(12));
     camera_header_sizer->AddStretchSpacer();
     camera_header_sizer->Add(m_prusa_camera_refresh, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(4));
     camera_header_sizer->Add(m_prusa_camera_settings, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
@@ -418,6 +412,11 @@ void PrinterWebView::create_browser()
     m_browser->Bind(wxEVT_WEBVIEW_LOADED, &PrinterWebView::OnLoaded, this);
     m_browser->Bind(wxEVT_WEBVIEW_NEWWINDOW, &PrinterWebView::OnNewWindow, this);
     m_browser->Bind(wxEVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, &PrinterWebView::OnScriptMessage, this);
+    // WebView2 has no native view to hook the printer's sign-in into until this event.
+    m_browser->Bind(wxEVT_WEBVIEW_CREATED, [this](wxWebViewEvent& evt) {
+        set_printer_webview_credentials(m_browser, m_credentials);
+        evt.Skip();
+    });
     update_mode();
 }
 
@@ -432,9 +431,10 @@ void PrinterWebView::reset_browser()
     m_apikey_sent  = false;
     m_url_loaded   = false;
     m_url_deferred = m_url;
-    // Tinman: SendAPIKey() no longer reloads, so install the scripts on the new view before
-    // Show() navigates it.
+    // Tinman: SendAPIKey() no longer reloads, so install the scripts and the sign-in on the new
+    // view before Show() navigates it.
     SendAPIKey();
+    set_printer_webview_credentials(m_browser, m_credentials);
 }
 
 // Same lookup as create_printer_webview_handler().
@@ -450,6 +450,8 @@ void PrinterWebView::load_url(wxString& url, wxString apikey)
 //    this->Show();
 //    this->Raise();
     const PrintHostType host_type = active_host_type();
+    const PrinterWebViewCredentials credentials = active_printer_credentials();
+    update_prusa_camera_title();
 
     // Separate machine and status event paths may express the same address
     // with a scheme, trailing slash, or API key. Reloading for those duplicate
@@ -467,16 +469,28 @@ void PrinterWebView::load_url(wxString& url, wxString apikey)
             m_apikey = apikey;
             m_apikey_sent = false;
             SendAPIKey();
+        }
+        // Tinman: a new PrusaLink user or password signs the page in again.
+        const bool sign_in_changed = credentials != m_credentials;
+        if (sign_in_changed) {
+            m_credentials = credentials;
+            set_printer_webview_credentials(m_browser, m_credentials);
+        }
+        if (credential_changed || (sign_in_changed && !credentials.empty())) {
             if (IsShown())
                 m_browser->Reload();
+            else if (sign_in_changed && m_url_loaded)
+                m_url_deferred = m_url;
         }
         BOOST_LOG_TRIVIAL(info) << "PrinterWebView ignored duplicate endpoint " << endpoint
-                                << " (credential update=" << credential_changed << ")";
+                                << " (credential update=" << credential_changed
+                                << ", sign-in update=" << sign_in_changed << ")";
         return;
     }
 
     BOOST_LOG_TRIVIAL(info) << "PrinterWebView loading endpoint " << endpoint
-                            << " (credential present=" << !apikey.IsEmpty() << ")";
+                            << " (credential present=" << !apikey.IsEmpty()
+                            << ", digest sign-in=" << !credentials.empty() << ")";
 
     m_requested_endpoint = endpoint;
     m_url = url;
@@ -492,6 +506,8 @@ void PrinterWebView::load_url(wxString& url, wxString apikey)
     // user script from OnLoaded() requires another full WebView reload, which
     // suspends the live Mainsail WebSockets and briefly empties the dashboard.
     SendAPIKey();
+    m_credentials = credentials;
+    set_printer_webview_credentials(m_browser, m_credentials);
 
     if (this->IsShown()) {
         m_browser->LoadURL(url);
@@ -519,6 +535,22 @@ void PrinterWebView::update_prusa_camera(const wxString& printer_url)
     else
         start_prusa_camera_discovery();
     Layout();
+}
+
+void PrinterWebView::update_prusa_camera_title()
+{
+    // Tinman: the strip shows for every Prusa printer, so it names the selected printer's model.
+    std::string model;
+    if (wxGetApp().preset_bundle != nullptr) {
+        const auto* option = wxGetApp().preset_bundle->printers.get_edited_preset().config.option<ConfigOptionString>("printer_model");
+        if (option != nullptr)
+            model = option->value;
+    }
+    const wxString title = model.empty() ? _L("Printer Camera") : wxString::Format(_L("%s Camera"), from_u8(model));
+    if (m_prusa_camera_title->GetLabel() != title) {
+        m_prusa_camera_title->SetLabel(title);
+        m_prusa_camera_panel->Layout();
+    }
 }
 
 void PrinterWebView::set_prusa_camera_url(const std::string& camera_url, bool persist)
@@ -572,14 +604,14 @@ void PrinterWebView::prompt_for_prusa_camera_url()
 {
     wxTextEntryDialog dialog(this,
         _L("Enter the Buddy3D Local RTSP address or camera IP address."),
-        _L("CORE One L Camera"), from_u8(m_prusa_camera_url));
+        m_prusa_camera_title->GetLabel(), from_u8(m_prusa_camera_url));
     if (dialog.ShowModal() != wxID_OK)
         return;
 
     const std::string normalized = normalize_prusa_camera_url(into_u8(dialog.GetValue()));
     if (!normalized.empty() && !boost::algorithm::istarts_with(normalized, "rtsp://") &&
         !boost::algorithm::istarts_with(normalized, "rtsps://")) {
-        wxMessageBox(_L("Enter an RTSP address or camera IP address."), _L("CORE One L Camera"),
+        wxMessageBox(_L("Enter an RTSP address or camera IP address."), m_prusa_camera_title->GetLabel(),
                      wxOK | wxICON_WARNING, this);
         return;
     }
@@ -643,18 +675,20 @@ void PrinterWebView::SendAPIKey()
     m_apikey_sent   = true;
     wxString script;
     if (!m_apikey.IsEmpty()) {
+        // Tinman: the key as a JSON string literal (ASCII only), so a quote, backslash or line
+        // break in it can't end the string or change the script.
         script = wxString::Format(R"(
     // Check if window.fetch exists before overriding
     if (window.fetch) {
         const originalFetch = window.fetch;
         window.fetch = function(input, init = {}) {
             init.headers = init.headers || {};
-            init.headers['X-API-Key'] = '%s';
+            init.headers['X-API-Key'] = %s;
             return originalFetch(input, init);
         };
     }
 )",
-                                  m_apikey);
+                                  wxString::FromUTF8(nlohmann::json(into_u8(m_apikey)).dump(-1, ' ', true)));
     }
     m_browser->RemoveAllUserScripts();
     
