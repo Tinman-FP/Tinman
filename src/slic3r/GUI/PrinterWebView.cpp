@@ -675,18 +675,20 @@ void PrinterWebView::SendAPIKey()
     m_apikey_sent   = true;
     wxString script;
     if (!m_apikey.IsEmpty()) {
+        // Tinman: the key as a JSON string literal (ASCII only), so a quote, backslash or line
+        // break in it can't end the string or change the script.
         script = wxString::Format(R"(
     // Check if window.fetch exists before overriding
     if (window.fetch) {
         const originalFetch = window.fetch;
         window.fetch = function(input, init = {}) {
             init.headers = init.headers || {};
-            init.headers['X-API-Key'] = '%s';
+            init.headers['X-API-Key'] = %s;
             return originalFetch(input, init);
         };
     }
 )",
-                                  m_apikey);
+                                  wxString::FromUTF8(nlohmann::json(into_u8(m_apikey)).dump(-1, ' ', true)));
     }
     m_browser->RemoveAllUserScripts();
     
