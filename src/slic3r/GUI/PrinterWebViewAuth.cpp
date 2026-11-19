@@ -113,22 +113,20 @@ bool PrinterWebViewAuthState::set(const PrinterWebViewCredentials& credentials)
     return true;
 }
 
-const PrinterWebViewCredentials* PrinterWebViewAuthState::answer(const PrinterWebViewChallenge& challenge)
+PrinterWebViewAnswer PrinterWebViewAuthState::answer(const PrinterWebViewChallenge& challenge)
 {
-    if (printer_webview_answers_challenge(m_credentials, challenge)) {
-        if (!std::exchange(m_logged_answer, true))
-            BOOST_LOG_TRIVIAL(info) << "PrinterWebView answering the printer's HTTP digest sign-in";
-        return &m_credentials;
-    }
-    if (challenge.rejected_these_credentials && !m_logged_rejection) {
-        PrinterWebViewChallenge first_answer = challenge;
-        first_answer.rejected_these_credentials = false;
-        if (printer_webview_answers_challenge(m_credentials, first_answer)) {
-            m_logged_rejection = true;
+    PrinterWebViewChallenge first_answer    = challenge;
+    first_answer.rejected_these_credentials = false;
+    if (!printer_webview_answers_challenge(m_credentials, first_answer))
+        return PrinterWebViewAnswer::None;
+    if (challenge.rejected_these_credentials) {
+        if (!std::exchange(m_logged_rejection, true))
             BOOST_LOG_TRIVIAL(warning) << "PrinterWebView: the printer rejected the saved user and password";
-        }
+        return PrinterWebViewAnswer::Rejected;
     }
-    return nullptr;
+    if (!std::exchange(m_logged_answer, true))
+        BOOST_LOG_TRIVIAL(info) << "PrinterWebView answering the printer's HTTP digest sign-in";
+    return PrinterWebViewAnswer::Credentials;
 }
 
 #ifdef _WIN32
@@ -184,12 +182,12 @@ HRESULT on_edge_auth(const std::weak_ptr<EdgeAuth>& weak_auth, ICoreWebView2Basi
     challenge.rejected_these_credentials = uri == auth->answered_uri && now - auth->answered_at < std::chrono::seconds(3);
 
     // Unanswered, WebView2 shows its own sign-in prompt, as it does without the hook.
-    const PrinterWebViewCredentials* credentials = auth->state.answer(challenge);
     ComPtr<ICoreWebView2BasicAuthenticationResponse> response;
-    if (credentials == nullptr || FAILED(args->get_Response(&response)) || !response)
+    if (auth->state.answer(challenge) != PrinterWebViewAnswer::Credentials || FAILED(args->get_Response(&response)) || !response)
         return S_OK;
-    response->put_UserName(boost::nowide::widen(credentials->user).c_str());
-    response->put_Password(boost::nowide::widen(credentials->password).c_str());
+    const PrinterWebViewCredentials& credentials = auth->state.credentials();
+    response->put_UserName(boost::nowide::widen(credentials.user).c_str());
+    response->put_Password(boost::nowide::widen(credentials.password).c_str());
     auth->answered_uri = uri;
     auth->answered_at  = now;
     return S_OK;
@@ -278,11 +276,12 @@ gboolean on_authenticate(WebKitWebView* view, WebKitAuthenticationRequest* reque
     }
 
     // Unanswered, WebKitGTK shows its own sign-in prompt, as it does without the hook.
-    const PrinterWebViewCredentials* credentials = state->answer(challenge);
-    if (credentials == nullptr)
+    if (state->answer(challenge) != PrinterWebViewAnswer::Credentials)
         return FALSE;
-    WebKitCredential* credential = webkit_credential_new(credentials->user.c_str(), credentials->password.c_str(),
-                                                         WEBKIT_CREDENTIAL_PERSISTENCE_FOR_SESSION);
+    // Not stored, so a credential the printer rejected is never sent again without asking.
+    const PrinterWebViewCredentials& credentials = state->credentials();
+    WebKitCredential* credential = webkit_credential_new(credentials.user.c_str(), credentials.password.c_str(),
+                                                         WEBKIT_CREDENTIAL_PERSISTENCE_NONE);
     webkit_authentication_request_authenticate(request, credential);
     webkit_credential_free(credential);
     return TRUE;

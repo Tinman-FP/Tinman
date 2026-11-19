@@ -127,18 +127,22 @@ TEST_CASE("A web view's sign-in state answers until the printer rejects it", "[P
     CHECK(state.is("maker", "pw"));
     CHECK_FALSE(state.is("maker", "other"));
 
-    const PrinterWebViewCredentials* answer = state.answer(digest_challenge("127.0.0.1", 8765));
-    REQUIRE(answer != nullptr);
-    CHECK(answer->user == "maker");
-    CHECK(answer->password == "pw");
+    CHECK(state.answer(digest_challenge("127.0.0.1", 8765)) == PrinterWebViewAnswer::Credentials);
+    CHECK(state.credentials().user == "maker");
+    CHECK(state.credentials().password == "pw");
 
     PrinterWebViewChallenge rejected    = digest_challenge("127.0.0.1", 8765);
     rejected.rejected_these_credentials = true;
-    CHECK(state.answer(rejected) == nullptr);
-    CHECK(state.answer(digest_challenge("127.0.0.1", 80)) == nullptr);
+    CHECK(state.answer(rejected) == PrinterWebViewAnswer::Rejected);
+    // Another host's challenge, rejected or not, is never the printer's.
+    CHECK(state.answer(digest_challenge("127.0.0.1", 80)) == PrinterWebViewAnswer::None);
+    PrinterWebViewChallenge other_rejected    = digest_challenge("192.168.50.3", 8765);
+    other_rejected.rejected_these_credentials = true;
+    CHECK(state.answer(other_rejected) == PrinterWebViewAnswer::None);
 
     CHECK(state.set(PrinterWebViewCredentials()));
-    CHECK(state.answer(digest_challenge("127.0.0.1", 8765)) == nullptr);
+    CHECK(state.answer(digest_challenge("127.0.0.1", 8765)) == PrinterWebViewAnswer::None);
+    CHECK(state.answer(rejected) == PrinterWebViewAnswer::None);
 }
 
 TEST_CASE("A printer newly switched to PrusaLink defaults to user and password sign-in", "[PrinterWebViewAuth]")

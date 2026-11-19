@@ -58,6 +58,18 @@ struct PrinterWebViewChallenge
 // host and port, and never again once the printer rejected the same credentials.
 bool printer_webview_answers_challenge(const PrinterWebViewCredentials& credentials, const PrinterWebViewChallenge& challenge);
 
+// What a web view does with a sign-in challenge.
+enum class PrinterWebViewAnswer
+{
+    // Not the printer's challenge: the web view handles it as it does without the hook.
+    None,
+    // Answer with the credentials.
+    Credentials,
+    // The printer rejected the credentials. Left to its default handling, WKWebView sends them again
+    // at once, so macOS ends the challenge; WebView2 and WebKitGTK show their own sign-in prompt.
+    Rejected,
+};
+
 // The credentials one web view answers with. Logs its first answer and the first rejection, never
 // the user or password.
 class PrinterWebViewAuthState
@@ -70,8 +82,7 @@ public:
     {
         return m_credentials.user == user && m_credentials.password == password;
     }
-    // The credentials to answer the challenge with, or nullptr to leave it to the web view.
-    const PrinterWebViewCredentials* answer(const PrinterWebViewChallenge& challenge);
+    PrinterWebViewAnswer answer(const PrinterWebViewChallenge& challenge);
 
 private:
     PrinterWebViewCredentials m_credentials;

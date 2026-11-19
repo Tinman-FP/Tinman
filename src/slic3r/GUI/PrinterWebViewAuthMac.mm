@@ -82,12 +82,19 @@ NSString* to_nsstring(const std::string& text)
         request.rejected_these_credentials = proposed == nil || state.is(to_string(proposed.user), to_string(proposed.password));
     }
 
-    if (const Slic3r::GUI::PrinterWebViewCredentials* credentials = state.answer(request)) {
+    switch (state.answer(request)) {
+    case Slic3r::GUI::PrinterWebViewAnswer::Credentials:
         completionHandler(NSURLSessionAuthChallengeUseCredential,
-                          [NSURLCredential credentialWithUser:to_nsstring(credentials->user)
-                                                     password:to_nsstring(credentials->password)
-                                                  persistence:NSURLCredentialPersistenceForSession]);
+                          [NSURLCredential credentialWithUser:to_nsstring(state.credentials().user)
+                                                     password:to_nsstring(state.credentials().password)
+                                                  persistence:NSURLCredentialPersistenceNone]);
         return;
+    case Slic3r::GUI::PrinterWebViewAnswer::Rejected:
+        // Default handling would send the rejected credential again at once, as fast as the
+        // printer replies.
+        completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
+        return;
+    case Slic3r::GUI::PrinterWebViewAnswer::None: break;
     }
     if ([_wrapped respondsToSelector:_cmd]) {
         [_wrapped webView:webView didReceiveAuthenticationChallenge:challenge completionHandler:completionHandler];
