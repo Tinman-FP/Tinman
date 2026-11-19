@@ -57,6 +57,9 @@ public:
     void OnNewWindow(wxWebViewEvent& evt);
     void OnScriptMessage(wxWebViewEvent& evt);
     void reload();
+    // Reloads the printer's page once if it is on screen and loaded, so it shows the printer's
+    // state after an upload.
+    void reload_after_upload();
     void update_mode();
 
     bool Show(bool show = true) override;

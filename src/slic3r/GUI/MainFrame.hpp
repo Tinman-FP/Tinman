@@ -441,6 +441,8 @@ public:
     void        select_tab(wxPanel* panel);
     void        select_tab(const wxString& id = wxString());
     void        request_select_tab(const wxString& id);
+    // Tinman: selects the Device tab after a finished upload. Safe from the upload thread.
+    void        request_device_tab_after_upload();
     // post_init() needs the plater's canvas on screen to initialize OpenGL; this pass does not
     // build the settings page.
     void        select_prepare_for_gl_init();
