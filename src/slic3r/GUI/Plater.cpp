@@ -8612,6 +8612,9 @@ struct Plater::priv
     void on_action_slice_plate(SimpleEvent&);
     void on_action_slice_all(SimpleEvent&);
     void on_action_print_plate(SimpleEvent&);
+    // Tinman: before Print or Send, ask whether to go on when a plate it sends sliced with a G-code
+    // path conflict. plate_idx is a plate, PLATE_CURRENT_IDX or PLATE_ALL_IDX. True to go on.
+    bool confirm_send_despite_gcode_conflict(int plate_idx);
     void open_machine_select_dialog(int plate_idx, PrintFromType print_type = PrintFromType::FROM_NORMAL);
     void on_action_print_all(SimpleEvent&);
     void on_action_export_gcode(SimpleEvent&);
@@ -15097,6 +15100,9 @@ void Plater::priv::on_action_print_plate(SimpleEvent&)
         BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << ":received print plate event\n" ;
     }
 
+    if (!confirm_send_despite_gcode_conflict(PLATE_CURRENT_IDX))
+        return;
+
     ensure_tinman_auto_pa_visible_lane_for_current_plate();
 
     PresetBundle& preset_bundle = *wxGetApp().preset_bundle;
@@ -15105,6 +15111,40 @@ void Plater::priv::on_action_print_plate(SimpleEvent&)
     } else {
         q->send_gcode_legacy(PLATE_CURRENT_IDX, nullptr);
     }
+}
+
+bool Plater::priv::confirm_send_despite_gcode_conflict(int plate_idx)
+{
+    // Upstream only warns about a conflict, and a print the nozzle runs into can fail hours in.
+    // Only the Print and Send buttons ask: an upload already queued and the CLI, which stops on a
+    // conflict, are left as they are.
+    std::vector<PartPlate *> plates;
+    if (plate_idx == PLATE_ALL_IDX)
+        plates = partplate_list.get_plate_list();
+    else
+        plates.push_back(plate_idx == PLATE_CURRENT_IDX ? partplate_list.get_curr_plate() : partplate_list.get_plate(plate_idx));
+
+    wxString conflicts;
+    for (PartPlate *plate : plates) {
+        const GCodeProcessorResult *result = plate != nullptr && plate->is_slice_result_valid() ? plate->get_slice_result() : nullptr;
+        if (result == nullptr || !result->conflict_result.has_value())
+            continue;
+        const ConflictResult &conflict = *result->conflict_result;
+        // The checker names the prime tower "WipeTower" and gives it no object.
+        const wxString first = conflict._obj1 == nullptr ? _L("the prime tower") : from_u8(conflict._objName1);
+        // TRN %1% is a plate number, %2% and %3% what crosses: an object's name or "the prime tower".
+        conflicts += "\n" + format_wxstr(_L("Plate %1%: %2% and %3%"), plate->get_index() + 1, first, from_u8(conflict._objName2));
+    }
+    if (conflicts.empty())
+        return true;
+
+    MessageDialog dlg(q,
+                      _L("Slicing found G-code paths that cross, so the nozzle can run into what it has already printed:") + "\n" + conflicts +
+                          "\n\n" + _L("Send to the printer anyway?"),
+                      _L("G-code path conflict"), wxICON_WARNING | wxOK | wxCANCEL);
+    dlg.SetButtonLabel(wxID_OK, _L("Send anyway"));
+    dlg.SetButtonLabel(wxID_CANCEL, _L("Cancel"), true); // the safe choice gets the focus
+    return dlg.ShowModal() == wxID_OK;
 }
 
 void Plater::priv::open_machine_select_dialog(int plate_idx, PrintFromType print_type)
@@ -15119,6 +15159,8 @@ void Plater::priv::open_machine_select_dialog(int plate_idx, PrintFromType print
 
 void Plater::priv::on_action_send_to_multi_machine(SimpleEvent&)
 {
+    if (!confirm_send_despite_gcode_conflict(PLATE_CURRENT_IDX))
+        return;
     if (!m_send_multi_dlg)
         m_send_multi_dlg = new SendMultiMachinePage(q);
     m_send_multi_dlg->prepare(partplate_list.get_curr_plate_index());
@@ -15195,6 +15237,9 @@ int Plater::priv::update_print_required_data(Slic3r::DynamicPrintConfig config, 
 
 void Plater::priv::on_action_send_to_printer(bool isall)
 {
+    if (!confirm_send_despite_gcode_conflict(isall ? PLATE_ALL_IDX : PLATE_CURRENT_IDX))
+        return;
+
     ensure_tinman_auto_pa_visible_lane_for_current_plate();
 
 	if (!m_send_to_sdcard_dlg) m_send_to_sdcard_dlg = new SendToPrinterDialog(q);
@@ -15224,6 +15269,9 @@ void Plater::priv::on_action_print_all(SimpleEvent&)
         BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << ":received print all event\n" ;
     }
 
+    if (!confirm_send_despite_gcode_conflict(PLATE_ALL_IDX))
+        return;
+
     ensure_tinman_auto_pa_visible_lane_for_current_plate();
 
     PresetBundle& preset_bundle = *wxGetApp().preset_bundle;
@@ -15246,7 +15294,8 @@ void Plater::priv::on_action_send_gcode(SimpleEvent&)
 {
     if (q != nullptr) {
         BOOST_LOG_TRIVIAL(debug) << __FUNCTION__ << ":received export gcode event\n" ;
-        q->send_gcode_legacy();
+        if (confirm_send_despite_gcode_conflict(PLATE_CURRENT_IDX))
+            q->send_gcode_legacy();
     }
 }
 
