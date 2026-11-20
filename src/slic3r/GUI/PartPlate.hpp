@@ -34,6 +34,7 @@
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/Slicing.hpp"
 #include "libslic3r/GCode/WipeTowerEstimate.hpp"
+#include "libslic3r/libslic3r.h"
 #include "libslic3r/Arrange.hpp"
 #include "Plater.hpp"
 #include "libslic3r/Model.hpp"
@@ -97,11 +98,21 @@ class PartPlateList;
 
 using GCodeResult = GCodeProcessorResult;
 
-// What estimate_wipe_tower_polygon did to a saved tower position that no longer fits the plate.
+// What estimate_wipe_tower_polygon did to a saved tower position that no longer fits the plate,
+// and where the tower it returns stands against the plate's objects.
 struct WipeTowerRelocation
 {
+    // In: Tinman chose this position, so it is moved clear of the objects where the plate has room.
+    bool keep_clear       = false;
     bool moved            = false; // re-placed, not just snapped onto the bound it was dropped past
     bool overlaps_objects = false; // no spot on the plate was clear of the objects, so it sits on one
+    // The objects whose outline the tower and its brim cover at the returned position, by index
+    // into the model. A tower laid on an object gives a G-code path conflict when sliced.
+    std::vector<int> covered_objects;
+    // No position on the plate keeps the tower and its brim off every object's outline.
+    bool no_free_space = false;
+    double brim_width  = 0.;        // the tower's brim (or Type2 cone), as the clearance counts it
+    Vec2d  footprint   = Vec2d::Zero(); // the tower and its brim, unrotated
 };
 
 class PartPlate : public ObjectBase
@@ -280,9 +291,14 @@ private:
     int picking_id_component(int idx) const;
 
     void on_filament_map_mode_change();
-    // What a re-placed tower keeps clear of: each printable instance's convex hull, grown by its
-    // brim and the tower margin, in plate coordinates.
-    Polygons wipe_tower_obstacles(const DynamicPrintConfig &config) const;
+    // What a tower keeps clear of, one entry per printable instance in plate coordinates:
+    // `outlines`, the instance's convex hull, which the tower's paths must not cross;
+    // `clearances`, that hull grown by its brim and the tower margin, where a re-placed tower may
+    // not go; `object_ids`, the instance's object.
+    void wipe_tower_obstacles(const DynamicPrintConfig &config, Polygons &outlines, Polygons &clearances, std::vector<int> &object_ids) const;
+
+    // Where set_default_wipe_tower_pos_for_plate put the tower, while it has not been moved since.
+    std::optional<Vec2f> m_auto_wipe_tower_pos;
 
 public:
     static constexpr unsigned int PLATE_NAME_HOVER_ID = 6;
@@ -487,9 +503,18 @@ public:
     // assigned to plates - the layer height is then the project's thinnest, which over-reserves.
     WipeTowerFootprint estimate_wipe_tower_footprint(const DynamicPrintConfig & config, int plate_extruder_size = 0, bool use_global_objects = false) const;
     // relocation: callers that store the returned position pass it, so a re-placed tower is
-    // moved clear of the plate's objects where there is room, and they are told it moved.
+    // moved clear of the plate's objects where there is room, and they are told it moved and
+    // which objects the tower covers.
     arrangement::ArrangePolygon estimate_wipe_tower_polygon(const DynamicPrintConfig & config, int plate_index, Vec3d& wt_pos, Vec3d& wt_size, int plate_extruder_size = 0, bool use_global_objects = false,
                                                             WipeTowerRelocation *relocation = nullptr) const;
+    // A tower set_default_wipe_tower_pos_for_plate placed stays Tinman's choice until it is moved,
+    // and GLCanvas3D::reload_scene keeps it clear of the objects that come onto the plate.
+    void set_auto_wipe_tower_pos(std::optional<Vec2f> pos) { m_auto_wipe_tower_pos = pos; }
+    bool is_wipe_tower_auto_placed_at(float x, float y) const
+    {
+        return m_auto_wipe_tower_pos.has_value() && std::abs(m_auto_wipe_tower_pos->x() - x) < EPSILON &&
+               std::abs(m_auto_wipe_tower_pos->y() - y) < EPSILON;
+    }
     bool check_objects_empty_and_gcode3mf(std::vector<int> &result) const;
     // get used filaments from config, 1 based idx
     // expand_mixed_slots = false keeps mixed filament slots as slots instead of their components.

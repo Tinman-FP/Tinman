@@ -4042,9 +4042,8 @@ WipeTowerFootprint PartPlate::estimate_wipe_tower_footprint(const DynamicPrintCo
     return Slic3r::estimate_wipe_tower_footprint(config, resolve_wipe_tower_type(config), filament_ids, layer_height, max_height);
 }
 
-Polygons PartPlate::wipe_tower_obstacles(const DynamicPrintConfig &config) const
+void PartPlate::wipe_tower_obstacles(const DynamicPrintConfig &config, Polygons &outlines, Polygons &clearances, std::vector<int> &object_ids) const
 {
-	Polygons obstacles;
 	for (const auto &[obj_id, instance_id] : obj_to_instance_set) {
 		if (!valid_instance(obj_id, instance_id))
 			continue;
@@ -4066,9 +4065,14 @@ Polygons PartPlate::wipe_tower_obstacles(const DynamicPrintConfig &config) const
 		const ConfigOption *brim_type  = option_of("brim_type");
 		const ConfigOption *brim_width = option_of("brim_width");
 		const double brim = brim_type != nullptr && brim_width != nullptr && brim_type->getInt() != static_cast<int>(btNoBrim) ? brim_width->getFloat() : 0.;
-		append(obstacles, offset(hull, static_cast<float>(scaled(brim + WIPE_TOWER_MARGIN))));
+		// A convex hull grows into one polygon.
+		Polygons grown = offset(hull, static_cast<float>(scaled(brim + WIPE_TOWER_MARGIN)));
+		if (grown.empty())
+			continue;
+		clearances.emplace_back(std::move(grown.front()));
+		outlines.emplace_back(std::move(hull));
+		object_ids.push_back(obj_id);
 	}
-	return obstacles;
 }
 
 arrangement::ArrangePolygon PartPlate::estimate_wipe_tower_polygon(const DynamicPrintConfig& config, int plate_index, Vec3d& wt_pos, Vec3d& wt_size, int plate_extruder_size, bool use_global_objects,
@@ -4110,8 +4114,8 @@ arrangement::ArrangePolygon PartPlate::estimate_wipe_tower_polygon(const Dynamic
 	const bool  replace_y = y < margin - tol || y > y_hi + tol;
 	x = replace_x ? std::clamp(x, x_lo_c, x_hi_c) : std::clamp(x, margin, x_hi);
 	y = replace_y ? std::clamp(y, y_lo_c, y_hi_c) : std::clamp(y, margin, y_hi);
-	if (relocation != nullptr && (replace_x || replace_y)) {
-		relocation->moved = true;
+	if (relocation != nullptr) {
+		relocation->moved = replace_x || replace_y;
 		// The footprint keeps clear of every object and its brim, and turns about its anchor
 		// as the tower does.
 		Polygon tower({ {scaled(-wp_brim_width), scaled(-wp_brim_width)},
@@ -4120,17 +4124,21 @@ arrangement::ArrangePolygon PartPlate::estimate_wipe_tower_polygon(const Dynamic
 		                {scaled(-wp_brim_width), scaled(depth + wp_brim_width)} });
 		if (const auto *rotation = config.option<ConfigOptionFloat>("wipe_tower_rotation_angle"); rotation != nullptr && rotation->value != 0.)
 			tower.rotate(Geometry::deg2rad(rotation->value));
-		const Polygons objects = wipe_tower_obstacles(config);
-		const Point    placed(scaled(x), scaled(y));
-		// The re-placed spot stands when it is clear. Otherwise take the clear spot nearest the
-		// saved position, keeping the comfort margin where the plate leaves room for it.
-		if (!nearest_clear_wipe_tower_anchor(BoundingBox(placed, placed), tower, objects, placed)) {
+		Polygons         outlines, clearances;
+		std::vector<int> object_ids;
+		wipe_tower_obstacles(config, outlines, clearances, object_ids);
+		const BoundingBox valid_anchors(Point(scaled(margin), scaled(margin)), Point(scaled(x_hi), scaled(y_hi)));
+		// A tower Tinman placed keeps clear of the objects like a re-placed one; one the user
+		// placed inside the plate stays where it is.
+		const Point placed(scaled(x), scaled(y));
+		if ((relocation->moved || relocation->keep_clear) && !nearest_clear_wipe_tower_anchor(BoundingBox(placed, placed), tower, clearances, placed)) {
+			// Take the clear spot nearest the saved position, keeping the comfort margin where
+			// the plate leaves room for it.
 			const Point saved(scaled(saved_x), scaled(saved_y));
 			std::optional<Point> clear = nearest_clear_wipe_tower_anchor(
-				BoundingBox(Point(scaled(x_lo_c), scaled(y_lo_c)), Point(scaled(x_hi_c), scaled(y_hi_c))), tower, objects, saved);
+				BoundingBox(Point(scaled(x_lo_c), scaled(y_lo_c)), Point(scaled(x_hi_c), scaled(y_hi_c))), tower, clearances, saved);
 			if (!clear)
-				clear = nearest_clear_wipe_tower_anchor(BoundingBox(Point(scaled(margin), scaled(margin)), Point(scaled(x_hi), scaled(y_hi))),
-				                                        tower, objects, saved);
+				clear = nearest_clear_wipe_tower_anchor(valid_anchors, tower, clearances, saved);
 			if (clear) {
 				x = static_cast<float>(unscaled(clear->x()));
 				y = static_cast<float>(unscaled(clear->y()));
@@ -4138,6 +4146,15 @@ arrangement::ArrangePolygon PartPlate::estimate_wipe_tower_polygon(const Dynamic
 				relocation->overlaps_objects = true;
 			}
 		}
+		// What the tower then covers is checked against the objects' own outlines: a tower in
+		// an object's brim zone may still slice clean, one on the object never does.
+		const Point anchor(scaled(x), scaled(y));
+		for (size_t i : wipe_tower_covered_obstacles(tower, outlines, anchor))
+			relocation->covered_objects.push_back(object_ids[i]);
+		relocation->no_free_space = !relocation->covered_objects.empty() &&
+		                            !nearest_clear_wipe_tower_anchor(valid_anchors, tower, outlines, anchor).has_value();
+		relocation->brim_width = wp_brim_width;
+		relocation->footprint  = Vec2d(w + 2. * wp_brim_width, depth + 2. * wp_brim_width);
 	}
     wt_pos(0) = x;
     wt_pos(1) = y;
@@ -6438,6 +6455,9 @@ void PartPlateList::set_default_wipe_tower_pos_for_plate(int plate_idx, bool ini
     ConfigOptionFloat wt_y_opt(y);
     dynamic_cast<ConfigOptionFloats *>(proj_cfg.option("wipe_tower_x"))->set_at(&wt_x_opt, plate_idx, 0);
     dynamic_cast<ConfigOptionFloats *>(proj_cfg.option("wipe_tower_y"))->set_at(&wt_y_opt, plate_idx, 0);
+    // The default spot knows nothing of the objects. The next scene reload moves the tower off
+    // any it lands on, and keeps doing so until the user moves the tower.
+    part_plate->set_auto_wipe_tower_pos(Vec2f(x, y));
 }
 
 //this may be happened after machine changed

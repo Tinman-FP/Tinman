@@ -435,7 +435,8 @@ class GLCanvas3D
         NozzleFilamentIncompatible,
         MixtureFilamentIncompatible,
         SingleExtruderMixedFilament,
-        FlushingVolumeZero
+        FlushingVolumeZero,
+        PrimeTowerOnObject // before slice
     };
 
     class RenderStats
@@ -737,6 +738,9 @@ private:
 
     GLVolumeCollection m_volumes;
     GCodeViewer m_gcode_viewer;
+    // The current plate's EWarning::PrimeTowerOnObject text, set by reload_scene; empty when the
+    // tower covers no object.
+    std::string m_prime_tower_on_object_text;
 
     RenderTimer m_render_timer;
 
