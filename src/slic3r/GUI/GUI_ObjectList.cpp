@@ -439,6 +439,7 @@ void ObjectList::create_objects_ctrl()
     // column ItemName(Icon+Text) of the view control:
     // And Icon can be consisting of several bitmaps
     BitmapTextRenderer* bmp_text_renderer = new BitmapTextRenderer();
+    bmp_text_renderer->SetMode(object_list_name_cell_mode(wxOSX));
     bmp_text_renderer->set_can_create_editor_ctrl_function([this]() {
         auto type = m_objects_model->GetItemType(GetSelection());
         return type & (itVolume | itObject | itPlate);
@@ -6774,10 +6775,6 @@ void GUI::ObjectList::OnStartEditing(wxDataViewEvent &event)
         return;
     }
 #endif // __WXOSX__
-    if (!object_list_native_edit_allowed(col, wxOSX)) {
-        event.Veto();
-        return;
-    }
 
     if (col == colName) {
         ObjectDataViewModelNode* node = (ObjectDataViewModelNode*)item.GetID();
@@ -7050,9 +7047,9 @@ void ObjectList::reload_all_plates(bool notify_partplate)
     wxGetApp().plater()->get_view3D_canvas3D()->update_instance_printable_state_for_objects(obj_idxs);
 }
 
-bool object_list_native_edit_allowed(int column, bool osx)
+wxDataViewCellMode object_list_name_cell_mode(bool osx)
 {
-    return !(osx && column == colName);
+    return osx ? wxDATAVIEW_CELL_INERT : wxDATAVIEW_CELL_EDITABLE;
 }
 
 void sort_objects(std::vector<ModelObject*>& objects, ObjectOrder order, bool descending)
