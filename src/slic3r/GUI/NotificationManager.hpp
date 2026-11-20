@@ -197,6 +197,8 @@ enum class NotificationType
     // Active preset references a capability the installed+loaded plugin does not provide (outdated
     // plugin). Informational; cannot be auto-resolved; persistent, blocks slicing.
     OrcaPluginCapabilityUnavailableError,
+    // Tinman: before slicing, the prime tower or its brim lies on an object.
+    TinmanPrimeTowerOnObject,
     NotificationTypeCount
 
 };

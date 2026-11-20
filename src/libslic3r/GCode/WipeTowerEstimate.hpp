@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <optional>
 #include <vector>
 
@@ -68,5 +69,9 @@ bool prime_tower_is_printed(const ConfigBase &config, int used_filaments, int nu
 // as its convex hull. Empty when every anchor in bounds meets an obstacle. All coordinates scaled.
 std::optional<Point> nearest_clear_wipe_tower_anchor(const BoundingBox &anchor_bounds, const Polygon &footprint,
                                                      const Polygons &obstacles, const Point &target);
+
+// The indices of the `obstacles` that a tower at `anchor` lays its `footprint` on. Touching one
+// is not overlapping it. `footprint` is relative to the anchor, as above. All coordinates scaled.
+std::vector<size_t> wipe_tower_covered_obstacles(const Polygon &footprint, const Polygons &obstacles, const Point &anchor);
 
 } // namespace Slic3r

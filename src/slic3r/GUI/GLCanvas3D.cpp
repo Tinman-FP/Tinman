@@ -291,6 +291,28 @@ std::string& get_single_extruder_mixed_filament_warning_text(){
     return single_extruder_mixed_filament_warning_text;
 }
 
+// Tinman: the warning for a prime tower that lies on objects before slicing, which the slice
+// would only report as a G-code path conflict. Empty when it covers none.
+static std::string prime_tower_on_object_text(const WipeTowerRelocation &relocation, const Model &model)
+{
+    std::vector<std::string> names;
+    for (int id : relocation.covered_objects)
+        if (id >= 0 && id < int(model.objects.size()) && std::find(names.begin(), names.end(), model.objects[id]->name) == names.end())
+            names.push_back(model.objects[id]->name);
+    if (names.empty())
+        return {};
+    std::string objects = names.front();
+    for (size_t i = 1; i < names.size(); ++i)
+        objects += ", " + names[i];
+    if (relocation.no_free_space)
+        // TRN %1% is a list of object names, %2% the prime tower's brim width in mm, %3% and %4% the width and depth in mm the tower needs with its brim.
+        return format(_u8L("The prime tower overlaps %1%, and there is no free space on this plate for it: with its %2% mm brim it needs %3% x %4% mm. "
+                           "Slicing will report a G-code path conflict. Reduce the prime tower brim width or width, or make room on the plate."),
+                      objects, std::lround(relocation.brim_width), std::lround(relocation.footprint.x()), std::lround(relocation.footprint.y()));
+    // TRN %1% is a list of object names.
+    return format(_u8L("The prime tower overlaps %1%. Slicing will report a G-code path conflict. Move the prime tower to free space on the plate."), objects);
+}
+
 
 static std::string format_number(float value)
 {
@@ -3937,6 +3959,9 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
 				volume->set_sla_shift_z(shift_zs[volume->object_idx()]);
     }
 
+    // Set again below only while the current plate's tower covers an object.
+    m_prime_tower_on_object_text.clear();
+
     // BBS
     if (printer_technology == ptFFF && m_config->has("filament_colour") && (m_canvas_type != ECanvasType::CanvasAssembleView)) {
         // Should the wipe tower be visualized ?
@@ -3997,6 +4022,9 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
                 {
                     Vec3d clamped_pos, clamped_size;
                     WipeTowerRelocation relocation;
+                    // The default spot ignores the objects, so while the tower is still where
+                    // Tinman put it, it is moved off any that come onto it.
+                    relocation.keep_clear = part_plate->is_wipe_tower_auto_placed_at(x, y);
                     part_plate->estimate_wipe_tower_polygon(full_config, plate_id, clamped_pos, clamped_size, 0, false, &relocation);
                     if (std::abs(x - (float) clamped_pos(0)) > EPSILON || std::abs(y - (float) clamped_pos(1)) > EPSILON) {
                         x = (float) clamped_pos(0);
@@ -4016,6 +4044,10 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
                                     format(_u8L("The prime tower on plate %1% no longer fits where it was placed, so it was moved to free space on the plate."), plate_id + 1));
                         }
                     }
+                    // Tinman's spot follows its own moves. A position it did not choose is the user's.
+                    part_plate->set_auto_wipe_tower_pos(relocation.keep_clear ? std::make_optional(Vec2f(x, y)) : std::nullopt);
+                    if (plate_id == ppl.get_curr_plate_index())
+                        m_prime_tower_on_object_text = prime_tower_on_object_text(relocation, *m_model);
                 }
 
                 if (!current_print->is_step_done(psWipeTower) || !current_print->wipe_tower_data().wipe_tower_mesh_data) {
@@ -4095,6 +4127,11 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
             bool       wipe_tower_outside   = m_volumes.check_wipe_tower_outside_state(m_bed.build_volume(), wxGetApp().plater()->get_partplate_list().get_curr_plate_index());
             bool show_wipe_tower_outside_error = show_read_wipe_tower ? !wipe_tower_outside : false;
             _set_warning_notification(EWarning::PrimeTowerOutside, show_wipe_tower_outside_error);
+            // An object's outline is its convex hull, so a tower in a hollow of the object can be
+            // flagged. Once the plate has sliced without a G-code path conflict, the slice decides.
+            const GCodeProcessorResult *slice_result = cur_plate->get_slice_result();
+            const bool sliced_without_conflict = cur_plate->is_slice_result_valid() && slice_result != nullptr && !slice_result->conflict_result.has_value();
+            _set_warning_notification(EWarning::PrimeTowerOnObject, !m_prime_tower_on_object_text.empty() && !sliced_without_conflict);
 
             auto clash_flag = construct_error_string(object_results, get_object_clashed_text());
             auto unprintable_flag= construct_extruder_unprintable_error(object_results, get_left_extruder_unprintable_text(), get_right_extruder_unprintable_text());
@@ -4151,6 +4188,7 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
            _set_warning_notification(EWarning::MixUsePLAAndPETG, false);
            _set_warning_notification(EWarning::SingleExtruderMixedFilament, false);
            _set_warning_notification(EWarning::PrimeTowerOutside, false);
+           _set_warning_notification(EWarning::PrimeTowerOnObject, false);
            _set_warning_notification(EWarning::MultiExtruderPrintableError,false);
            _set_warning_notification(EWarning::MultiExtruderHeightOutside,false);
            _set_warning_notification(EWarning::NozzleFilamentIncompatible,false);
@@ -13027,6 +13065,9 @@ void GLCanvas3D::_set_warning_notification(EWarning warning, bool state)
     case EWarning::PrimeTowerOutside:
         text  = _u8L("The prime tower extends beyond the plate boundary.");
         break;
+    case EWarning::PrimeTowerOnObject:
+        text = m_prime_tower_on_object_text;
+        break;
     case EWarning::NozzleFilamentIncompatible: {
         text = _u8L(get_nozzle_filament_incompatible_text());
         break;
@@ -13079,6 +13120,13 @@ void GLCanvas3D::_set_warning_notification(EWarning warning, bool state)
                 notification_manager.push_slicing_customize_error_notification(NotificationType::BBLSingleExtruderMixedFilamentRisk, NotificationLevel::WarningNotificationLevel, text);
             else
                 notification_manager.close_slicing_customize_error_notification(NotificationType::BBLSingleExtruderMixedFilamentRisk, NotificationLevel::WarningNotificationLevel);
+        }
+        else if (warning == EWarning::PrimeTowerOnObject) {
+            // By type, so a changed text replaces the shown one rather than adding another.
+            if (state)
+                notification_manager.push_slicing_customize_error_notification(NotificationType::TinmanPrimeTowerOnObject, NotificationLevel::WarningNotificationLevel, text);
+            else
+                notification_manager.close_slicing_customize_error_notification(NotificationType::TinmanPrimeTowerOnObject, NotificationLevel::WarningNotificationLevel);
         }
         else {
             if (state)

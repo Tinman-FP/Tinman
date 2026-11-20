@@ -284,4 +284,23 @@ std::optional<Point> nearest_clear_wipe_tower_anchor(const BoundingBox &anchor_b
     return nearest;
 }
 
+std::vector<size_t> wipe_tower_covered_obstacles(const Polygon &footprint, const Polygons &obstacles, const Point &anchor)
+{
+    Polygon tower = footprint;
+    tower.translate(anchor);
+    const BoundingBox   tower_box = get_extents(tower);
+    std::vector<size_t> covered;
+    for (size_t i = 0; i < obstacles.size(); ++i) {
+        if (!tower_box.overlap(get_extents(obstacles[i])))
+            continue;
+        double shared = 0.;
+        for (const Polygon &part : intersection(tower, obstacles[i]))
+            shared += std::abs(part.area());
+        // Below a hundredth of a square millimetre the two only touch.
+        if (shared > sqr(scaled(0.1)))
+            covered.push_back(i);
+    }
+    return covered;
+}
+
 } // namespace Slic3r

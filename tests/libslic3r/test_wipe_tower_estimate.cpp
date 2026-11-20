@@ -531,3 +531,53 @@ TEST_CASE("A tower slides off a slanted side of an object", "[WipeTowerEstimate]
     CHECK(clear_of(square_footprint(10.), *anchor, obstacles));
     CHECK_THAT(unscaled((*anchor - target).cast<double>().norm()), WithinAbs(13.75 / std::sqrt(1. + 1. / 16.), 1e-3));
 }
+
+TEST_CASE("A tower covers only the objects it overlaps, not those it touches", "[WipeTowerEstimate]") {
+    // The footprint spans x 30-40 and y 50-60.
+    const Polygons obstacles = { box(40., 0., 60., 100.), box(0., 0., 20., 100.), box(39., 55., 45., 65.) };
+    const std::vector<size_t> covered = wipe_tower_covered_obstacles(square_footprint(10.), obstacles, Point(scaled(30.), scaled(50.)));
+    CHECK(covered == std::vector<size_t>{ 2 });
+    CHECK(wipe_tower_covered_obstacles(square_footprint(10.), obstacles, Point(scaled(31.), scaled(50.))) == std::vector<size_t>{ 0, 2 });
+    CHECK(wipe_tower_covered_obstacles(square_footprint(10.), obstacles, Point(scaled(25.), scaled(20.))).empty());
+}
+
+// The 2026-11-19 Snapmaker U1 print: plate 2 of a 270 x 270 mm bed held a 214 x 209 mm tray, and
+// three filaments gave a 50 x 20 mm Type1 tower. Its outline here is the convex hull of
+// tray_core_one_honeycomb.stl, simplified, where the job placed it. The estimate lays a 15 or
+// 25 mm brim as 15.31 or 25.37 mm of whole loops.
+static Polygon u1_tray_outline()
+{
+    return Polygon({ {scaled(54.8), scaled(67.5)}, {scaled(250.0), scaled(49.9)}, {scaled(268.9), scaled(67.5)},
+                     {scaled(251.2), scaled(259.0)}, {scaled(59.6), scaled(259.0)}, {scaled(54.8), scaled(254.0)} });
+}
+// The tower body anchored at its lower-left corner, with the brim around it, as PartPlate builds it.
+static Polygon u1_tower_footprint(double brim) { return box(-brim, -brim, 50. + brim, 20. + brim); }
+// Every anchor that keeps the tower and its brim 1 mm inside the bed.
+static BoundingBox u1_tower_anchors(double brim)
+{
+    const double margin = 1. + brim;
+    return BoundingBox(Point(scaled(margin), scaled(margin)), Point(scaled(270. - 50. - margin), scaled(270. - 20. - margin)));
+}
+
+TEST_CASE("The U1 honeycomb tray leaves no room for a tower with a 25 mm brim", "[WipeTowerEstimate]") {
+    const double   brim     = 25.37;
+    const Polygons outlines = { u1_tray_outline() };
+    // The default spot, (165, 250) pulled onto the bed, is on the tray.
+    const Point default_spot(scaled(165.), scaled(270. - 20. - 15. - brim));
+    CHECK(wipe_tower_covered_obstacles(u1_tower_footprint(brim), outlines, default_spot) == std::vector<size_t>{ 0 });
+    // The tower and its brim need 101 x 71 mm. The bed leaves 55 mm left of the tray and at most
+    // 68 mm in front of it.
+    CHECK_FALSE(nearest_clear_wipe_tower_anchor(u1_tower_anchors(brim), u1_tower_footprint(brim), outlines, default_spot).has_value());
+}
+
+TEST_CASE("The U1 honeycomb tray leaves room for a tower with a 15 mm brim", "[WipeTowerEstimate]") {
+    const double   brim     = 15.31;
+    const Polygons outlines = { u1_tray_outline() };
+    // Where the print went, at the bed's front left.
+    CHECK(wipe_tower_covered_obstacles(u1_tower_footprint(brim), outlines, Point(scaled(22.2), scaled(21.8))).empty());
+    const std::optional<Point> anchor = nearest_clear_wipe_tower_anchor(u1_tower_anchors(brim), u1_tower_footprint(brim), outlines,
+                                                                        Point(scaled(165.), scaled(270. - 20. - 15. - brim)));
+    REQUIRE(anchor.has_value());
+    CHECK(clear_of(u1_tower_footprint(brim), *anchor, outlines));
+    CHECK(u1_tower_anchors(brim).contains(*anchor));
+}
