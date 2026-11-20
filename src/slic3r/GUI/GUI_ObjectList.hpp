@@ -13,6 +13,7 @@
 #include <wx/arrstr.h>
 #include <wx/bitmap.h>
 #include <wx/dataview.h>
+#include <wx/dvrenderers.h>
 #include <wx/gdicmn.h>
 #include <wx/event.h>
 #include <wx/menu.h>
@@ -63,11 +64,11 @@ enum class ObjectOrder { Name, Filament, Height, Size };
 // Stable sort by natural name order, filament, top Z, or bounding box volume of the first instance.
 void sort_objects(std::vector<ModelObject*>& objects, ObjectOrder order, bool descending = false);
 
-// Whether the native list may start editing a cell of this column, which NSTableView does on a click
-// on an already selected row. On macOS the name's editor doesn't show, and while it is open the
-// digit keys type into it instead of setting the filament, so pressing 4 for filament 4 renamed the
-// object "4" (2026-11-17 report). There, an object is renamed from its context menu.
-bool object_list_native_edit_allowed(int column, bool osx);
+// The mode of the name cell. On macOS a click on an already selected row opens the cell's native editor,
+// which doesn't show there and takes every key: pressing 4 for filament 4 renamed the object "4"
+// (2026-11-17 report), and once that rename was refused, Delete and the digit keys did nothing
+// (2026-11-20 report). An inert cell opens no editor. macOS loses no rename: that editor never showed.
+wxDataViewCellMode object_list_name_cell_mode(bool osx);
 
 class PartPlate;
 

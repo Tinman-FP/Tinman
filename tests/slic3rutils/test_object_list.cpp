@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include <wx/dvrenderers.h>
+
 using namespace Slic3r;
 using namespace Slic3r::GUI;
 
@@ -90,14 +92,12 @@ TEST_CASE("Objects sort by bounding box volume", "[ObjectList]")
     CHECK(sorted_names(model, ObjectOrder::Size) == std::vector<std::string>{"cube", "tall", "flat"});
 }
 
-TEST_CASE("On macOS a click on a selected object's name doesn't start a rename", "[ObjectList][Regression]")
+TEST_CASE("On macOS a click on a selected object's name opens no editor", "[ObjectList][Regression]")
 {
-    // The 2026-11-17 report: after a click on the selected object, pressing 4 renamed it "4" instead
-    // of setting filament 4. The click had opened the name's editor, which doesn't show on macOS.
-    CHECK_FALSE(object_list_native_edit_allowed(colName, true));
-    // The other cells keep their click actions there (OnEditingStarted), and other platforms keep
-    // renaming in place, where the editor shows.
-    CHECK(object_list_native_edit_allowed(colPrint, true));
-    CHECK(object_list_native_edit_allowed(colEditing, true));
-    CHECK(object_list_native_edit_allowed(colName, false));
+    // After a click on the selected object, the name's editor, which doesn't show on macOS, took the
+    // keys: pressing 4 renamed it "4" (2026-11-17 report), and with that rename refused, Delete and
+    // Backspace did nothing (2026-11-20 report). An inert cell opens no editor.
+    CHECK(object_list_name_cell_mode(true) == wxDATAVIEW_CELL_INERT);
+    // Other platforms keep renaming in place, where the editor shows.
+    CHECK(object_list_name_cell_mode(false) == wxDATAVIEW_CELL_EDITABLE);
 }
