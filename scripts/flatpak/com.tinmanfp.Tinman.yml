@@ -117,9 +117,10 @@ modules:
     sources:
       # Use git instead of archive: wxWidgets 3.3 relies on multiple git
       # submodules (PCRE2, etc.) that are not included in GitHub tarballs.
+      # Pinned by commit alone, the same one deps/wxWidgets/wxWidgets.cmake builds: with a branch as
+      # well, flatpak-builder refuses to build once upstream moves the v3.3.2 branch on (2026-11-20).
       - type: git
         url: https://github.com/OrcaSlicer/Orca-deps-wxWidgets.git
-        branch: v3.3.2
         commit: b44c39c100975a0ac0e46f937aa3f3eae5e18631
 
   # OrcaSlicer C++ dependencies (built offline with pre-downloaded archives)
