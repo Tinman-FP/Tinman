@@ -57,6 +57,13 @@ float calibration_value_for_layer(float start, float end, float step, int layer_
     return start + ratio * (end - start);
 }
 
+// Tinman: the band used to come from the layer's top, floor(z - 0.4). z is a sum of layer heights, so a top at
+// 1.4, 2.4 … mm fell either side of the boundary, giving 4- and 6-layer bands (INDX report, 2026-11-21).
+double retraction_tower_length(double start, double step, double z, double layer_height)
+{
+    return start + std::floor(std::max(0.0, z - 0.5 * layer_height - 0.4)) * step;
+}
+
 float calibration_value_for_ratio(float start, float end, float step, float ratio)
 {
     ratio = std::clamp(ratio, 0.f, 1.f);
@@ -743,6 +750,11 @@ CustomGCode::Info CalibPressureAdvancePattern::generate_custom_gcodes(const Dyna
 
         refresh_setup(config, is_bbl_machine, object, origin);
 
+    // Tinman: the GUI makes this G-code before a slice sets GCodeProcessor::s_IsBBLPrinter, so a fresh session's
+    // first slice got Bambu tags on other printers. Their processor then read the whole first layer as start
+    // G-code, halving the shown model time (K2 report, 2026-11-20).
+    const std::string& role_tag = GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role, is_bbl_machine);
+
     gcode << move_to(Vec2d(m_starting_point.x(), m_starting_point.y()), *m_writer, "Move to start XY position");
     gcode << m_writer->travel_to_z(height_first_layer() + height_z_offset(), "Move to start Z position");
     gcode << m_writer->set_pressure_advance(m_params.start);
@@ -752,7 +764,7 @@ CustomGCode::Info CalibPressureAdvancePattern::generate_custom_gcodes(const Dyna
 
     // create anchoring frame
     //pattern uses outer wall speed/width
-    gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) << "Outer wall\n";
+    gcode << ";" << role_tag << "Outer wall\n";
     gcode << draw_box(*m_writer, m_starting_point.x(), m_starting_point.y(), print_size_x(), frame_size_y(), default_box_opt_args);
 
     // create tab for numbers
@@ -760,7 +772,7 @@ CustomGCode::Info CalibPressureAdvancePattern::generate_custom_gcodes(const Dyna
     draw_box_opt_args.is_filled      = true;
     draw_box_opt_args.num_perimeters = wall_count();
     //draw box as bottom surface, so numbers are clearly visible on top
-    gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) << "Bottom surface\n";
+    gcode << ";" << role_tag << "Bottom surface\n";
     gcode << draw_box(*m_writer, m_starting_point.x(), m_starting_point.y() + frame_size_y() + line_spacing_first_layer(),
                       print_size_x(),
                       max_numbering_height() + line_spacing_first_layer() + m_glyph_padding_vertical * 2, draw_box_opt_args);
@@ -773,7 +785,7 @@ CustomGCode::Info CalibPressureAdvancePattern::generate_custom_gcodes(const Dyna
 
     // Draw pressure advance pattern
     // pattern uses outer wall speed, label it as such
-    gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) << "Outer wall\n";
+    gcode << ";" << role_tag << "Outer wall\n";
     for (int i = 0; i < m_num_layers; ++i) {
         const double layer_height = height_first_layer() + height_z_offset() + (i * height_layer());
         const double zhop_height = layer_height + zhop_config_value;
@@ -805,7 +817,7 @@ CustomGCode::Info CalibPressureAdvancePattern::generate_custom_gcodes(const Dyna
                                               m_config.option<ConfigOptionFloats>("filament_flow_ratio")->get_at(0));
 
             // glyph on every other line
-            gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) << "Outer wall\n";
+            gcode << ";" << role_tag << "Outer wall\n";
             for (int j = 0; j < num_patterns; j += 2) {
                 gcode << draw_number(glyph_start_x(j), m_starting_point.y() + frame_size_y() + m_glyph_padding_vertical + line_width(),
                                      m_params.start + (j * m_params.step), m_draw_digit_mode, line_width(), number_e_per_mm,
@@ -855,7 +867,7 @@ CustomGCode::Info CalibPressureAdvancePattern::generate_custom_gcodes(const Dyna
         for (int j = 0; j < num_patterns; ++j) {
             // increment pressure advance
             gcode << m_writer->set_pressure_advance(m_params.start + (j * m_params.step));
-            gcode << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) << "Outer wall\n";
+            gcode << ";" << role_tag << "Outer wall\n";
             for (int k = 0; k < wall_count(); ++k) {
                 to_x += std::cos(to_radians(m_corner_angle) / 2) * side_length;
                 to_y += std::sin(to_radians(m_corner_angle) / 2) * side_length;
