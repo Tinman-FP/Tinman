@@ -15,10 +15,13 @@
 #include <fstream>
 #include <ios>
 #include <iterator>
+#include <map>
 #include <regex>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include <boost/filesystem/operations.hpp>
 
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/ClipperUtils.hpp"
@@ -27,6 +30,7 @@
 #include "libslic3r/ExtrusionEntity.hpp"
 #include "libslic3r/ExtrusionEntityCollection.hpp"
 #include "libslic3r/Fibreseek/WriterAdapter.hpp"
+#include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Layer.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/Point.hpp"
@@ -630,3 +634,145 @@ TEST_CASE("Seeker 3 plastic part cooling names the plastic nozzle's fan", "[Fibr
     CHECK(count(gcode, "\nM106 S") == 0);
     CHECK(count(gcode, "\nM107") == 0);
 }
+
+namespace {
+
+// A plastic-only job on a two-tool FibreSeek printer: material 1 PCTG on the 0.4 mm plastic nozzle and,
+// with two materials, the CFC composite loaded as material 2 but not printed. The process asks for no
+// fibre, and Fiber enabled may be off, as in Tinman AI's job copies for the OG. printer names a shipped
+// FibreSeek machine profile, layered over the common one it inherits; empty, the Seeker 3 composite
+// printer as composite_only_config() sets it up.
+DynamicPrintConfig plastic_only_config(const std::string &printer, unsigned int materials, bool fiber_enabled)
+{
+    const bool two = materials == 2;
+    DynamicPrintConfig config = Test::multifilament_config(materials, {
+        { "nozzle_diameter", "0.4,0.7" },
+        { "printer_extruder_id", "1,2" },
+        { "printer_extruder_variant", "Direct Drive Standard,Direct Drive Standard" },
+        { "extruder_printable_height", "0,0" },
+        { "single_extruder_multi_material", "0" },
+        { "fiber_enabled", "1" },
+        { "plastic_nozzle_diameter", "0.4" },
+        { "composite_nozzle_diameter", "0.7" },
+    });
+    const std::vector<std::string> profiles = printer.empty() ? std::vector<std::string>{} :
+                                                                std::vector<std::string>{ "FibreSeek machine common", printer };
+    for (const std::string &profile : profiles) {
+        const std::string path = std::string(PROFILES_DIR) + "/FibreSeek/machine/" + profile + ".json";
+        DynamicPrintConfig                 machine;
+        ConfigSubstitutionContext          substitutions{ForwardCompatibilitySubstitutionRule::Enable};
+        std::map<std::string, std::string> key_values;
+        std::string                        reason;
+        machine.load_from_json(path, substitutions, false, key_values, reason);
+        INFO("profile: " << path << " " << reason);
+        REQUIRE(machine.has("machine_start_gcode"));
+        config.apply(machine);
+    }
+    config.set_deserialize_strict({
+        { "filament_type", two ? "PCTG;CFC" : "PCTG" },
+        { "filament_self_index", two ? "1,2" : "1" },
+        { "filament_map", two ? "1,2" : "1" },
+        { "fiber_enabled", fiber_enabled ? "1" : "0" },
+        { "fiber_manufacturing_mode", "plastic_plus_fiber_overlay" },
+        { "fiber_generate_perimeters", "0" },
+        { "fiber_generate_infill", "0" },
+        { "layer_height", "0.2" },
+        { "initial_layer_print_height", "0.2" },
+        { "skirt_loops", "0" },
+        { "brim_type", "no_brim" },
+        { "enable_prime_tower", "0" },
+    });
+    config.set_key_value("fiber_reinforcement_payload", new ConfigOptionString("{}"));
+    Test::size_flush_to_nozzles(config);
+    return config;
+}
+
+// Material 1's volume is all the processor counts: material 2 is loaded, not printed.
+void check_only_material_1_used(const GCodeProcessorResult &result)
+{
+    const std::map<size_t, double> &volumes = result.print_statistics.total_volumes_per_extruder;
+    CHECK(volumes.count(0) == 1);
+    CHECK((volumes.count(0) == 1 && volumes.at(0) > 0.));
+    for (const auto &[filament, volume] : volumes)
+        CHECK((filament == 0 || volume == 0.));
+}
+
+// The tool selected at the first move that extrudes is the plastic tool, by its managed command, and
+// was waited for. No nozzle temperature leaves the tool to whichever is active, and none heats T0.
+void check_plastic_tool_only(const std::string &gcode)
+{
+    static const std::regex extrusion(R"(^G[01] [^;]*E([0-9.]+))");
+    static const std::regex temperature(R"(^M10[49] S(\d+))");
+    std::string              tool_at_first_extrusion, first_extrusion;
+    bool                     waited_for_plastic_tool = false;
+    std::vector<std::string> heating_not_on_t1;
+    size_t                   t0_selects = 0;
+    std::istringstream       stream(gcode);
+    for (std::string line, tool; std::getline(stream, line);) {
+        const std::string code = line.substr(0, line.find(';'));
+        std::smatch       match;
+        if (code.rfind('T', 0) == 0) {
+            tool = line;
+            t0_selects += code.rfind("T0", 0) == 0;
+        } else if (std::regex_search(code, match, temperature) && std::stoi(match[1].str()) > 0) {
+            if (code.find(" T1") == std::string::npos)
+                heating_not_on_t1.push_back(line);
+            else if (code.rfind("M109", 0) == 0 && first_extrusion.empty())
+                waited_for_plastic_tool = true;
+        } else if (first_extrusion.empty() && std::regex_search(code, match, extrusion) && std::stod(match[1].str()) > 0.) {
+            first_extrusion         = line;
+            tool_at_first_extrusion = tool;
+        }
+    }
+    INFO("first extrusion: " << first_extrusion);
+    REQUIRE(!first_extrusion.empty());
+    CHECK(tool_at_first_extrusion == "T1 ; switch extruder type to:PLASTIC");
+    CHECK(waited_for_plastic_tool);
+    CHECK(t0_selects == 0);
+    for (const std::string &line : heating_not_on_t1)
+        FAIL_CHECK("heats a tool other than T1: " << line);
+}
+
+} // namespace
+
+TEST_CASE("A plastic-only job on a two-tool FibreSeek printer selects and heats only the plastic tool", "[Fibreseek][FibreseekSlicing]")
+{
+    // The FibreSeek firmware's T0 is the fibre tool and T1 the plastic tool. Orca's own commands would
+    // select T0 for material 1, or no tool with one material, and heat the active tool, whichever it is.
+    const std::string printer = GENERATE(as<std::string>{}, "", "FibreSeek Seeker 3 0.4+0.7 composite nozzle",
+                                         "FibreSeek Seeker 3 0.6+0.7 composite nozzle", "FibreSeek Seeker 3 0.8+0.7 composite nozzle");
+    const unsigned int materials     = GENERATE(1u, 2u);
+    const bool         fiber_enabled = GENERATE(true, false);
+    CAPTURE(printer, materials, fiber_enabled);
+    if (!printer.empty() && !boost::filesystem::exists(std::string(PROFILES_DIR) + "/FibreSeek/machine/" + printer + ".json"))
+        SKIP("shipped profile not present: " << printer); // CI test artifacts may omit the shipped profiles
+    Print                print;
+    Model                model;
+    init_plate(print, model, plastic_only_config(printer, materials, fiber_enabled));
+    GCodeProcessorResult result;
+    const std::string    gcode = Test::gcode(print, &result);
+    check_plastic_tool_only(gcode);
+
+    // The processor reads that T1 as material 1, in the export and from the file.
+    check_only_material_1_used(result);
+    ScopedTemporaryFile file(".gcode");
+    std::ofstream(file.string()) << gcode;
+    GCodeProcessor processor;
+    processor.process_file(file.string());
+    check_only_material_1_used(processor.result());
+}
+
+TEST_CASE("A FibreSeek start G-code that heats the plastic tool itself keeps it selected and heated alone", "[Fibreseek][FibreseekSlicing]")
+{
+    // Tinman AI's start G-code for the OG selects T1 and waits for it; the writer then adds no wait of its own.
+    DynamicPrintConfig config = plastic_only_config("", 1, false);
+    config.set_deserialize_strict("machine_start_gcode",
+                                  "T1 ; plastic nozzle\nM109 S{nozzle_temperature_initial_layer[0]} T1\nG92 E0\nG0 Z10 F900\n");
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    const std::string gcode = Test::gcode(print);
+    check_plastic_tool_only(gcode);
+    CHECK(count(gcode, "\nM109 ") == 1);
+}
+

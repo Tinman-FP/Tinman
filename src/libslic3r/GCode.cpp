@@ -275,6 +275,29 @@ static bool tinman_native_composite_only_export_requested(const DynamicPrintConf
             tinman_dynamic_bool_option_for_gcode(config, "fiber_generate_perimeters"));
 }
 
+// A plastic-only job on a FibreSeek two-tool printer that prints one filament, on the plastic nozzle:
+// that filament. No fibre writer runs, so this writer selects and heats the tools, and the firmware
+// names them by role (fibreseek_plastic_extruder()). Orca's own T<filament id> would select T0, the
+// fibre tool, for material 1, or nothing at all with one filament loaded, and its M104 without T heats
+// whichever tool is active. Nothing for any other job, whose output stays as it was.
+static std::optional<unsigned int> tinman_fiberseek_plastic_only_filament(const Print &print, const std::vector<unsigned int> &filaments)
+{
+    const std::optional<size_t> plastic = fibreseek_plastic_extruder(print.config());
+    if (!plastic || filaments.size() != 1 || print.get_extruder_id(filaments.front()) != *plastic ||
+        continuous_fiber_requested(print.full_print_config()))
+        return std::nullopt;
+    return filaments.front();
+}
+
+// The FibreSeek firmware's plastic tool takes its managed command, never a bare T0/T1: material 1 in a
+// composite-only export, the printed filament in a plastic-only job.
+static bool tinman_fiberseek_selects_plastic_tool(const Print *print, const std::optional<unsigned int> &plastic_only_filament,
+                                                  unsigned int filament_id)
+{
+    return plastic_only_filament == filament_id ||
+           (print != nullptr && filament_id == 0 && tinman_native_composite_only_export_requested(print->full_print_config()));
+}
+
 static void tinman_append_raw_multiline_gcode(std::string &gcode, const std::string &raw)
 {
     std::stringstream stream(raw);
@@ -466,6 +489,11 @@ static std::string tinman_fiberseek_start_contract_gcode(
     return out;
 }
 
+// The FibreSeek firmware's plastic tool, selected by its managed command before the start G-code.
+static const char *const tinman_fiberseek_initial_plastic_tool_gcode =
+    "; ORCA_CODEX_FIBERSEEK_INITIAL_PLASTIC_TOOL\n"
+    "T1 ; switch extruder type to:PLASTIC\n";
+
 static std::string tinman_fiberseek_initial_plastic_gcode(
     int plastic_temperature,
     int bed_temperature,
@@ -475,8 +503,7 @@ static std::string tinman_fiberseek_initial_plastic_gcode(
     out += Slic3r::format("M190 S%d\n", bed_temperature);
     out += Slic3r::format("M191 S%d\n", chamber_temperature);
     out += Slic3r::format("M104 S%d T1\n", plastic_temperature);
-    out += "; ORCA_CODEX_FIBERSEEK_INITIAL_PLASTIC_TOOL\n";
-    out += "T1 ; switch extruder type to:PLASTIC\n";
+    out += tinman_fiberseek_initial_plastic_tool_gcode;
     out += Slic3r::format("M109 S%d T1\n", plastic_temperature);
     return out;
 }
@@ -4008,6 +4035,12 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
     if (initial_non_support_extruder_id == (unsigned int) -1)
         initial_non_support_extruder_id = initial_extruder_id;
 
+    // Tinman: a plastic-only FibreSeek job names the firmware's plastic tool, T1, in every tool select and
+    // nozzle temperature, and the processor reads that T1 as its filament.
+    m_tinman_fiberseek_plastic_filament = tinman_fiberseek_plastic_only_filament(print, m_writer.extruder_ids());
+    m_writer.set_fixed_heater_tool(m_tinman_fiberseek_plastic_filament ? 1 : -1);
+    m_processor.set_fibreseek_plastic_tool_filament(m_tinman_fiberseek_plastic_filament ? int(*m_tinman_fiberseek_plastic_filament) : -1);
+
     print.throw_if_canceled();
 
     // Taken before the object loop, which reassigns initial_extruder_id when printing by object.
@@ -4772,6 +4805,15 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         for (int temp : m_config.chamber_temperature.values)
             chamber_temp = std::max(chamber_temp, temp);
         file.write(tinman_fiberseek_initial_plastic_gcode(plastic_temp, bed_temp, chamber_temp));
+    } else if (m_tinman_fiberseek_plastic_filament) {
+        // The M104 above names T1 already. As the composite writer does, select that tool before the start
+        // G-code and wait for it, unless the start G-code heats the nozzle itself.
+        file.write(tinman_fiberseek_initial_plastic_tool_gcode);
+        int       temp_by_gcode = -1;
+        const int temp = print.config().nozzle_temperature_initial_layer.get_at(get_filament_config_index(int(*m_tinman_fiberseek_plastic_filament)));
+        if (temp > 0 && print.config().gcode_flavor != gcfKlipper &&
+            !custom_gcode_sets_temperature(machine_start_gcode, 104, 109, print.config().gcode_flavor == gcfRepRapFirmware, temp_by_gcode))
+            file.write(m_writer.set_temperature(temp, true));
     }
 
     // adds tag for processor
@@ -12181,10 +12223,7 @@ std::string GCode::set_extruder(unsigned int new_filament_id, double print_z, bo
         // multi-color in configurations where mid-print T<n> wouldn't make sense
         // (see imex_multicolor_block_reason).
         const std::string toolchange_command = m_writer.toolchange(new_filament_id, new_extruder_id);
-        if (m_print != nullptr &&
-            tinman_native_composite_only_export_requested(m_print->full_print_config()) &&
-            new_filament_id == 0) {
-            // Tinman: FibreSeek selects the plastic tool through its managed command, never a bare T0/T1.
+        if (tinman_fiberseek_selects_plastic_tool(m_print, m_tinman_fiberseek_plastic_filament, new_filament_id)) {
             gcode += "T1 ; switch extruder type to:PLASTIC\n";
             gcode += m_writer.reset_e(true);
         } else if (!imex_suppresses_bare_toolchange(m_imex_parallel_mode, m_toolchange_count))
@@ -12530,10 +12569,7 @@ std::string GCode::set_extruder(unsigned int new_filament_id, double print_z, bo
     // tool activation there). Mid-print T<n> emits normally; Print::validate blocks
     // multi-color setups where it wouldn't make sense.
     const bool suppress_imex_bare = imex_suppresses_bare_toolchange(m_imex_parallel_mode, m_toolchange_count);
-    if (m_print != nullptr &&
-        tinman_native_composite_only_export_requested(m_print->full_print_config()) &&
-        new_filament_id == 0) {
-        // Tinman: FibreSeek selects the plastic tool through its managed command, never a bare T0/T1.
+    if (tinman_fiberseek_selects_plastic_tool(m_print, m_tinman_fiberseek_plastic_filament, new_filament_id)) {
         gcode += "T1 ; switch extruder type to:PLASTIC\n";
         gcode += m_writer.reset_e(true);
     } else if (!custom_gcode_changes_tool(toolchange_gcode_parsed, m_writer.toolchange_prefix(), new_filament_id)

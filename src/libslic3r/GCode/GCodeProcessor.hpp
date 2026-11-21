@@ -1369,6 +1369,7 @@ inline constexpr float DEFAULT_FILAMENT_DENSITY = 1.245f;
         unsigned int m_layer_id;
         CpColor m_cp_color;
         int  m_orcaslicer_codex_continuous_fiber_filament_id {-1};
+        int  m_fibreseek_plastic_tool_filament {-1}; // see set_fibreseek_plastic_tool_filament()
         bool m_orcaslicer_codex_processing_fiber_move {false};
         bool m_orcaslicer_codex_inside_fiber_route {false};
         bool m_orcaslicer_codex_fiber_tail_after_cut {false};
@@ -1444,6 +1445,10 @@ inline constexpr float DEFAULT_FILAMENT_DENSITY = 1.245f;
         void apply_config(const PrintConfig& config);
         void configure_exclusion_volume_path_check(const PrintConfig &config);
         void set_print(Print* print) { m_print = print; }
+        // Tinman: the filament that T1 prints in a plastic-only job on a FibreSeek printer, where the
+        // writer selects the firmware's plastic tool with T1 whatever the filament id; -1 when T<n> is
+        // filament n. GCode sets it for an export; reprocessing a file takes it from the file's config.
+        void set_fibreseek_plastic_tool_filament(int filament_id) { m_fibreseek_plastic_tool_filament = filament_id; }
         // Locates extrusions in the objects and bodies it numbers, those objects listed beforehand.
         void set_mass_locator(MassLocator locator, std::vector<GCodeProcessorResult::ObjectMass> objects)
         {

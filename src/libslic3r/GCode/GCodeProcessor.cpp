@@ -3724,6 +3724,8 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
     } else {
         m_orcaslicer_codex_continuous_fiber_filament_id = -1;
     }
+    const std::optional<size_t> plastic_tool_filament = fibreseek_plastic_only_filament(config);
+    m_fibreseek_plastic_tool_filament = plastic_tool_filament ? int(*plastic_tool_filament) : -1;
 
     m_extruder_colors.resize(m_result.extruder_colors.size());
     for (size_t i = 0; i < m_result.extruder_colors.size(); ++i) {
@@ -3965,6 +3967,7 @@ void GCodeProcessor::reset()
     m_g1_line_id = 0;
     m_layer_id = 0;
     m_cp_color.reset();
+    m_fibreseek_plastic_tool_filament = -1;
     m_orcaslicer_codex_continuous_fiber_filament_id = -1;
     m_orcaslicer_codex_processing_fiber_move = false;
     m_orcaslicer_codex_inside_fiber_route = false;
@@ -7504,6 +7507,9 @@ void GCodeProcessor::process_T(const std::string_view command, int nozzle_id)
     auto         ret          = std::from_chars(command.data() + 1, command.data()+command.size(), eid);
     if (std::errc::invalid_argument == ret.ec)
         return;
+    // Tinman: in a plastic-only job on a FibreSeek printer, T1 is the firmware's plastic tool, not filament 2.
+    if (m_fibreseek_plastic_tool_filament >= 0 && eid == 1)
+        eid = static_cast<unsigned int>(m_fibreseek_plastic_tool_filament);
 
     int curr_filament_id = get_filament_id(false);
     int curr_extruder_id = get_extruder_id(false);
