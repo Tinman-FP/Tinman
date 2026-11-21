@@ -1816,6 +1816,27 @@ FlowRateCalibrationDialog::FlowRateCalibrationDialog(wxWindow* parent, wxWindowI
     m_rbType = new RadioGroup(this, { _L("Pass 1 (Coarse)"), _L("Pass 2 (Fine)"), _L("YOLO (Recommended)"), _L("YOLO (Perfectionist)") }, wxVERTICAL, 1);
     m_rbType->SetSelection(2); // Default to YOLO Recommended
     type_box->Add(m_rbType, 0, wxALL | wxEXPAND, FromDIP(4));
+
+    // Tinman: say how a block's number changes the flow ratio. The passes scale it by a percentage
+    // and YOLO adds the number, so reading one the other way picks the wrong ratio.
+    auto type_note = new wxStaticText(this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxALIGN_LEFT);
+    type_note->SetForegroundColour(wxColour(128, 128, 128));
+    const auto update_type_note = [this, type_note]() {
+        type_note->SetLabel(m_rbType->GetSelection() >= 2 ?
+            _L("Each block's number is added to your flow ratio: new flow ratio = current + number. "
+               "\"m\" means minus, so m0.040 on 0.950 gives 0.910.") :
+            _L("Each block's number is a percentage: new flow ratio = current × (100 + number) / 100. "
+               "\"m\" means minus."));
+        type_note->Wrap(FromDIP(350));
+    };
+    update_type_note();
+    m_rbType->Bind(wxEVT_COMMAND_RADIOBOX_SELECTED, [this, update_type_note](wxCommandEvent &event) {
+        update_type_note();
+        Layout();
+        Fit();
+        event.Skip();
+    });
+    type_box->Add(type_note, 0, wxALL, FromDIP(5));
     v_sizer->Add(type_box, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
 
     // Settings

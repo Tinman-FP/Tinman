@@ -270,6 +270,11 @@ bool tinmanx_managed_machine_preset(const std::string &preset_name, const std::s
     return false;
 }
 
+bool tinmanx_runtime_connection_machine(const std::string &preset_name, const std::string &machine_hint)
+{
+    return !matched_model(preset_name, machine_hint).empty();
+}
+
 bool tinmanx_runtime_connection_option(const std::string &option_name)
 {
     return std::find(connection_options.begin(), connection_options.end(), option_name) != connection_options.end();

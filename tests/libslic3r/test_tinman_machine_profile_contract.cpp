@@ -408,7 +408,7 @@ TEST_CASE("TinMan agent repairs on a user printer copy are not unsaved changes",
     printers.load_preset(std::string(), copy, config, /*select=*/false);
     REQUIRE(printers.select_preset_by_name(copy, true));
     REQUIRE_FALSE(printers.get_selected_preset().is_system);
-    REQUIRE_FALSE(tinmanx_managed_machine_preset(copy, "Prusa CORE One L")); // the overlay doesn't cover it
+    REQUIRE_FALSE(tinmanx_managed_machine_preset(copy, "Prusa CORE One L")); // not a canonical preset
 
     // Selecting it moves both the edited copy and the saved preset to the catalog's agent.
     const AppConfig app_config;
@@ -609,6 +609,52 @@ TEST_CASE("TinMan runtime connection overlay does not dirty managed printer pres
     edited.config.set_key_value("nozzle_diameter", new ConfigOptionFloats({0.4, 0.4}));
     CHECK(PresetCollection::is_dirty(&edited, &saved));
     CHECK(PresetCollection::dirty_options(&edited, &saved) == std::vector<std::string>{"nozzle_diameter"});
+}
+
+TEST_CASE("A user-named printer of a catalog machine is not modified by its restored connection", "[Preset][TinMan]")
+{
+    // A print report: switching away from "Qidi Plus4 0.4mm - Codex - ABS r1" showed an empty
+    // "Transfer or discard changes" dialog, because the address restored on selection differed
+    // from the one saved in the preset and connection settings have no rows in that dialog.
+    PrinterPresetCollection printers(Preset::TYPE_PRINTER, Preset::printer_options(),
+                                     static_print_config_ref(static_cast<const PrintRegionConfig &>(FullPrintConfig::defaults())));
+    const std::string name = "Qidi Plus4 0.4mm - Codex - ABS r1";
+    DynamicPrintConfig config(printers.default_preset().config);
+    config.set_key_value("printer_model", new ConfigOptionString("Qidi X-Plus 4"));
+    config.set_key_value("printer_agent", new ConfigOptionString("qidi"));
+    config.set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(htMoonraker));
+    config.set_key_value("print_host", new ConfigOptionString("192.0.2.10"));
+    printers.load_preset(std::string(), name, config, /*select=*/false);
+    REQUIRE(printers.select_preset_by_name(name, true));
+    REQUIRE_FALSE(tinmanx_managed_machine_preset(name, "Qidi X-Plus 4"));
+    REQUIRE(tinmanx_runtime_connection_machine(name, "Qidi X-Plus 4"));
+
+    AppConfig app_config;
+    app_config.set_str("tinman_machine_connections", "Qidi X-Plus 4::print_host", "http://192.0.2.11:7125");
+    app_config.set_str("tinman_machine_connections", "Qidi X-Plus 4::print_host_webui", "http://192.0.2.11");
+    tinmanx_restore_selected_printer_connection(app_config, printers);
+    REQUIRE(printers.get_edited_preset().config.opt_string("print_host") == "http://192.0.2.11:7125");
+    CHECK(printers.get_selected_preset().config.opt_string("print_host") == "192.0.2.10");
+    CHECK_FALSE(printers.current_is_dirty());
+    CHECK(printers.current_dirty_options(true).empty());
+
+    // The user's own edits still count, and they are the only ones listed.
+    printers.get_edited_preset().config.set_key_value("machine_start_gcode", new ConfigOptionString("EXTRUDER=3"));
+    CHECK(printers.current_is_dirty());
+    CHECK(printers.current_dirty_options(true) == std::vector<std::string>{"machine_start_gcode"});
+}
+
+TEST_CASE("Connection values still count as changes on a printer outside the catalog", "[Preset][TinMan]")
+{
+    Preset saved(Preset::TYPE_PRINTER, "Unrelated Printer 0.4 nozzle");
+    saved.config.set_key_value("printer_model", new ConfigOptionString("Unrelated Printer"));
+    saved.config.set_key_value("print_host", new ConfigOptionString());
+    REQUIRE_FALSE(tinmanx_runtime_connection_machine(saved.name, "Unrelated Printer"));
+
+    Preset edited = saved;
+    edited.config.set_key_value("print_host", new ConfigOptionString("192.0.2.12"));
+    CHECK(PresetCollection::is_dirty(&edited, &saved));
+    CHECK(PresetCollection::dirty_options(&edited, &saved) == std::vector<std::string>{"print_host"});
 }
 
 TEST_CASE("Moonraker print uploads use only the virtual SD gcode root", "[Preset][TinMan][Moonraker]")
