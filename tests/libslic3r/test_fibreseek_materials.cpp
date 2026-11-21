@@ -756,6 +756,52 @@ TEST_CASE("With fibre on, part cooling names the fan of the filament's nozzle", 
     }
 }
 
+TEST_CASE("A layup payload counts only when it gives the fibre planner something", "[TinMan][FibreSeek][FibreSeekRequest]")
+{
+    const auto [payload, is_set] = GENERATE(table<std::string, bool>({
+        { "", false },
+        { "  ", false },
+        { "{}", false },
+        { " { } ", false },
+        { "[]", false },
+        { "null", false },
+        { R"({"layup_bands":[{"from_layer":2,"perimeters":true}]})", true },
+        // Not JSON: the planner reads it and reports why it can't.
+        { "{layup", true },
+    }));
+    CAPTURE(payload);
+    CHECK(fiber_reinforcement_payload_is_set(payload) == is_set);
+}
+
+TEST_CASE("Only the process asks for continuous fibre, not the printer's Fiber enabled", "[TinMan][FibreSeek][FibreSeekRequest]")
+{
+    // A fibre printer with a process whose fibre options are all off, as a plastic-only copy of a
+    // fibre process keeps them.
+    DynamicPrintConfig config;
+    config.set_deserialize_strict({
+        { "fiber_enabled", "1" },
+        { "fiber_generate_perimeters", "0" },
+        { "fiber_generate_infill", "0" },
+    });
+    config.set_key_value("fiber_reinforcement_payload", new ConfigOptionString("{}"));
+    CHECK_FALSE(continuous_fiber_requested(config));
+    CHECK_FALSE(continuous_fiber_requested(DynamicPrintConfig()));
+
+    SECTION("fibre perimeters") {
+        config.set_deserialize_strict("fiber_generate_perimeters", "1");
+        CHECK(continuous_fiber_requested(config));
+    }
+    SECTION("fibre infill") {
+        config.set_deserialize_strict("fiber_generate_infill", "1");
+        CHECK(continuous_fiber_requested(config));
+    }
+    SECTION("a layup payload with bands") {
+        config.set_key_value("fiber_reinforcement_payload",
+                             new ConfigOptionString(R"({"layup_bands":[{"from_layer":2,"perimeters":true}]})"));
+        CHECK(continuous_fiber_requested(config));
+    }
+}
+
 TEST_CASE("Slicing reads unsaved edits of any composite, listed or custom", "[TinMan][Preset][FibreSeek][CfcCommit]")
 {
     ResolverFixture fixture;

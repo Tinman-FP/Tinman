@@ -14,6 +14,7 @@
 #include <vector>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <nlohmann/json.hpp>
 
 namespace Slic3r {
 
@@ -315,6 +316,25 @@ double continuous_fiber_composite_value(const DynamicConfig &config, const char 
 {
     const auto slot = continuous_fiber_composite_slot(config);
     return slot ? positive_at(config, key, *slot) : 0.;
+}
+
+bool fiber_reinforcement_payload_is_set(const std::string &payload)
+{
+    const nlohmann::json parsed = nlohmann::json::parse(payload, nullptr, false);
+    if (parsed.is_discarded())
+        return !trim_copy(payload).empty();
+    return !parsed.is_null() && !((parsed.is_object() || parsed.is_array()) && parsed.empty());
+}
+
+bool continuous_fiber_requested(const ConfigBase &config)
+{
+    const auto on = [&config](const char *key) {
+        const auto *option = config.option<ConfigOptionBool>(key);
+        return option != nullptr && option->value;
+    };
+    const auto *payload = config.option<ConfigOptionString>("fiber_reinforcement_payload");
+    return on("fiber_generate_perimeters") || on("fiber_generate_infill") ||
+           (payload != nullptr && fiber_reinforcement_payload_is_set(payload->value));
 }
 
 int continuous_fiber_part_cooling_fan_index(const PrintConfig &config, size_t filament_id)

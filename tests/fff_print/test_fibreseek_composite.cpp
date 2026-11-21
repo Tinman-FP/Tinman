@@ -3,6 +3,7 @@
 // trims the plastic fills under the fibre, and GCode::extrude_fiberseek_composite_routes_for_layer()
 // writes the routes. The strand values here are throwaway test data. Nothing here talks to a printer.
 
+#include <catch2/catch_message.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
@@ -21,6 +22,7 @@
 
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/ClipperUtils.hpp"
+#include "libslic3r/Config.hpp"
 #include "libslic3r/ExPolygon.hpp"
 #include "libslic3r/ExtrusionEntity.hpp"
 #include "libslic3r/ExtrusionEntityCollection.hpp"
@@ -520,6 +522,36 @@ TEST_CASE("A warning of the native fibre planner is a slicing warning of the G-c
     print.export_gcode(second.string(), nullptr);
     CHECK(count(read(second.string()), "; STAND_IN_PLANNED") == 1);
     CHECK(print.is_step_done(psGCodeExport));
+}
+
+TEST_CASE("A plastic-only process on a fibre printer runs no fibre planner", "[Fibreseek][FibreseekSlicing]")
+{
+    // The stand-in planner above. The printer has Fiber enabled; the process has fibre perimeters
+    // and infill off, and only a layup payload with bands still asks for fibre.
+    ScopedTemporaryFile script(".sh");
+    std::ofstream(script.string()) << "echo '; STAND_IN_PLANNED' >> \"$2\"\n";
+    ScopedEnvVar planner("ORCASLICER_CODEX_NATIVE_FIBER_PLANNER", "1");
+    ScopedEnvVar planner_script("ORCASLICER_CODEX_NATIVE_FIBER_PLANNER_SCRIPT", script.string());
+    ScopedEnvVar python("ORCASLICER_CODEX_PYTHON", "/bin/sh");
+    const auto [payload, planned] = GENERATE(table<std::string, bool>({
+        { "", false },
+        { "{}", false },
+        { " [ ] ", false },
+        { R"({"layup_bands":[{"from_layer":2,"perimeters":true}]})", true },
+    }));
+    CAPTURE(payload);
+    DynamicPrintConfig config = composite_only_config();
+    config.set_deserialize_strict({
+        { "fiber_manufacturing_mode", "plastic_plus_fiber_overlay" },
+        { "fiber_generate_perimeters", "0" },
+        { "fiber_generate_infill", "0" },
+    });
+    config.set_key_value("fiber_reinforcement_payload", new ConfigOptionString(payload));
+    REQUIRE(config.opt_bool("fiber_enabled"));
+    Print print;
+    Model model;
+    init_plate(print, model, config);
+    CHECK(count(Test::gcode(print), "; STAND_IN_PLANNED") == (planned ? 1 : 0));
 }
 #endif
 

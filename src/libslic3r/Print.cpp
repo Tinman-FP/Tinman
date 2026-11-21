@@ -65,6 +65,7 @@
 #include "ClipperUtils.hpp"
 #include "ExclusionVolumeGeometry.hpp"
 #include "Extruder.hpp"
+#include "FibreSeekMaterials.hpp"
 #include "FilamentMixer.hpp"
 #include "Flow.hpp"
 #include "Geometry/ConvexHull.hpp"
@@ -179,26 +180,11 @@ static bool orcaslicer_codex_bool_option(const DynamicPrintConfig& config, const
     return false;
 }
 
-static bool orcaslicer_codex_nonempty_string_option(const DynamicPrintConfig& config, const char *key)
-{
-    if (const ConfigOptionString *option = config.opt<ConfigOptionString>(key))
-        return !option->value.empty();
-    return false;
-}
-
 static std::string orcaslicer_codex_config_string_value(const DynamicPrintConfig& config, const char *key)
 {
     if (const ConfigOptionString *option = config.opt<ConfigOptionString>(key))
         return option->value;
     return {};
-}
-
-static bool orcaslicer_codex_continuous_fiber_requested(const DynamicPrintConfig& config)
-{
-    return orcaslicer_codex_bool_option(config, "fiber_enabled") ||
-           orcaslicer_codex_bool_option(config, "fiber_generate_perimeters") ||
-           orcaslicer_codex_bool_option(config, "fiber_generate_infill") ||
-           orcaslicer_codex_nonempty_string_option(config, "fiber_reinforcement_payload");
 }
 
 static int orcaslicer_codex_config_int_value(const DynamicPrintConfig& config, const char *key, int default_value)
@@ -285,7 +271,7 @@ static bool orcaslicer_codex_native_fiber_planner_requested(const DynamicPrintCo
 {
     if (codex_truthy_env("ORCASLICER_CODEX_DISABLE_NATIVE_FIBER_PLANNER"))
         return false;
-    if (!orcaslicer_codex_continuous_fiber_requested(config))
+    if (!continuous_fiber_requested(config))
         return false;
     if (orcaslicer_codex_composite_only_requested(config))
         return false;

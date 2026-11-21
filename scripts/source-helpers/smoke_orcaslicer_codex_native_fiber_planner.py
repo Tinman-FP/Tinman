@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -1449,6 +1450,35 @@ def main() -> int:
         )
         contract_routes, contract_skipped = planner.plan_routes(contract_parsed, contract_cfg)
         contract_merged = planner.emit_append_after_layer(contract_parsed, contract_routes, contract_cfg)
+
+        # The same job with fibre perimeters and infill off, as Tinman passes them for a plastic-only
+        # process: no routes, so the fibre tool (T0) is never used and must stay cold.
+        plastic_only_parsed = planner.parse_gcode(contract_fixture)
+        plastic_only_cfg = planner.planner_config(
+            plastic_only_parsed,
+            default_planner_args(fiber_generate_perimeters="0", fiber_generate_infill="0"),
+        )
+        plastic_only_routes, _ = planner.plan_routes(plastic_only_parsed, plastic_only_cfg)
+        if plastic_only_routes:
+            raise SystemExit(f"Plastic-only plan generated {len(plastic_only_routes)} fibre route(s).")
+        plastic_only_merged = planner.emit_append_after_layer(plastic_only_parsed, plastic_only_routes, plastic_only_cfg)
+        fiber_tool_heating = re.findall(r"^M10[49] S[1-9]\d* T0\b.*$", plastic_only_merged, flags=re.MULTILINE)
+        if fiber_tool_heating:
+            raise SystemExit(f"Plastic-only plan heats the fibre tool: {fiber_tool_heating}")
+        require_in_order(
+            plastic_only_merged,
+            [
+                "; ORCA_CODEX_FIBERSEEK_MACHINE_CONTRACT_START",
+                "SET_TOOL_CORNER_VELOCITY T=0 SCV=1",
+                "M140 S80",
+                "M141 S35",
+                "; ORCA_CODEX_FIBERSEEK_MACHINE_CONTRACT_END",
+                "M104 S260 T1 ; set plastic nozzle temperature",
+                "T1 ; switch extruder type to:PLASTIC",
+                "M109 S260 T1",
+                ";LAYER_CHANGE",
+            ],
+        )
 
         bad_process_fixture = Path(tmpdir) / "bad_fiberseek_process_fixture.gcode"
         bad_process_fixture.write_text(synthetic_bad_fiberseek_process_gcode(), encoding="utf-8")

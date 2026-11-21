@@ -3680,7 +3680,9 @@ def fmt_temp(value: float) -> str:
     return fmt_float(value, 0)
 
 
-def emit_fiberseek_start_contract(parsed: ParsedGCode, cfg: PlannerConfig) -> list[str]:
+def emit_fiberseek_start_contract(parsed: ParsedGCode, cfg: PlannerConfig, heat_fiber_tool: bool) -> list[str]:
+    """`heat_fiber_tool` is false for a plan without routes: the fibre tool (T0) is then never
+    used, so it is not preheated."""
     lines = [
         "; ORCA_CODEX_FIBERSEEK_MACHINE_CONTRACT_START",
         f"SET_PRINT_STATS_INFO TOTAL_LAYER={len(parsed.layers)}",
@@ -3688,11 +3690,16 @@ def emit_fiberseek_start_contract(parsed: ParsedGCode, cfg: PlannerConfig) -> li
         "SET_VELOCITY_LIMIT MINIMUM_CRUISE_RATIO=0.8",
         "SET_VELOCITY_LIMIT SQUARE_CORNER_VELOCITY=1",
         "SET_TOOL_CORNER_VELOCITY T=0 SCV=1",
-        f"M104 S{fmt_temp(cfg.fiber_nozzle_temperature)} T0",
-        f"M140 S{fmt_temp(cfg.bed_temperature)}",
-        f"M141 S{fmt_temp(cfg.chamber_temperature)}",
     ]
-    lines.append("; ORCA_CODEX_FIBERSEEK_MACHINE_CONTRACT_END")
+    if heat_fiber_tool:
+        lines.append(f"M104 S{fmt_temp(cfg.fiber_nozzle_temperature)} T0")
+    lines.extend(
+        [
+            f"M140 S{fmt_temp(cfg.bed_temperature)}",
+            f"M141 S{fmt_temp(cfg.chamber_temperature)}",
+            "; ORCA_CODEX_FIBERSEEK_MACHINE_CONTRACT_END",
+        ]
+    )
     return lines
 
 
@@ -3982,7 +3989,7 @@ def emit_append_after_layer(parsed: ParsedGCode, routes: Sequence[FiberRoute], c
         f"; continuous_fiber_used_mm = {fmt_float(summary['total_length_mm'], 3)}",
         f"; continuous_fiber_used_g = {fmt_float(used_g, 4)}",
     ]
-    output.extend(emit_fiberseek_start_contract(parsed, cfg))
+    output.extend(emit_fiberseek_start_contract(parsed, cfg, heat_fiber_tool=bool(routes)))
     current_layer: int | None = None
     inserted_header = False
     fiber_prime_inserted = False

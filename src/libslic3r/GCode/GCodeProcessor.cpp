@@ -3,6 +3,7 @@
 #include "libslic3r/Config.hpp"
 #include "libslic3r/CustomGCode.hpp"
 #include "libslic3r/Exception.hpp"
+#include "libslic3r/FibreSeekMaterials.hpp"
 #include "libslic3r/BeltTransform.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/CommonDefs.hpp"
@@ -112,12 +113,6 @@ static std::string_view trim_ascii_whitespace(const std::string_view value)
     return value.substr(start, end - start);
 }
 
-static bool orcaslicer_codex_config_bool_option(const Slic3r::DynamicPrintConfig& config, const char *key)
-{
-    const Slic3r::ConfigOptionBool *option = config.option<Slic3r::ConfigOptionBool>(key);
-    return option != nullptr && option->value;
-}
-
 static float orcaslicer_codex_config_float_option(const Slic3r::DynamicPrintConfig& config, const char *key, float fallback)
 {
     const Slic3r::ConfigOptionFloat *option = config.option<Slic3r::ConfigOptionFloat>(key);
@@ -132,11 +127,6 @@ static std::string orcaslicer_codex_config_string_option(const Slic3r::DynamicPr
 
     const std::string_view trimmed = trim_ascii_whitespace(option->value);
     return std::string(trimmed);
-}
-
-static bool orcaslicer_codex_config_nonempty_string_option(const Slic3r::DynamicPrintConfig& config, const char *key)
-{
-    return !orcaslicer_codex_config_string_option(config, key).empty();
 }
 
 // Density (g/cm^3) of the fibre strand from its linear density (g/km) and
@@ -3713,12 +3703,7 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
             m_result.extruder_colors[i] = "#FF8000";
     }
 
-    const bool continuous_fiber_requested =
-        orcaslicer_codex_config_bool_option(config, "fiber_enabled") ||
-        orcaslicer_codex_config_bool_option(config, "fiber_generate_perimeters") ||
-        orcaslicer_codex_config_bool_option(config, "fiber_generate_infill") ||
-        orcaslicer_codex_config_nonempty_string_option(config, "fiber_reinforcement_payload");
-    if (continuous_fiber_requested) {
+    if (continuous_fiber_requested(config)) {
         const float fiber_diameter = std::max(
             orcaslicer_codex_config_float_option(
                 config,

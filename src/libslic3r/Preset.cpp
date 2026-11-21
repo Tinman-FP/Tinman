@@ -1099,12 +1099,16 @@ bool is_compatible_with_printer(const PresetWithVendorProfile &preset, const Pre
 // Preset objects to hand; without this it would have to reimplement the policy or build the shells
 // at every call site.
 bool is_compatible_with_printer(const DynamicPrintConfig &preset_config, Preset::Type preset_type,
-                                const DynamicPrintConfig &printer_config, const std::string &printer_name)
+                                const DynamicPrintConfig &printer_config, const std::string &printer_name,
+                                const std::string &printer_parent)
 {
     Preset preset(preset_type, std::string("__compat_check"));
     preset.config = preset_config;
     Preset printer(Preset::TYPE_PRINTER, printer_name);
     printer.config = printer_config;
+    // The parent-printer rule reads inherits; a 3MF's project config has none, and a system
+    // printer's own inherits (its vendor's base profile) is not a parent the GUI accepts.
+    printer.config.set_key_value("inherits", new ConfigOptionString(printer_parent));
     return is_compatible_with_printer(PresetWithVendorProfile(preset, nullptr),
                                       PresetWithVendorProfile(printer, nullptr));
 }
