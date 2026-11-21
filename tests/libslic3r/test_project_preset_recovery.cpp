@@ -1,12 +1,15 @@
 #include <catch2/catch_all.hpp>
 
+#include <algorithm>
 #include <memory>
+#include <utility>
 #include <boost/filesystem.hpp>
 
 #include "libslic3r/Config.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/PresetBundle.hpp"
+#include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/TinManMachineProfileContract.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 
@@ -219,6 +222,51 @@ TEST_CASE("Embedded printer exports do not carry local connection credentials", 
         CHECK_FALSE(tinmanx_runtime_connection_option(key));
     CHECK(source.config == before);
     CHECK(exported->config.option("nozzle_diameter")->serialize() == before.option("nozzle_diameter")->serialize());
+}
+
+// A project leaves out every connection key, so opening it must not put the default host type or agent
+// over the printer it was saved with (that marked the printer modified, and saving it would keep them).
+TEST_CASE("Opening a project leaves its printer's connection and saved state alone", "[Preset][ProjectRecovery][TinMan]")
+{
+    const auto set_up = [](PresetBundle &bundle) {
+        DynamicPrintConfig machine = bundle.printers.default_preset().config;
+        machine.set_key_value("host_type", new ConfigOptionEnum<PrintHostType>(htMoonraker));
+        machine.set_key_value("printer_agent", new ConfigOptionString("moonraker"));
+        machine.set_key_value("print_host", new ConfigOptionString("192.0.2.10"));
+        machine.set_key_value("printhost_authorization_type", new ConfigOptionEnum<AuthorizationType>(atUserPassword));
+        bundle.printers.load_preset({}, "Saved printer", machine, true);
+        bundle.filament_presets = {bundle.filaments.default_preset().name};
+    };
+    const bool changed = GENERATE(false, true);
+    CAPTURE(changed);
+    PresetBundle source;
+    set_up(source);
+    DynamicPrintConfig saved = tinmanx_portable_project_config(source.full_config_secure());
+    if (changed)
+        saved.set_key_value("machine_end_gcode", new ConfigOptionString("; changed in the project"));
+    // As Plater::load_files reads a project: the defaults under the file's values, then normalized.
+    DynamicPrintConfig config;
+    config.apply(static_print_config_ref(FullPrintConfig::defaults()));
+    config += std::move(saved);
+    Preset::normalize(config);
+
+    PresetBundle bundle;
+    set_up(bundle);
+    bundle.load_config_model("project.3mf", std::move(config));
+    const auto &printers = bundle.printers;
+    const auto &edited = printers.get_edited_preset().config;
+    CHECK(printers.get_edited_preset().name == "Saved printer");
+    CHECK(printers.current_is_dirty() == changed);
+    const auto dirty = printers.current_dirty_options();
+    CHECK((std::find(dirty.begin(), dirty.end(), "machine_end_gcode") != dirty.end()) == changed);
+    for (const auto &key : dirty) {
+        CAPTURE(key);
+        CHECK_FALSE(tinmanx_runtime_connection_option(key));
+    }
+    CHECK(edited.opt_enum<PrintHostType>("host_type") == htMoonraker);
+    CHECK(edited.opt_string("printer_agent") == "moonraker");
+    CHECK(edited.opt_string("print_host") == "192.0.2.10");
+    CHECK(edited.opt_enum<AuthorizationType>("printhost_authorization_type") == atUserPassword);
 }
 
 TEST_CASE("Unresolved project parents retain inputs and do not block healthy profiles", "[Preset][ProjectRecovery][TinMan]")

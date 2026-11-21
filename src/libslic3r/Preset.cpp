@@ -1209,13 +1209,10 @@ DynamicPrintConfig Preset::load_external_config(Type type, const DynamicPrintCon
     // Load the preset over a default preset, so that the missing fields are filled in from the default preset.
     DynamicPrintConfig cfg(default_config);
     // SoftFever: ignore print connection info from project
+    // TinMan: all of it. A project leaves out every connection key (tinmanx_portable_project_config), so taking
+    // any of them would put the default host type or agent over the user's printer and mark it modified.
     auto        cfg_keys = cfg.keys();
-    cfg_keys.erase(std::remove_if(cfg_keys.begin(), cfg_keys.end(),
-                              [](std::string &val) {
-                                return val == "print_host" || val == "print_host_webui" || val == "printhost_apikey" ||
-                                       val == "printhost_cafile" || val == "printhost_user" || val == "printhost_password" || val == "printhost_port";
-                              }),
-               cfg_keys.end());
+    cfg_keys.erase(std::remove_if(cfg_keys.begin(), cfg_keys.end(), tinmanx_runtime_connection_option), cfg_keys.end());
     cfg.apply_only(project_config, cfg_keys, true);
 
     //add different settings check logic, replace the old system preset's default value with new system preset's default values
@@ -3322,6 +3319,8 @@ static bool profile_print_params_same(const DynamicPrintConfig &cfg_old, const D
                              "printer_model", "printer_variant", "default_print_profile", "default_filament_profile", "default_sla_print_profile", "default_sla_material_profile"
                              })
         diff.erase(std::remove(diff.begin(), diff.end(), key), diff.end());
+    // Connection keys never come from a project (see Preset::load_external_config).
+    diff.erase(std::remove_if(diff.begin(), diff.end(), tinmanx_runtime_connection_option), diff.end());
     // Preset with the same name as stored inside the config exists.
     return diff.empty();
 }
