@@ -1,10 +1,13 @@
 #include <catch2/catch_all.hpp>
 
 #include <algorithm>
+#include <cmath>
+#include <iterator>
 #include "libslic3r/CustomGCode.hpp"
 #include <sstream>
 #include <string>
 #include <limits>
+#include <map>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -22,6 +25,7 @@
 #include "libslic3r/GCode.hpp"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/GCode/AdaptivePAProcessor.hpp"
+#include "libslic3r/GCode/GCodeProcessor.hpp"
 
 using namespace Slic3r;
 
@@ -337,4 +341,63 @@ TEST_CASE("PA pattern resets the extruder after the final layer in absolute E mo
 
     REQUIRE(state.max_e > 1.);
     REQUIRE_THAT(state.final_e, Catch::Matchers::WithinAbs(0., 1e-9));
+}
+
+TEST_CASE("Retraction tower bands are 1 mm whatever rounding the layer tops carry", "[Calib][Regression]")
+{
+    // A 0 to 2 mm test in 0.1 mm steps, cut like Plater::calib_retraction: a 0.4 mm base, then 21 bands of 1 mm.
+    for (const double layer_height : {0.2, 0.1, 0.05}) {
+        CAPTURE(layer_height);
+        const int           layers_per_mm = int(std::lround(1. / layer_height));
+        std::map<long, int> layers_per_band; // length in 0.1 mm -> layers
+        // A running sum of layer heights, as the slicer builds print_z.
+        for (double z = layer_height; z < 21.4 + 1e-6; z += layer_height)
+            ++layers_per_band[std::lround(retraction_tower_length(0., 0.1, z, layer_height) * 10.)];
+
+        REQUIRE(layers_per_band.size() == 21);
+        CHECK(layers_per_band.begin()->second == int(std::lround(0.4 / layer_height)) + layers_per_mm);
+        for (auto band = std::next(layers_per_band.begin()); band != layers_per_band.end(); ++band) {
+            CAPTURE(band->first);
+            CHECK(band->second == layers_per_mm);
+        }
+        // The top layer never passes the requested end.
+        CHECK(layers_per_band.rbegin()->first == 20);
+    }
+    // A layer top a hair either side of a boundary stays in the band it closes.
+    for (const double top : {1.4, 2.4, 9.4})
+        CHECK(retraction_tower_length(0., 0.1, top - 1e-9, 0.2) == retraction_tower_length(0., 0.1, top + 1e-9, 0.2));
+}
+
+TEST_CASE("PA pattern role tags follow its printer, not the last slice", "[Calib][Regression]")
+{
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    Model              model;
+    model.add_object("cube", "", make_cube(20, 20, 20))->add_instance();
+
+    Calib_Params params;
+    params.mode  = CalibMode::Calib_PA_Pattern;
+    params.start = 0.;
+    params.end   = 0.02;
+    params.step  = 0.002;
+
+    struct FlagGuard
+    {
+        bool saved = GCodeProcessor::s_IsBBLPrinter;
+        ~FlagGuard() { GCodeProcessor::s_IsBBLPrinter = saved; }
+    } guard;
+
+    for (const bool is_bbl : {false, true}) {
+        CAPTURE(is_bbl);
+        // The GUI makes the pattern before a slice sets the flag, so the flag may still describe another printer.
+        GCodeProcessor::s_IsBBLPrinter = !is_bbl;
+        CalibPressureAdvancePattern pattern(params, config, is_bbl, *model.objects.front(), Vec3d(0, 0, 0));
+        const CustomGCode::Info     info = pattern.generate_custom_gcodes(config, is_bbl, *model.objects.front(), Vec3d(0, 0, 0));
+
+        std::string gcode;
+        for (const CustomGCode::Item &item : info.gcodes)
+            gcode += item.extra;
+
+        CHECK(gcode.find(";" + GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role, is_bbl) + "Outer wall") != std::string::npos);
+        CHECK(gcode.find(";" + GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role, !is_bbl)) == std::string::npos);
+    }
 }

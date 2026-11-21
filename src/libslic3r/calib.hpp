@@ -70,6 +70,10 @@ int calibration_step_count(double start, double end, double step);
 // belt printer's tower: the same bands as calibration_step_count(), clamped to the range.
 float calibration_value_for_ratio(float start, float end, float step, float ratio);
 float calibration_value_for_layer(float start, float end, float step, int layer_index, unsigned layer_count);
+// The retraction length of a retraction tower layer whose top is at z: a 0.4 mm base, then 1 mm per step.
+// The band comes from the middle of the layer, so a layer whose top sits on a band boundary stays in its band
+// whatever rounding its print_z carries.
+double retraction_tower_length(double start, double step, double z, double layer_height);
 
 struct VfaCalibrationPlan {
     double layer_height;

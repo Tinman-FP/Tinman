@@ -7220,7 +7220,7 @@ LayerResult GCode::process_layer(
             break;
         }
         case CalibMode::Calib_Retraction_tower: {
-            auto _length = print.calib_params().start + std::floor(std::max(0.0,calib_z-0.4)) * print.calib_params().step;
+            auto _length = retraction_tower_length(print.calib_params().start, print.calib_params().step, calib_z, layer.height);
             DynamicConfig _cfg;
             _cfg.set_key_value("retraction_length", new ConfigOptionFloats{_length});
             writer().config.apply(_cfg);
