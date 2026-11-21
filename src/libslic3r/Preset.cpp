@@ -4539,8 +4539,8 @@ static bool tinmanx_uses_runtime_connection_overlay(const Preset *edited, const 
         edited->config.opt_string("printer_model") : std::string();
     const std::string reference_model = reference->config.has("printer_model") ?
         reference->config.opt_string("printer_model") : std::string();
-    return tinmanx_managed_machine_preset(edited->name, edited_model) &&
-           tinmanx_managed_machine_preset(reference->name, reference_model);
+    return tinmanx_runtime_connection_machine(edited->name, edited_model) &&
+           tinmanx_runtime_connection_machine(reference->name, reference_model);
 }
 
 static void tinmanx_filter_runtime_connection_options(std::vector<std::string> &options,

@@ -8098,6 +8098,7 @@ bool Tab::select_preset(
         if (current_dirty)
             m_presets->discard_current_changes();
 
+        const std::string previous_preset = m_presets->get_selected_preset_name();
         const bool is_selected = m_presets->select_preset_by_name(preset_name, false) || delete_current;
         assert(m_presets->get_edited_preset().name == preset_name || ! is_selected);
         // Mark the print & filament enabled if they are compatible with the currently selected preset.
@@ -8108,8 +8109,13 @@ bool Tab::select_preset(
         	       on_page                                ? PresetSelectCompatibleType::Never  :
         	       show_incompatible_presets              ? PresetSelectCompatibleType::OnlyIfWasCompatible : PresetSelectCompatibleType::Always;
         };
+        // Tinman: a process's compatibility depends only on the printer, so a filament switch keeps
+        // the process even when it is incompatible (a project's detached printer copy, for example);
+        // replacing it there loaded Default Setting.
+        const bool material_tab = m_type == Preset::TYPE_FILAMENT || m_type == Preset::TYPE_SLA_MATERIAL;
         if (current_dirty || delete_current || print_tab || printer_tab)
             m_preset_bundle->update_compatible(
+            	material_tab ? PresetSelectCompatibleType::Never :
             	update_compatible_type(technology_changed, print_tab,   (print_tab ? this : wxGetApp().get_tab(Preset::TYPE_PRINT))->m_show_incompatible_presets),
             	update_compatible_type(technology_changed, false, 		wxGetApp().get_tab(Preset::TYPE_FILAMENT)->m_show_incompatible_presets));
         // Initialize the UI from the current preset.
@@ -8137,7 +8143,10 @@ bool Tab::select_preset(
         apply_config_from_cache();
 
         // Orca: update presets for the selected printer
-        if (m_type == Preset::TYPE_PRINTER && wxGetApp().app_config->get_bool("remember_printer_config")) {
+        // Tinman: only when the printer changes. Re-selecting the same printer (to reload its saved
+        // version) must not reload the process and filaments too, which dropped the project's edits.
+        if (m_type == Preset::TYPE_PRINTER && wxGetApp().app_config->get_bool("remember_printer_config") &&
+            (delete_current || m_presets->get_selected_preset_name() != previous_preset)) {
             m_preset_bundle->update_selections(*wxGetApp().app_config);
             wxGetApp().plater()->sidebar().on_filament_count_change(m_preset_bundle->filament_presets.size());
         }

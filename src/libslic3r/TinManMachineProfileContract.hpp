@@ -25,9 +25,12 @@ bool tinmanx_machine_preset_allowed(const std::string &preset_name, const std::s
 bool tinmanx_machine_preset_listed(const Preset &preset);
 
 // True only for a canonical TinMan machine/nozzle preset or a declared mixed-
-// tool preset. Runtime connection values on these presets are maintained
-// separately from the printable profile and must not make it appear modified.
+// tool preset.
 bool tinmanx_managed_machine_preset(const std::string &preset_name, const std::string &machine_hint = {});
+// True for every printer preset of a catalog machine, whatever its name (for example a user's
+// "Qidi Plus4 0.4mm - ABS r1"). Selecting such a preset fills in the machine's saved connection
+// (tinmanx_restore_selected_printer_connection), so its connection values must not make it appear modified.
+bool tinmanx_runtime_connection_machine(const std::string &preset_name, const std::string &machine_hint = {});
 bool tinmanx_runtime_connection_option(const std::string &option_name);
 
 // Shareable project exports must not carry local printer connections.

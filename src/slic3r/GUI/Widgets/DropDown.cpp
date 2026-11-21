@@ -801,6 +801,13 @@ void DropDown::mouseReleased(wxMouseEvent& event)
                     return;
                 }
             }
+#ifdef __WXOSX__
+            // A selection can open a modal dialog, such as the unsaved-changes prompt of a preset
+            // switch. On macOS nothing closes this list while the dialog is up, so closing it took the
+            // dialog's first click. Hide it first; the dismiss notification (close-up) still follows
+            // the selection, which grid cell editors rely on.
+            Hide();
+#endif
             sendDropDownEvent();
             if (mainDropDown)
                 mainDropDown->hover_item = -1; // To Dismiss mainDropDown
