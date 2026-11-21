@@ -22449,10 +22449,14 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn)
                                                                storage_paths, storage_names,
                                                                config->get_bool("open_device_tab_post_upload"));
         } else if (host_type == htCrealityPrint) {
+            std::vector<int> used_filaments;
+            if (PartPlate* plate = get_partplate_list().get_plate(resolved_plate_idx); plate != nullptr)
+                for (const int filament : plate->get_used_filaments())
+                    used_filaments.push_back(filament - 1);
             pDlg = std::make_unique<CrealityPrintHostSendDialog>(default_output_file, upload_job.printhost->get_post_upload_actions(), groups,
                                                                  storage_paths, storage_names,
                                                                  config->get_bool("open_device_tab_post_upload"),
-                                                                 upload_job.printhost.get());
+                                                                 upload_job.printhost.get(), std::move(used_filaments));
         } else if (flashforge_local_api) {
             auto* flashforge_host = dynamic_cast<Flashforge*>(upload_job.printhost.get());
             if (flashforge_host == nullptr) {

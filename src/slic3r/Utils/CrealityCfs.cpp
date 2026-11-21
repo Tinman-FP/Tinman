@@ -90,7 +90,7 @@ bool parse_creality_cfs_response(const std::string& response, std::vector<Creali
 }
 
 int default_creality_mapping_slot(const std::vector<CrealityMappingSlot>& slots, const std::string& type,
-                                  const std::string& color, int fallback)
+                                  const std::string& color, int position, bool used)
 {
     ColorRGB wanted;
     const bool has_color = decode_color(color, wanted);
@@ -102,6 +102,8 @@ int default_creality_mapping_slot(const std::vector<CrealityMappingSlot>& slots,
         return dr * dr + dg * dg + db * db;
     };
     for (const bool external : {false, true}) {
+        if (external && !used)
+            break;
         int   best          = -1;
         float best_distance = std::numeric_limits<float>::max();
         for (int i = 0; i < int(slots.size()); ++i) {
@@ -116,7 +118,20 @@ int default_creality_mapping_slot(const std::vector<CrealityMappingSlot>& slots,
         if (best >= 0)
             return best;
     }
-    return fallback;
+    // Position counts CFS slots only, since the printer may list its spool holder first.
+    int first_cfs = -1;
+    int cfs_index = 0;
+    for (int i = 0; i < int(slots.size()); ++i) {
+        if (slots[i].external)
+            continue;
+        if (cfs_index++ == position)
+            return i;
+        if (first_cfs < 0)
+            first_cfs = i;
+    }
+    if (first_cfs >= 0)
+        return first_cfs;
+    return slots.empty() ? -1 : 0;
 }
 
 } // namespace Slic3r

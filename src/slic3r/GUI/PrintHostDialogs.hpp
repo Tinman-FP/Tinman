@@ -218,7 +218,8 @@ public:
                                 const wxArrayString&           storage_paths,
                                 const wxArrayString&           storage_names,
                                 bool                           switch_to_device_tab,
-                                PrintHost*                     printhost);
+                                PrintHost*                     printhost,
+                                std::vector<int>               used_filaments);
     ~CrealityPrintHostSendDialog() override;
 
     virtual void                               init() override;
@@ -253,6 +254,7 @@ private:
     std::vector<SlotInfo>   m_printer_slots;
     std::vector<std::string> m_gcode_filament_types;
     std::vector<BitmapComboBox*> m_slot_combos; // one per gcode filament
+    std::vector<int>        m_used_filaments; // 0-based filaments the sliced plate prints with; empty if unknown
 };
 
 class FlashforgePrintHostSendDialog : public PrintHostSendDialog

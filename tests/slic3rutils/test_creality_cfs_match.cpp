@@ -249,26 +249,67 @@ TEST_CASE("A filament maps to the CFS slot of its type with the closest colour",
         {"PCTG", "#F7D51F", /*external*/ true},
     };
 
-    CHECK(default_creality_mapping_slot(slots, "PCTG", "#FFD700", 0) == 3);
-    CHECK(default_creality_mapping_slot(slots, "PCTG", "#E8401C", 3) == 0); // an exact colour still wins
-    CHECK(default_creality_mapping_slot(slots, "PCTG", "#E5442A", 3) == 0);
+    CHECK(default_creality_mapping_slot(slots, "PCTG", "#FFD700", 0, true) == 3);
+    CHECK(default_creality_mapping_slot(slots, "PCTG", "#E8401C", 3, true) == 0); // an exact colour still wins
+    CHECK(default_creality_mapping_slot(slots, "PCTG", "#E5442A", 3, true) == 0);
 
     SECTION("a CFS slot of the type beats a closer external spool")
     {
-        CHECK(default_creality_mapping_slot(slots, "PCTG", "#F7D51F", 0) == 3);
+        CHECK(default_creality_mapping_slot(slots, "PCTG", "#F7D51F", 0, true) == 3);
     }
     SECTION("the external spool is used when no CFS slot has the type")
     {
         const std::vector<CrealityMappingSlot> ext = {{"PLA", "#000000"}, {"ABS", "#202020", true}};
-        CHECK(default_creality_mapping_slot(ext, "ABS", "#FFFFFF", 0) == 1);
+        CHECK(default_creality_mapping_slot(ext, "ABS", "#FFFFFF", 0, true) == 1);
     }
-    SECTION("no slot of the type keeps the fallback")
+    SECTION("no slot of the type takes the CFS slot in the filament's position")
     {
-        CHECK(default_creality_mapping_slot(slots, "ASA", "#FFD700", 2) == 2);
+        CHECK(default_creality_mapping_slot(slots, "ASA", "#FFD700", 2, true) == 2);
     }
     SECTION("an unreadable colour falls back to the first slot of the type")
     {
-        CHECK(default_creality_mapping_slot(slots, "PCTG", "", 4) == 0);
-        CHECK(default_creality_mapping_slot({{"PCTG", "?"}, {"PCTG", "#FFD700"}}, "PCTG", "#FFD700", 0) == 1);
+        CHECK(default_creality_mapping_slot(slots, "PCTG", "", 4, true) == 0);
+        CHECK(default_creality_mapping_slot({{"PCTG", "?"}, {"PCTG", "#FFD700"}}, "PCTG", "#FFD700", 0, true) == 1);
+    }
+}
+
+// From a K2 Plus send (2026-11-20): a Calibration-menu project whose filaments 1-3 are ABS, which no
+// spool holds, printed with filament 4 only. The printer lists its spool holder, loaded with TPU, before
+// the CFS. Filament 1 defaulted to the spool holder, which starts the whole job from it and greys out
+// the other rows.
+TEST_CASE("A filament defaults to the external spool only when the plate prints with it and its type matches",
+          "[CFS][Creality][Regression]")
+{
+    const std::vector<CrealityMappingSlot> slots = {
+        {"TPU", "#FFFFFF", /*external*/ true}, // spool holder, listed first
+        {"PCTG", "#E8401C"},                    // 1A
+        {"PLA", "#FFFFFF"},                     // 1B
+        {"PETG", "#202020"},                    // 1C
+        {"PCTG", "#F4D01E"},                    // 1D
+    };
+
+    SECTION("a type no spool holds takes the CFS slot in the filament's position, never the spool holder")
+    {
+        CHECK(default_creality_mapping_slot(slots, "ABS", "#000000", 0, false) == 1);
+        CHECK(default_creality_mapping_slot(slots, "ABS", "#000000", 1, false) == 2);
+        CHECK(default_creality_mapping_slot(slots, "ABS", "#000000", 2, true) == 3);
+        CHECK(default_creality_mapping_slot(slots, "PCTG", "#FFD700", 3, true) == 4);
+    }
+    SECTION("a position past the CFS slots takes the first CFS slot")
+    {
+        CHECK(default_creality_mapping_slot(slots, "ABS", "#000000", 7, true) == 1);
+    }
+    SECTION("an unused filament of the spool holder's type stays on the CFS")
+    {
+        CHECK(default_creality_mapping_slot(slots, "TPU", "#FFFFFF", 0, false) == 1);
+        CHECK(default_creality_mapping_slot(slots, "TPU", "#FFFFFF", 0, true) == 0);
+    }
+    SECTION("a printer that lists only its spool holder maps every filament to it")
+    {
+        CHECK(default_creality_mapping_slot({{"TPU", "#FFFFFF", true}}, "ABS", "#000000", 2, false) == 0);
+    }
+    SECTION("no slots give no selection")
+    {
+        CHECK(default_creality_mapping_slot({}, "ABS", "#000000", 0, true) == -1);
     }
 }
