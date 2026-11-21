@@ -24,9 +24,12 @@ struct CrealityMappingSlot {
 };
 
 // The slot a project filament maps to by default: among the CFS slots of its type the one with the
-// closest colour, else the same among external slots, else `fallback`. A printer rarely reports a
-// spool's colour exactly as the filament profile has it, so the closest colour, not an equal one, wins.
+// closest colour, else the same among external slots if the plate prints with the filament (`used`),
+// else the CFS slot in the filament's `position` among the CFS slots, else the first CFS slot.
+// A printer rarely reports a spool's colour exactly as the filament profile has it, so the closest
+// colour, not an equal one, wins. Mapping any filament to the external spool starts the whole job
+// from it, so no other filament defaults to the external spool. -1 when there are no slots.
 int default_creality_mapping_slot(const std::vector<CrealityMappingSlot>& slots, const std::string& type,
-                                  const std::string& color, int fallback);
+                                  const std::string& color, int position, bool used);
 
 } // namespace Slic3r

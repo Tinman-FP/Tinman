@@ -1959,10 +1959,12 @@ CrealityPrintHostSendDialog::CrealityPrintHostSendDialog(const fs::path&        
                                                          const wxArrayString&       storage_paths,
                                                          const wxArrayString&       storage_names,
                                                          bool                       switch_to_device_tab,
-                                                         PrintHost*                 printhost)
+                                                         PrintHost*                 printhost,
+                                                         std::vector<int>           used_filaments)
     : PrintHostSendDialog(path, post_actions, groups, storage_paths, storage_names, switch_to_device_tab)
     , m_enableSelfTest(false)
     , m_printhost(printhost)
+    , m_used_filaments(std::move(used_filaments))
 {}
 
 CrealityPrintHostSendDialog::~CrealityPrintHostSendDialog()
@@ -2188,6 +2190,8 @@ void CrealityPrintHostSendDialog::add_printer_box(const CrealityPrinterInfo& inf
             std::string gc_type  = (filament_types && i < (int)filament_types->values.size())
                                    ? filament_types->values[i] : "?";
             m_gcode_filament_types.push_back(gc_type);
+            const bool used = m_used_filaments.empty() ||
+                              std::find(m_used_filaments.begin(), m_used_filaments.end(), i) != m_used_filaments.end();
 
             // Color indicator panel
             auto* color_panel = new wxPanel(this, wxID_ANY, wxDefaultPosition, wxSize(FromDIP(16), FromDIP(16)));
@@ -2220,11 +2224,25 @@ void CrealityPrintHostSendDialog::add_printer_box(const CrealityPrinterInfo& inf
                     label_str = wxString::Format("%s - %s", slot.tool_id.substr(1).c_str(), slot.type.c_str());
                 combo->Append(label_str, bmp ? *bmp : wxNullBitmap);
             }
-            // Default: the CFS slot of this type with the closest colour, then the external spool's,
-            // else the slot in the filament's own position.
-            combo->SetSelection(default_creality_mapping_slot(mapping_slots, gc_type, gc_color,
-                                                              i < (int)m_printer_slots.size() ? i : 0));
+            // Default: the CFS slot of this type with the closest colour, then the external spool's for
+            // a filament the plate prints with, else the CFS slot in the filament's own position. Defaulting
+            // filament 1 to the spool holder sent a K2 job to it and locked the other rows (2026-11-20 report).
+            combo->SetSelection(default_creality_mapping_slot(mapping_slots, gc_type, gc_color, i, used));
+            // A focused read-only combo picks the slot whose name starts with a typed letter, so a file name
+            // typed while a slot list held the focus remapped filaments unseen (2026-11-20 report). Letters
+            // and digits do nothing here; the mouse and the arrow keys still choose a slot.
+            combo->Bind(wxEVT_CHAR, [](wxKeyEvent& e) {
+                if (e.GetUnicodeKey() == WXK_NONE || e.GetUnicodeKey() < WXK_SPACE)
+                    e.Skip();
+            });
             row_sizer->Add(combo, 0, wxALIGN_CENTER_VERTICAL);
+            if (!used) {
+                // TRN Creality send dialog, after the slot of a project filament the sliced plate does not print with
+                auto* unused_label = new wxStaticText(this, wxID_ANY, _L("not used"));
+                unused_label->SetFont(::Label::Body_13);
+                unused_label->SetForegroundColour(StateColor::darkModeColorFor(wxColour("#6B6B6B")));
+                row_sizer->Add(unused_label, 0, wxALIGN_CENTER_VERTICAL | wxLEFT, FromDIP(8));
+            }
 
             group_sizer->Add(row_sizer);
             group_sizer->AddSpacer(4);
