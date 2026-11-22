@@ -358,8 +358,10 @@ std::string GCodeWriter::set_temperature(unsigned int temperature, GCodeFlavor f
 
 std::string GCodeWriter::set_temperature(unsigned int temperature, bool wait, int tool) const
 {
-    // set tool to -1 to make sure we won't emit T parameter for single extruder or SEMM
-    if (!this->multiple_extruders || m_single_extruder_multi_material) {
+    if (m_fixed_heater_tool >= 0) {
+        tool = m_fixed_heater_tool;
+    } else if (!this->multiple_extruders || m_single_extruder_multi_material) {
+        // set tool to -1 to make sure we won't emit T parameter for single extruder or SEMM
         tool = -1;
     } else {
         // Every caller of this overload addresses filaments by LOGICAL id, but M104/M109

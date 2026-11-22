@@ -3,6 +3,7 @@
 #include "libslic3r/Config.hpp"
 #include "libslic3r/CustomGCode.hpp"
 #include "libslic3r/Exception.hpp"
+#include "libslic3r/FibreSeekMaterials.hpp"
 #include "libslic3r/BeltTransform.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/CommonDefs.hpp"
@@ -112,12 +113,6 @@ static std::string_view trim_ascii_whitespace(const std::string_view value)
     return value.substr(start, end - start);
 }
 
-static bool orcaslicer_codex_config_bool_option(const Slic3r::DynamicPrintConfig& config, const char *key)
-{
-    const Slic3r::ConfigOptionBool *option = config.option<Slic3r::ConfigOptionBool>(key);
-    return option != nullptr && option->value;
-}
-
 static float orcaslicer_codex_config_float_option(const Slic3r::DynamicPrintConfig& config, const char *key, float fallback)
 {
     const Slic3r::ConfigOptionFloat *option = config.option<Slic3r::ConfigOptionFloat>(key);
@@ -132,11 +127,6 @@ static std::string orcaslicer_codex_config_string_option(const Slic3r::DynamicPr
 
     const std::string_view trimmed = trim_ascii_whitespace(option->value);
     return std::string(trimmed);
-}
-
-static bool orcaslicer_codex_config_nonempty_string_option(const Slic3r::DynamicPrintConfig& config, const char *key)
-{
-    return !orcaslicer_codex_config_string_option(config, key).empty();
 }
 
 // Density (g/cm^3) of the fibre strand from its linear density (g/km) and
@@ -3713,12 +3703,7 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
             m_result.extruder_colors[i] = "#FF8000";
     }
 
-    const bool continuous_fiber_requested =
-        orcaslicer_codex_config_bool_option(config, "fiber_enabled") ||
-        orcaslicer_codex_config_bool_option(config, "fiber_generate_perimeters") ||
-        orcaslicer_codex_config_bool_option(config, "fiber_generate_infill") ||
-        orcaslicer_codex_config_nonempty_string_option(config, "fiber_reinforcement_payload");
-    if (continuous_fiber_requested) {
+    if (continuous_fiber_requested(config)) {
         const float fiber_diameter = std::max(
             orcaslicer_codex_config_float_option(
                 config,
@@ -3739,6 +3724,8 @@ void GCodeProcessor::apply_config(const DynamicPrintConfig& config)
     } else {
         m_orcaslicer_codex_continuous_fiber_filament_id = -1;
     }
+    const std::optional<size_t> plastic_tool_filament = fibreseek_plastic_only_filament(config);
+    m_fibreseek_plastic_tool_filament = plastic_tool_filament ? int(*plastic_tool_filament) : -1;
 
     m_extruder_colors.resize(m_result.extruder_colors.size());
     for (size_t i = 0; i < m_result.extruder_colors.size(); ++i) {
@@ -3980,6 +3967,7 @@ void GCodeProcessor::reset()
     m_g1_line_id = 0;
     m_layer_id = 0;
     m_cp_color.reset();
+    m_fibreseek_plastic_tool_filament = -1;
     m_orcaslicer_codex_continuous_fiber_filament_id = -1;
     m_orcaslicer_codex_processing_fiber_move = false;
     m_orcaslicer_codex_inside_fiber_route = false;
@@ -7519,6 +7507,9 @@ void GCodeProcessor::process_T(const std::string_view command, int nozzle_id)
     auto         ret          = std::from_chars(command.data() + 1, command.data()+command.size(), eid);
     if (std::errc::invalid_argument == ret.ec)
         return;
+    // Tinman: in a plastic-only job on a FibreSeek printer, T1 is the firmware's plastic tool, not filament 2.
+    if (m_fibreseek_plastic_tool_filament >= 0 && eid == 1)
+        eid = static_cast<unsigned int>(m_fibreseek_plastic_tool_filament);
 
     int curr_filament_id = get_filament_id(false);
     int curr_extruder_id = get_extruder_id(false);

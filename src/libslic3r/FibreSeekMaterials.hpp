@@ -93,6 +93,27 @@ std::optional<size_t> continuous_fiber_composite_slot(const ConfigBase &config);
 double continuous_fiber_composite_value(const DynamicConfig &config, const char *key);
 void apply_continuous_fiber_strand_data(DynamicPrintConfig &config);
 
+// True when a process's Fiber advanced layup payload (fiber_reinforcement_payload) gives
+// the fibre planner something to read. Empty text, null, {} and [] give it nothing,
+// however they are spaced; text that is not JSON counts, so the planner reports it.
+bool fiber_reinforcement_payload_is_set(const std::string &payload);
+// True when the process asks for continuous fibre: fibre perimeters, fibre infill or a
+// layup payload. Fiber enabled is not a request: it says the printer has fibre hardware,
+// so on a fibre printer a process with all three off prints plastic only.
+bool continuous_fiber_requested(const ConfigBase &config);
+
+// The FibreSeek firmware names its tools by role, whatever the filament ids: T0 is the fibre
+// tool on the composite nozzle and T1 the plastic tool. On a FibreSeek two-tool printer, whose
+// nozzle_diameter has both its plastic and its composite nozzle diameter (only FibreSeek profiles
+// set the two apart), the plastic nozzle's 0-based extruder; nothing for another printer. Fiber
+// enabled doesn't matter: it turns fibre planning on, and the firmware's tools stay the same.
+std::optional<size_t> fibreseek_plastic_extruder(const ConfigBase &config);
+// In a plastic-only job on such a printer no fibre writer manages the tools, so the G-code writer
+// selects the plastic tool with the firmware's "T1 ; switch extruder type to:PLASTIC". For the G-code
+// processor, the filament that T1 prints: the only one filament_map puts on the plastic nozzle.
+// Nothing for a job that asks for fibre, another printer, or none or several on that nozzle.
+std::optional<size_t> fibreseek_plastic_only_filament(const ConfigBase &config);
+
 // The firmware fan that cools a filament's nozzle with fibre on: the composite
 // extruder's fan for the CFC slot, the plastic extruder's for any other. -1 when
 // fibre is off or the printer profile records no fan for that nozzle. The Seeker 3's

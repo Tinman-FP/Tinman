@@ -670,6 +670,8 @@ protected:
     std::string     extrude_support(const ExtrusionEntityCollection& support_fills, const ExtrusionRole support_extrusion_role);
 
     bool            m_tinman_native_fiber_planner_started { false };
+    // The filament of a plastic-only job on a FibreSeek two-tool printer, printed on the firmware's plastic tool.
+    std::optional<unsigned int> m_tinman_fiberseek_plastic_filament;
     bool            m_export_step_started { false };
 
     // Farthest-point timelapse: find the extrusion point farthest from camera (0,0)

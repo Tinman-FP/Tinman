@@ -14,6 +14,7 @@
 #include <vector>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <nlohmann/json.hpp>
 
 namespace Slic3r {
 
@@ -36,7 +37,7 @@ int unique_nozzle(const std::vector<double> &nozzles, double diameter)
 }
 
 // The Seeker 3's plastic and composite nozzles; 0 for one that can't be found.
-std::pair<int, int> fibreseek_role_nozzles(const DynamicPrintConfig &printer)
+std::pair<int, int> fibreseek_role_nozzles(const ConfigBase &printer)
 {
     const auto *nozzles   = printer.option<ConfigOptionFloats>("nozzle_diameter");
     const auto *plastic   = printer.option<ConfigOptionFloat>("plastic_nozzle_diameter");
@@ -315,6 +316,49 @@ double continuous_fiber_composite_value(const DynamicConfig &config, const char 
 {
     const auto slot = continuous_fiber_composite_slot(config);
     return slot ? positive_at(config, key, *slot) : 0.;
+}
+
+bool fiber_reinforcement_payload_is_set(const std::string &payload)
+{
+    const nlohmann::json parsed = nlohmann::json::parse(payload, nullptr, false);
+    if (parsed.is_discarded())
+        return !trim_copy(payload).empty();
+    return !parsed.is_null() && !((parsed.is_object() || parsed.is_array()) && parsed.empty());
+}
+
+bool continuous_fiber_requested(const ConfigBase &config)
+{
+    const auto on = [&config](const char *key) {
+        const auto *option = config.option<ConfigOptionBool>(key);
+        return option != nullptr && option->value;
+    };
+    const auto *payload = config.option<ConfigOptionString>("fiber_reinforcement_payload");
+    return on("fiber_generate_perimeters") || on("fiber_generate_infill") ||
+           (payload != nullptr && fiber_reinforcement_payload_is_set(payload->value));
+}
+
+std::optional<size_t> fibreseek_plastic_extruder(const ConfigBase &config)
+{
+    const auto [plastic, composite] = fibreseek_role_nozzles(config);
+    if (plastic == 0 || composite == 0)
+        return std::nullopt;
+    return size_t(plastic - 1);
+}
+
+std::optional<size_t> fibreseek_plastic_only_filament(const ConfigBase &config)
+{
+    const std::optional<size_t> plastic = fibreseek_plastic_extruder(config);
+    const auto *map = config.option<ConfigOptionInts>("filament_map");
+    if (!plastic || map == nullptr || continuous_fiber_requested(config))
+        return std::nullopt;
+    std::optional<size_t> found;
+    for (size_t filament = 0; filament < map->values.size(); ++filament)
+        if (map->values[filament] == int(*plastic) + 1) {
+            if (found)
+                return std::nullopt;
+            found = filament;
+        }
+    return found;
 }
 
 int continuous_fiber_part_cooling_fan_index(const PrintConfig &config, size_t filament_id)

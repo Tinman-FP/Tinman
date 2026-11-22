@@ -516,8 +516,12 @@ bool is_compatible_with_printer(const PresetWithVendorProfile &preset, const Pre
 // ORCA: same check for callers that hold raw configs rather than Presets (the CLI). Wraps them in
 // throwaway Preset shells and delegates, so the compatibility policy -- including the fail-open on a
 // malformed compatible_printers_condition -- lives in one place for the GUI and the CLI alike.
+// printer_name is the printer preset's own name, as the GUI checks it. printer_parent is the system
+// printer a user printer inherits from, which its compatible list may name instead; it is empty for a
+// system or detached printer.
 bool is_compatible_with_printer(const DynamicPrintConfig &preset_config, Preset::Type preset_type,
-                                const DynamicPrintConfig &printer_config, const std::string &printer_name);
+                                const DynamicPrintConfig &printer_config, const std::string &printer_name,
+                                const std::string &printer_parent);
 
 // True for a list option the settings tab edits as one value, so a change to it is reported for the whole list.
 bool is_edited_as_whole_list(const ConfigDef *def, const std::string &opt_key);

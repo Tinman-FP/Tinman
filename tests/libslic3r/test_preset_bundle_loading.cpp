@@ -3219,6 +3219,45 @@ TEST_CASE("Filaments offered for a machine follow the app's compatibility rule",
     }
 }
 
+TEST_CASE("A process and printer held as raw configs follow the app's compatibility rule", "[Preset][Compatibility]")
+{
+    // As the CLI checks --load-settings: the printer goes in by its own name and, for a user
+    // printer, with the system printer it inherits from.
+    DynamicPrintConfig printer;
+    printer.set_key_value("printer_notes", new ConfigOptionString("SEEKER"));
+    const auto process_for = [](std::vector<std::string> printers, const std::string &condition = {}) {
+        DynamicPrintConfig process;
+        process.set_key_value("compatible_printers", new ConfigOptionStrings(std::move(printers)));
+        process.set_key_value("compatible_printers_condition", new ConfigOptionString(condition));
+        return process;
+    };
+    const auto compatible = [&printer](const DynamicPrintConfig &process, const std::string &name, const std::string &parent) {
+        return is_compatible_with_printer(process, Preset::TYPE_PRINT, printer, name, parent);
+    };
+
+    SECTION("a detached user printer that the process lists by its own name") {
+        CHECK(compatible(process_for({"Seeker - Copy"}), "Seeker - Copy", ""));
+        CHECK_FALSE(compatible(process_for({"Another printer"}), "Seeker - Copy", ""));
+    }
+    SECTION("a user printer that the process lists by its own name or by its parent") {
+        CHECK(compatible(process_for({"My Seeker"}), "My Seeker", "Seeker"));
+        CHECK(compatible(process_for({"Seeker"}), "My Seeker", "Seeker"));
+        CHECK_FALSE(compatible(process_for({"Another printer"}), "My Seeker", "Seeker"));
+    }
+    SECTION("a system printer is not matched by its vendor's base profile") {
+        printer.set_key_value("inherits", new ConfigOptionString("Seeker common"));
+        CHECK_FALSE(compatible(process_for({"Seeker common"}), "Seeker", ""));
+        CHECK(compatible(process_for({"Seeker"}), "Seeker", ""));
+    }
+    SECTION("an empty list with no condition takes any printer") {
+        CHECK(compatible(process_for({}), "Seeker - Copy", ""));
+    }
+    SECTION("without a list, the condition decides") {
+        CHECK(compatible(process_for({}, "printer_notes=~/.*SEEKER.*/"), "Seeker - Copy", ""));
+        CHECK_FALSE(compatible(process_for({}, "printer_notes=~/.*OTHER.*/"), "Seeker - Copy", ""));
+    }
+}
+
 
 namespace {
 

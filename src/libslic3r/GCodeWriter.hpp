@@ -64,6 +64,9 @@ public:
     static std::string set_temperature(unsigned int temperature, GCodeFlavor flavor, bool wait = false, int tool = -1, std::string comment = std::string());
 
     std::string set_temperature(unsigned int temperature, bool wait = false, int tool = -1) const;
+    // Tinman: the heater every nozzle temperature names, whatever the filament; -1 (the default)
+    // keeps the rule above. A plastic-only job on a FibreSeek printer sets the firmware's plastic tool, T1.
+    void set_fixed_heater_tool(int tool) { m_fixed_heater_tool = tool; }
     std::string set_bed_temperature(int temperature, bool wait = false);
     std::string set_chamber_temperature(int temperature, bool wait = false);
     std::string set_print_acceleration(unsigned int acceleration)   { return set_acceleration_internal(Acceleration::Print, acceleration); }
@@ -264,6 +267,7 @@ private:
 	// Extruders are sorted by their ID, so that binary search is possible.
     std::vector<Extruder> m_filament_extruders;
     bool            m_single_extruder_multi_material;
+    int             m_fixed_heater_tool { -1 };
     std::vector<Extruder*> m_curr_filament_extruder;
     int        m_curr_extruder_id;
     unsigned int              m_last_acceleration;

@@ -111,52 +111,6 @@ static FilamentColorPickerValue filament_color_picker_value(const DynamicPrintCo
 
 namespace {
 
-static std::string tinmanx_serialized_option(const DynamicConfig& config, const char* key)
-{
-    const ConfigOption* option = config.option(key);
-    if (option == nullptr)
-        return {};
-
-    std::string value = option->serialize();
-    boost::algorithm::trim(value);
-    return value;
-}
-
-static std::string tinmanx_lower_string(std::string value)
-{
-    std::transform(value.begin(), value.end(), value.begin(),
-        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return value;
-}
-
-static std::string tinmanx_lower_option(const DynamicConfig& config, const char* key)
-{
-    std::string value = tinmanx_serialized_option(config, key);
-    return tinmanx_lower_string(value);
-}
-
-static bool tinmanx_truthy_option(const DynamicConfig& config, const char* key)
-{
-    const std::string value = tinmanx_lower_option(config, key);
-    if (value.empty() || value == "0" || value == "false" || value == "no" || value == "off" || value == "null")
-        return false;
-    if (value == "1" || value == "true" || value == "yes" || value == "on")
-        return true;
-
-    try {
-        size_t parsed = 0;
-        return std::stod(value, &parsed) != 0.0 && parsed > 0;
-    } catch (...) {
-        return false;
-    }
-}
-
-static bool tinmanx_payload_option(const DynamicConfig& config, const char* key)
-{
-    const std::string value = tinmanx_lower_option(config, key);
-    return !value.empty() && value != "{}" && value != "[]" && value != "null";
-}
-
 static bool tinmanx_selected_printer_supports_continuous_fiber(const PresetBundle* bundle)
 {
     return bundle != nullptr && selected_printer_supports_continuous_fiber(*bundle);
@@ -164,11 +118,8 @@ static bool tinmanx_selected_printer_supports_continuous_fiber(const PresetBundl
 
 static bool tinmanx_process_preset_uses_continuous_fiber(const Preset& preset)
 {
-    const DynamicConfig& config = preset.config;
-    if (tinmanx_truthy_option(config, "fiber_generate_perimeters") ||
-        tinmanx_truthy_option(config, "fiber_generate_infill") ||
-        tinmanx_truthy_option(config, "fiber_enabled") ||
-        tinmanx_payload_option(config, "fiber_reinforcement_payload"))
+    // The slicer's own rule, so a process listed under Plastic Only never runs the fibre planner.
+    if (continuous_fiber_requested(preset.config))
         return true;
 
     std::string name = preset.name;
