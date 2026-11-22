@@ -368,6 +368,29 @@ TEST_CASE("Retraction tower bands are 1 mm whatever rounding the layer tops carr
         CHECK(retraction_tower_length(0., 0.1, top - 1e-9, 0.2) == retraction_tower_length(0., 0.1, top + 1e-9, 0.2));
 }
 
+TEST_CASE("A calibration keeps a wider outer brim from the print profile", "[Calib][Regression]")
+{
+    DynamicPrintConfig config;
+    const auto with_brim = [&config](BrimType type, double width) -> const DynamicPrintConfig & {
+        config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(type));
+        config.set_key_value("brim_width", new ConfigOptionFloat(width));
+        return config;
+    };
+    // The CORE One L case: a 30 mm outer brim for PMMA stays 30 mm on the temperature tower.
+    CHECK(calibration_brim_width(5., with_brim(btOuterOnly, 30.)) == 30.);
+    CHECK(calibration_brim_width(5., with_brim(btOuterAndInner, 12.)) == 12.);
+    CHECK(calibration_brim_width(6., with_brim(btEar, 10.)) == 10.);
+    CHECK(calibration_brim_width(3., with_brim(btLeadingEdgeOnly, 8.)) == 8.);
+    // A narrower profile brim never narrows the calibration's own.
+    CHECK(calibration_brim_width(5., with_brim(btOuterOnly, 2.)) == 5.);
+    // Types whose brim_width is not an outer brim keep the calibration's width.
+    for (const BrimType type : {btNoBrim, btAutoBrim, btPainted, btInnerOnly}) {
+        CAPTURE(int(type));
+        CHECK(calibration_brim_width(5., with_brim(type, 30.)) == 5.);
+    }
+    CHECK(calibration_brim_width(5., DynamicPrintConfig()) == 5.);
+}
+
 TEST_CASE("PA pattern role tags follow its printer, not the last slice", "[Calib][Regression]")
 {
     DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
