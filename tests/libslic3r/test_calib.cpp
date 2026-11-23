@@ -376,19 +376,32 @@ TEST_CASE("A calibration keeps a wider outer brim from the print profile", "[Cal
         config.set_key_value("brim_width", new ConfigOptionFloat(width));
         return config;
     };
-    // The CORE One L case: a 30 mm outer brim for PMMA stays 30 mm on the temperature tower.
-    CHECK(calibration_brim_width(5., with_brim(btOuterOnly, 30.)) == 30.);
-    CHECK(calibration_brim_width(5., with_brim(btOuterAndInner, 12.)) == 12.);
-    CHECK(calibration_brim_width(6., with_brim(btEar, 10.)) == 10.);
-    CHECK(calibration_brim_width(3., with_brim(btLeadingEdgeOnly, 8.)) == 8.);
-    // A narrower profile brim never narrows the calibration's own.
-    CHECK(calibration_brim_width(5., with_brim(btOuterOnly, 2.)) == 5.);
-    // Types whose brim_width is not an outer brim keep the calibration's width.
+    const auto check = [](const CalibrationBrim &brim, BrimType type, double width) {
+        CHECK(int(brim.type) == int(type));
+        CHECK(brim.width == width);
+    };
+    // The CORE One L cases: a 30 mm outer brim for PMMA stays a 30 mm outer brim on the temperature tower,
+    // and replaces the PA tower's 6 mm ears.
+    check(calibration_brim(btOuterOnly, 5., with_brim(btOuterOnly, 30.)), btOuterOnly, 30.);
+    check(calibration_brim(btEar, 6., with_brim(btOuterOnly, 30.)), btOuterOnly, 30.);
+    // The Qidi case: an outer and inner brim replaces ears too.
+    check(calibration_brim(btEar, 6., with_brim(btOuterAndInner, 25.)), btOuterAndInner, 25.);
+    check(calibration_brim(btOuterOnly, 5., with_brim(btOuterAndInner, 12.)), btOuterAndInner, 12.);
+    // A calibration's own inner brim stays when the profile's is outer only.
+    check(calibration_brim(btOuterAndInner, 5., with_brim(btOuterOnly, 30.)), btOuterAndInner, 30.);
+    // Ears and leading edge only widen the calibration's own brim.
+    check(calibration_brim(btEar, 6., with_brim(btEar, 10.)), btEar, 10.);
+    check(calibration_brim(btOuterOnly, 3., with_brim(btLeadingEdgeOnly, 8.)), btOuterOnly, 8.);
+    check(calibration_brim(btOuterOnly, 5., with_brim(btEar, 10.)), btOuterOnly, 10.);
+    // A narrower or equal profile brim never changes the calibration's own.
+    check(calibration_brim(btEar, 6., with_brim(btOuterOnly, 2.)), btEar, 6.);
+    check(calibration_brim(btEar, 6., with_brim(btOuterOnly, 6.)), btEar, 6.);
+    // Types whose brim_width is not an outer brim keep the calibration's brim.
     for (const BrimType type : {btNoBrim, btAutoBrim, btPainted, btInnerOnly}) {
         CAPTURE(int(type));
-        CHECK(calibration_brim_width(5., with_brim(type, 30.)) == 5.);
+        check(calibration_brim(btEar, 6., with_brim(type, 30.)), btEar, 6.);
     }
-    CHECK(calibration_brim_width(5., DynamicPrintConfig()) == 5.);
+    check(calibration_brim(btOuterOnly, 5., DynamicPrintConfig()), btOuterOnly, 5.);
 }
 
 TEST_CASE("PA pattern role tags follow its printer, not the last slice", "[Calib][Regression]")

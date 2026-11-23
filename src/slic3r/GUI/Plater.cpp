@@ -18456,6 +18456,15 @@ void Plater::cut_horizontal(size_t obj_idx, size_t instance_idx, double z, Model
     apply_cut_object_to_model(obj_idx, new_objects);
 }
 
+// Gives a calibration object its brim (see calibration_brim()) and no gap to the object.
+static void set_calibration_brim(ModelConfig &obj_cfg, BrimType type, double width, const DynamicPrintConfig &print_config)
+{
+    const CalibrationBrim brim = calibration_brim(type, width, print_config);
+    obj_cfg.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(brim.type));
+    obj_cfg.set_key_value("brim_width", new ConfigOptionFloat(brim.width));
+    obj_cfg.set_key_value("brim_object_gap", new ConfigOptionFloat(0.));
+}
+
 void Plater::_calib_pa_tower(const Calib_Params& params) {
     if (!add_model(false, Slic3r::resources_dir() + "/calib/pressure_advance/tower_with_seam.drc"))
         return;
@@ -18481,10 +18490,8 @@ void Plater::_calib_pa_tower(const Calib_Params& params) {
     obj_cfg.set_key_value("top_shell_layers", new ConfigOptionInt(0));
     obj_cfg.set_key_value("bottom_shell_layers", new ConfigOptionInt(0));
     obj_cfg.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
-    obj_cfg.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btEar));
-    obj_cfg.set_key_value("brim_object_gap", new ConfigOptionFloat(.0f));
+    set_calibration_brim(obj_cfg, btEar, 6., print_config);
     obj_cfg.set_key_value("brim_ears_max_angle", new ConfigOptionFloat(135.f));
-    obj_cfg.set_key_value("brim_width", new ConfigOptionFloat(calibration_brim_width(6., print_config)));
     obj_cfg.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
     print_config.set_key_value("max_volumetric_extrusion_rate_slope", new ConfigOptionFloat(0));
 
@@ -18873,9 +18880,7 @@ void Plater::calib_temp(const Calib_Params& params) {
     if (params.nozzle_based_resize)
         model().objects[0]->config.set_key_value("layer_height", new ConfigOptionFloat(nozzle_diameter/2));
     auto print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    model().objects[0]->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
-    model().objects[0]->config.set_key_value("brim_width", new ConfigOptionFloat(calibration_brim_width(5., *print_config)));
-    model().objects[0]->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+    set_calibration_brim(model().objects[0]->config, btOuterOnly, 5., *print_config);
     model().objects[0]->config.set_key_value("alternate_extra_wall", new ConfigOptionBool(false));
     model().objects[0]->config.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
     model().objects[0]->config.set_key_value("overhang_reverse", new ConfigOptionBool(false));
@@ -19042,9 +19047,7 @@ void Plater::calib_max_vol_speed(const Calib_Params& params)
     obj_cfg.set_key_value("sparse_infill_density", new ConfigOptionPercent(0));
     obj_cfg.set_key_value("outer_wall_line_width", new ConfigOptionFloatOrPercent(line_width, false));
     obj_cfg.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
-    obj_cfg.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterAndInner));
-    obj_cfg.set_key_value("brim_width", new ConfigOptionFloat(calibration_brim_width(5., *print_config)));
-    obj_cfg.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+    set_calibration_brim(obj_cfg, btOuterAndInner, 5., *print_config);
     obj_cfg.set_key_value("precise_z_height", new ConfigOptionBool(false));
     print_config->set_key_value("timelapse_type", new ConfigOptionEnum<TimelapseType>(tlTraditional));
     print_config->set_key_value("spiral_mode", new ConfigOptionBool(true));
@@ -19212,9 +19215,7 @@ void Plater::calib_VFA(const Calib_Params& params)
         print_config->set_key_value("initial_layer_print_height", new ConfigOptionFloat(layer_height));
         model().objects[0]->config.set_key_value("layer_height", new ConfigOptionFloat(layer_height));
     }
-    model().objects[0]->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
-    model().objects[0]->config.set_key_value("brim_width", new ConfigOptionFloat(calibration_brim_width(3., *print_config)));
-    model().objects[0]->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+    set_calibration_brim(model().objects[0]->config, btOuterOnly, 3., *print_config);
 
     changed_objects({ 0 });
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
@@ -19284,9 +19285,7 @@ void Plater::calib_input_shaping_freq(const Calib_Params& params)
     set_config_values<double, ConfigOptionFloatsNullable>(print_config, "default_acceleration", machine_max_acceleration);
     set_config_values<double, ConfigOptionFloatsNullable>(print_config, "outer_wall_acceleration", machine_max_acceleration);
     print_config->set_key_value("precise_z_height", new ConfigOptionBool(false));
-    model().objects[0]->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
-    model().objects[0]->config.set_key_value("brim_width", new ConfigOptionFloat(calibration_brim_width(3., *print_config)));
-    model().objects[0]->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+    set_calibration_brim(model().objects[0]->config, btOuterOnly, 3., *print_config);
 
     changed_objects({ 0 });
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
@@ -19351,9 +19350,7 @@ void Plater::calib_input_shaping_damp(const Calib_Params& params)
     set_config_values<double, ConfigOptionFloatsNullable>(print_config, "default_acceleration", machine_max_acceleration);
     set_config_values<double, ConfigOptionFloatsNullable>(print_config, "outer_wall_acceleration", machine_max_acceleration);
     print_config->set_key_value("precise_z_height", new ConfigOptionBool(false));
-    model().objects[0]->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
-    model().objects[0]->config.set_key_value("brim_width", new ConfigOptionFloat(calibration_brim_width(3., *print_config)));
-    model().objects[0]->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+    set_calibration_brim(model().objects[0]->config, btOuterOnly, 3., *print_config);
 
     changed_objects({ 0 });
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
@@ -19419,9 +19416,7 @@ void Plater::Calib_Cornering(const Calib_Params& params)
     set_config_values<double, ConfigOptionFloatsNullable>(print_config, "default_acceleration", machine_max_acceleration);
     set_config_values<double, ConfigOptionFloatsNullable>(print_config, "outer_wall_acceleration", machine_max_acceleration);
     print_config->set_key_value("precise_z_height", new ConfigOptionBool(false));
-    model().objects[0]->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
-    model().objects[0]->config.set_key_value("brim_width", new ConfigOptionFloat(calibration_brim_width(3., *print_config)));
-    model().objects[0]->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+    set_calibration_brim(model().objects[0]->config, btOuterOnly, 3., *print_config);
 
     changed_objects({ 0 });
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();

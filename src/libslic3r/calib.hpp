@@ -74,9 +74,15 @@ float calibration_value_for_layer(float start, float end, float step, int layer_
 // The band comes from the middle of the layer, so a layer whose top sits on a band boundary stays in its band
 // whatever rounding its print_z carries.
 double retraction_tower_length(double start, double step, double z, double layer_height);
-// The brim width a calibration object gets: the calibration's own width, or the print profile's when the
-// profile asks for a wider outer brim, so a calibration never narrows the brim a warping material needs.
-double calibration_brim_width(double calib_width, const DynamicPrintConfig &print_config);
+// The brim a calibration object gets, so a calibration never narrows the brim a warping material needs.
+// A print profile asking for a wider outer brim widens the calibration's own; a wider full outer brim
+// (outer only, outer and inner) also replaces the calibration's ears, and a calibration's inner brim stays.
+struct CalibrationBrim
+{
+    BrimType type;
+    double   width;
+};
+CalibrationBrim calibration_brim(BrimType calib_type, double calib_width, const DynamicPrintConfig &print_config);
 
 struct VfaCalibrationPlan {
     double layer_height;
