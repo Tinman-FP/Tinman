@@ -64,21 +64,23 @@ double retraction_tower_length(double start, double step, double z, double layer
     return start + std::floor(std::max(0.0, z - 0.5 * layer_height - 0.4)) * step;
 }
 
-// Tinman: calibrations used to set their own brim width on the object, so a profile's 30 mm brim for a warping
-// material printed as 5 mm on the temperature tower (CORE One L report, 2026-11-21).
-double calibration_brim_width(double calib_width, const DynamicPrintConfig &print_config)
+// Tinman: calibrations used to set their own brim on the object, so a profile's 30 mm brim for a warping
+// material printed as 5 mm on the temperature tower and as 6 mm ears on the PA tower (CORE One L reports,
+// 2026-11-21 and 2026-11-23).
+CalibrationBrim calibration_brim(BrimType calib_type, double calib_width, const DynamicPrintConfig &print_config)
 {
     const auto *type  = print_config.option<ConfigOptionEnum<BrimType>>("brim_type");
     const auto *width = print_config.option<ConfigOptionFloat>("brim_width");
-    if (type == nullptr || width == nullptr)
-        return calib_width;
-    // Auto brim sizes itself and ignores brim_width; painted, inner-only and no brim give no outer width.
+    if (type == nullptr || width == nullptr || width->value <= calib_width)
+        return {calib_type, calib_width};
     switch (type->value) {
     case btOuterOnly:
     case btOuterAndInner:
+        return {(type->value == btOuterAndInner || calib_type == btOuterAndInner) ? btOuterAndInner : btOuterOnly, width->value};
     case btEar:
-    case btLeadingEdgeOnly: return std::max(calib_width, width->value);
-    default: return calib_width;
+    case btLeadingEdgeOnly: return {calib_type, width->value};
+    // Auto brim sizes itself and ignores brim_width; painted, inner-only and no brim give no outer width.
+    default: return {calib_type, calib_width};
     }
 }
 
