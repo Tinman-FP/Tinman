@@ -5342,6 +5342,15 @@ void GCode::_do_export(Print& print, GCodeOutputStream &file, ThumbnailsGenerato
         file.write(tinman_fiberseek_shutdown_gcode());
     file.write_format("; EXECUTABLE_BLOCK_END\n\n");
 
+    // Tinman: object overrides go ahead of the trailing config block, so the end of the file (the
+    // config block and the stats that firmwares read from the tail) is unchanged.
+    if (!skip_config_block) {
+        std::string object_overrides;
+        append_object_overrides(print, object_overrides);
+        if (!object_overrides.empty())
+            file.write(object_overrides);
+    }
+
     print.throw_if_canceled();
 
     // Some firmwares only scan the last N lines for the time estimate, so the stats are written
@@ -8909,6 +8918,97 @@ void GCode::append_full_config(const Print &print, std::string &str)
     // Process continuous_fiber_* and per-filament fiber_* settings are distinct.
     // Both were serialized above; aliases here would overwrite the filament data.
     str += ss.str();
+}
+
+// Tinman: the config block lists the global presets only, so a G-code audit could not see the settings
+// an object, part, modifier or layer range replaced (Calibration menu objects carry their own walls,
+// infill and brim). Each scope lists the keys it sets to something other than what it inherits: an
+// object inherits the global config, its parts, modifiers and layer ranges inherit the object.
+// Lines read "key: value (global|object: inherited value)", never "; key = value", so readers of the
+// config key/value comments (Import config from G-code, firmware metadata scans, the FibreSeek audit)
+// skip them. Only keys the per-object pipeline reads (PrintObjectConfig, PrintRegionConfig, extruder)
+// are listed, and an object setting the slicer overrode again is not.
+void GCode::append_object_overrides(const Print &print, std::string &str)
+{
+    struct Override { std::string key, value, inherited; };
+    const PrintObjectConfig &global_object = print.default_object_config();
+    const PrintRegionConfig &global_region = print.default_region_config();
+    const int                filaments     = std::max(1, int(print.config().filament_diameter.size()));
+    // The filament an "extruder" value prints with: 0 inherits, a filament that does not exist falls back to 1.
+    auto filament = [filaments](const ModelConfig &cfg, int inherited) {
+        const int extruder = cfg.has("extruder") ? cfg.extruder() : 0;
+        return extruder <= 0 ? inherited : (extruder > filaments ? 1 : extruder);
+    };
+    auto one_line = [](std::string text) {
+        std::replace_if(text.begin(), text.end(), [](unsigned char c) { return c < 0x20; }, ' ');
+        return text;
+    };
+    std::string body;
+    auto write_scope = [&body, &one_line](const std::string &scope, const std::vector<Override> &overrides, const char *inherited_from) {
+        if (overrides.empty())
+            return;
+        body += "; " + one_line(scope) + "\n";
+        for (const Override &o : overrides)
+            body += ";   " + o.key + ": " + one_line(o.value) + " (" + inherited_from + ": " + one_line(o.inherited) + ")\n";
+    };
+
+    enum class Scope { Object, Volume, LayerRange };
+    size_t object_id = 0;
+    for (const PrintObject *object : print.objects()) {
+        const ModelObject &model_object    = *object->model_object();
+        // The id the "; printing object" labels use (assign_object_label_ids numbers print.objects() in order).
+        const std::string  name            = "object id:" + std::to_string(object_id++) + " \"" + model_object.name + "\"";
+        const int          object_filament = filament(model_object.config, 1);
+        auto collect = [&](const ModelConfig &cfg, Scope scope) {
+            std::vector<Override> overrides;
+            for (const std::string &key : cfg.keys()) {
+                std::string value, inherited;
+                if (key == "extruder") {
+                    const int inherited_filament = scope == Scope::Object ? 1 : object_filament;
+                    value     = std::to_string(filament(cfg, inherited_filament));
+                    inherited = std::to_string(inherited_filament);
+                } else if (object->config().option(key) != nullptr) {
+                    // Object keys: the value the object was sliced with. Of these, layer ranges only set the layer height.
+                    if (scope == Scope::Object) {
+                        value     = object->config().opt_serialize(key);
+                        inherited = global_object.opt_serialize(key);
+                    } else if (scope == Scope::LayerRange && key == "layer_height") {
+                        value     = cfg.opt_serialize(key);
+                        inherited = object->config().opt_serialize(key);
+                    } else
+                        continue;
+                } else if (global_region.option(key) != nullptr) {
+                    value     = cfg.opt_serialize(key);
+                    inherited = scope != Scope::Object && model_object.config.has(key) ? model_object.config.opt_serialize(key) :
+                                                                                         global_region.opt_serialize(key);
+                } else
+                    continue;
+                if (value != inherited)
+                    overrides.push_back({key, std::move(value), std::move(inherited)});
+            }
+            return overrides;
+        };
+
+        const size_t instances = object->instances().size();
+        write_scope(name + " (" + std::to_string(instances) + (instances == 1 ? " instance)" : " instances)"),
+                    collect(model_object.config, Scope::Object), "global");
+        for (const ModelVolume *volume : model_object.volumes)
+            if (volume->is_model_part() || volume->is_modifier())
+                write_scope(name + (volume->is_modifier() ? " modifier \"" : " part \"") + volume->name + "\"",
+                            collect(volume->config, Scope::Volume), "object");
+        for (const auto &[range, cfg] : model_object.layer_config_ranges)
+            write_scope(name + " layers " + float_to_string_decimal_point(range.first, 2) + "-" +
+                            float_to_string_decimal_point(range.second, 2) + " mm",
+                        collect(cfg, Scope::LayerRange), "object");
+    }
+    if (body.empty())
+        return;
+    str += "; TINMAN_OBJECT_OVERRIDES_START\n"
+           "; Settings that objects, parts, modifiers and layer ranges replace. The config block\n"
+           "; lists the global values only; where named, the values below were used instead.\n"
+           "; Each line reads: key: used value (global or object: the value it replaces).\n";
+    str += body;
+    str += "; TINMAN_OBJECT_OVERRIDES_END\n\n";
 }
 
 void GCode::set_extruders(const std::vector<unsigned int> &extruder_ids)

@@ -333,6 +333,9 @@ public:
 
     // append full config to the given string
     static void append_full_config(const Print& print, std::string& str);
+    // Tinman: append the settings objects, parts, modifiers and layer ranges override, as a
+    // comment-only section (nothing when none differs from the global config)
+    static void append_object_overrides(const Print& print, std::string& str);
 
     // Per-filament config-slot resolvers for the current layer (m_cur_layer_idx): the filament
     // resolver keys filament-indexed arrays, the nozzle resolver keys (extruder x volume-type)
