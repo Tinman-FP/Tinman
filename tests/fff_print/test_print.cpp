@@ -2936,3 +2936,174 @@ TEST_CASE("Height range settings follow a Z shrinkage change that comes with a m
 
     check_thin_dense_height_range(*print.objects().front(), 95.);
 }
+
+// Tinman: the config block lists the global presets only, while Calibration menu objects carry their own
+// walls, infill and brim (Plater::calib_*). The G-code records those overrides in a comment-only section
+// between the executable block and the trailing config block.
+static DynamicPrintConfig object_override_test_config(std::initializer_list<ConfigBase::SetDeserializeItem> extra = {})
+{
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_deserialize_strict({
+        { "wall_loops", 4 },
+        { "bottom_shell_layers", 3 },
+        { "sparse_infill_density", "25%" },
+        { "brim_type", "outer_only" },
+        { "brim_width", 30 },
+        { "layer_height", 0.2 },
+    });
+    config.set_deserialize_strict(extra);
+    return config;
+}
+
+// The PA tower's object overrides (Plater::_calib_pa_tower), plus the filament and a key equal to the global value.
+static const std::vector<ConfigBase::SetDeserializeItem> pa_tower_overrides {
+    { "extruder", 1 },
+    { "wall_loops", 2 },
+    { "bottom_shell_layers", 3 },
+    { "sparse_infill_density", "0%" },
+    { "brim_type", "brim_ears" },
+    { "brim_width", 6 },
+};
+
+static const std::string object_overrides_header =
+    "; TINMAN_OBJECT_OVERRIDES_START\n"
+    "; Settings that objects, parts, modifiers and layer ranges replace. The config block\n"
+    "; lists the global values only; where named, the values below were used instead.\n"
+    "; Each line reads: key: used value (global or object: the value it replaces).\n";
+
+static std::string config_block(const std::string &gcode)
+{
+    const size_t start = gcode.find("; CONFIG_BLOCK_START");
+    const size_t end   = gcode.find("; CONFIG_BLOCK_END", start);
+    return start == std::string::npos || end == std::string::npos ? std::string() : gcode.substr(start, end - start);
+}
+
+TEST_CASE("G-code lists a calibration object's overrides ahead of the config block", "[Print][GCode]")
+{
+    const std::string gcode = slice_with_object_overrides({ cube(20) }, object_override_test_config(), { pa_tower_overrides });
+
+    const std::string expected = "; EXECUTABLE_BLOCK_END\n\n" + object_overrides_header +
+        "; object id:0 \"object.stl\" (1 instance)\n"
+        ";   brim_type: brim_ears (global: outer_only)\n"
+        ";   brim_width: 6 (global: 30)\n"
+        ";   sparse_infill_density: 0% (global: 25%)\n"
+        ";   wall_loops: 2 (global: 4)\n"
+        "; TINMAN_OBJECT_OVERRIDES_END\n\n"
+        "; CONFIG_BLOCK_START\n";
+    CHECK(gcode.find(expected) != std::string::npos);
+
+    // The config block still lists the global values, byte for byte as without the overrides.
+    const std::string plain = slice_with_object_overrides({ cube(20) }, object_override_test_config(), {});
+    REQUIRE_FALSE(config_block(gcode).empty());
+    CHECK(config_block(gcode) == config_block(plain));
+    CHECK(config_block(gcode).find("; wall_loops = 4\n") != std::string::npos);
+}
+
+TEST_CASE("G-code without object overrides has no override section", "[Print][GCode]")
+{
+    // The filament the GUI sets on every object, and a key set to the global value, are not overrides.
+    const std::string gcode = slice_with_object_overrides({ cube(20), cube(20) }, object_override_test_config(),
+        { { { "extruder", 1 }, { "wall_loops", 4 } }, {} });
+    CHECK(gcode.find("TINMAN_OBJECT_OVERRIDES") == std::string::npos);
+    CHECK(gcode.find("; EXECUTABLE_BLOCK_END\n\n; CONFIG_BLOCK_START\n") != std::string::npos);
+
+    // gcode_skip_config_block leaves the overrides out with the config block.
+    const std::string skipped = slice_with_object_overrides({ cube(20) },
+        object_override_test_config({ { "gcode_skip_config_block", true } }), { pa_tower_overrides });
+    CHECK(skipped.find("TINMAN_OBJECT_OVERRIDES") == std::string::npos);
+}
+
+TEST_CASE("Importing the config from G-code with object overrides reads the global values", "[Print][GCode]")
+{
+    ScopedTemporaryFile with_overrides(".gcode"), without_overrides(".gcode");
+    std::ofstream(with_overrides.string(), std::ios::binary)
+        << slice_with_object_overrides({ cube(20) }, object_override_test_config(), { pa_tower_overrides });
+    std::ofstream(without_overrides.string(), std::ios::binary)
+        << slice_with_object_overrides({ cube(20) }, object_override_test_config(), {});
+
+    // ConfigBase::load_from_gcode_file is what Import config from G-code and the G-code viewer read.
+    DynamicPrintConfig imported, imported_plain;
+    imported.load_from_gcode_file(with_overrides.string(), ForwardCompatibilitySubstitutionRule::EnableSilent);
+    imported_plain.load_from_gcode_file(without_overrides.string(), ForwardCompatibilitySubstitutionRule::EnableSilent);
+    CHECK(imported.opt_int("wall_loops") == 4);
+    CHECK(imported.opt_serialize("sparse_infill_density") == "25%");
+    CHECK(imported.opt_serialize("brim_type") == "outer_only");
+    CHECK(imported.diff(imported_plain).empty());
+
+    // Opening the G-code in the viewer processes the whole file, the override section included.
+    GCodeProcessor processor;
+    REQUIRE_NOTHROW(processor.process_file(with_overrides.string()));
+    CHECK_FALSE(processor.extract_result().moves.empty());
+}
+
+TEST_CASE("Object overrides list parts, modifiers and layer ranges against the object", "[Print][GCode]")
+{
+    auto settings = [](std::initializer_list<ConfigBase::SetDeserializeItem> items) {
+        DynamicPrintConfig config;
+        config.set_deserialize_strict(items);
+        return config;
+    };
+    Model model;
+    ModelObject *object = model.add_object();
+    object->name = "tower";
+    object->config.apply(settings({ { "extruder", 1 }, { "wall_loops", 2 } }));
+    ModelVolume *body = object->add_volume(cube(20.));
+    body->name = "body";
+    body->config.apply(settings({ { "extruder", 1 } }));
+    // Equal to the object's value, or "0 = inherit": not listed.
+    ModelVolume *modifier = object->add_volume(cube(5.), ModelVolumeType::PARAMETER_MODIFIER, false);
+    modifier->name = "dense";
+    modifier->config.apply(settings({ { "extruder", 0 }, { "sparse_infill_density", "50%" }, { "wall_loops", 2 } }));
+    // A negative volume's settings are never used.
+    ModelVolume *hole = object->add_volume(cube(3.), ModelVolumeType::NEGATIVE_VOLUME, false);
+    hole->name = "hole";
+    hole->config.apply(settings({ { "wall_loops", 7 } }));
+    // A layer range inherits the object's 2 walls, so its 4 walls are listed though they equal the global value.
+    object->layer_config_ranges[{ 5., 10. }].assign_config(settings({ { "layer_height", 0.1 }, { "wall_loops", 4 } }));
+    object->add_instance()->set_offset(Vec3d(60., 60., 0.));
+    object->add_instance()->set_offset(Vec3d(120., 120., 0.));
+    object->ensure_on_bed();
+
+    Print print;
+    print.apply(model, object_override_test_config());
+    std::string overrides;
+    GCode::append_object_overrides(print, overrides);
+    CHECK(overrides == object_overrides_header +
+        "; object id:0 \"tower\" (2 instances)\n"
+        ";   wall_loops: 2 (global: 4)\n"
+        "; object id:0 \"tower\" modifier \"dense\"\n"
+        ";   sparse_infill_density: 50% (object: 25%)\n"
+        "; object id:0 \"tower\" layers 5.00-10.00 mm\n"
+        ";   layer_height: 0.1 (object: 0.2)\n"
+        ";   wall_loops: 4 (object: 2)\n"
+        "; TINMAN_OBJECT_OVERRIDES_END\n\n");
+
+    // The exported file carries the same section.
+    print.validate();
+    CHECK(gcode(print).find("; EXECUTABLE_BLOCK_END\n\n" + overrides + "; CONFIG_BLOCK_START\n") != std::string::npos);
+}
+
+TEST_CASE("Object overrides list an object's filament when it is not the first", "[Print][GCode]")
+{
+    DynamicPrintConfig config = multifilament_config(2);
+    Print print;
+    Model model;
+    init_print({ cube(20), cube(20) }, print, model, config);
+    model.objects.front()->config.set("extruder", 1);
+    model.objects.back()->config.set("extruder", 2);
+    print.apply(model, config);
+
+    std::string overrides;
+    GCode::append_object_overrides(print, overrides);
+    CHECK(overrides == object_overrides_header +
+        "; object id:1 \"object.stl\" (1 instance)\n"
+        ";   extruder: 2 (global: 1)\n"
+        "; TINMAN_OBJECT_OVERRIDES_END\n\n");
+
+    // A filament the printer does not have falls back to the first one.
+    model.objects.back()->config.set("extruder", 3);
+    print.apply(model, config);
+    overrides.clear();
+    GCode::append_object_overrides(print, overrides);
+    CHECK(overrides.empty());
+}
