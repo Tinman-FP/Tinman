@@ -61,6 +61,7 @@
 #include <algorithm>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/filesystem/operations.hpp>
+#include <cstdio>
 #include <cstdlib>
 #include <sstream>
 #include <limits>
@@ -1371,6 +1372,120 @@ TEST_CASE("Exporting a sliced print again gives the same G-code", "[Print][expor
     INFO("second export: " << second.substr(line_start, second.find('\n', diff) - line_start));
     CHECK(diff == first.size());
     CHECK(first.size() == second.size());
+}
+
+// A two-tool changer whose filaments may override the printer's z_hop and retraction_length, as the
+// CORE One+ INDX profiles do. Custom G-code reads the overrides through the placeholder parser, which
+// Print::apply rebuilds whenever the config changes.
+static DynamicPrintConfig tool_changer_retract_config(bool filaments_override)
+{
+    DynamicPrintConfig config = multifilament_config(2);
+    config.set_num_extruders(2);
+    config.set_deserialize_strict({
+        { "single_extruder_multi_material", false },
+        { "nozzle_diameter",                "0.4,0.4" },
+        { "printer_extruder_id",            "1,2" },
+        // A string list: ';' separates the entries, so each tool keeps its own z_hop and retraction.
+        { "printer_extruder_variant",       "Direct Drive Standard;Direct Drive Standard" },
+        { "extruder_printable_height",      "0,0" },
+        { "filament_map_mode",              "Manual" },
+        { "filament_map",                   "1,2" },
+        { "filament_self_index",            "1,2" },
+        { "filament_extruder_variant",      "Direct Drive Standard;Direct Drive Standard" },
+        { "z_hop",                          "1.5,2" },
+        { "retraction_length",              "0.8,0.9" },
+        { "filament_z_hop",                 filaments_override ? "1,0.7" : "nil,nil" },
+        { "filament_retraction_length",     filaments_override ? "1.6,1.2" : "nil,nil" },
+        { "change_filament_gcode",
+          "; TOOLCHANGE {current_extruder}->{next_extruder} park_z={z_hop[current_extruder]} retract={retraction_length[next_extruder]}\n" },
+        { "wipe_tower_x",                   "30" },
+        { "wipe_tower_y",                   "30" },
+        { "gcode_comments",                 true },
+    });
+    size_flush_to_nozzles(config);
+    return config;
+}
+
+// The rendered tool-change lines (the first tool selection renders as "0->0"), each checked against
+// the values the filaments (or, without overrides, the printer) give for that change.
+static std::vector<std::string> checked_toolchange_lines(const std::string &gcode, bool filaments_override)
+{
+    const std::array<const char *, 2> z_hop   = filaments_override ? std::array{ "1", "0.7" } : std::array{ "1.5", "2" };
+    const std::array<const char *, 2> retract = filaments_override ? std::array{ "1.6", "1.2" } : std::array{ "0.8", "0.9" };
+    std::vector<std::string> lines;
+    bool                     changed_tool = false;
+    std::istringstream       in(gcode);
+    for (std::string line; std::getline(in, line);) {
+        int from = -1, to = -1;
+        if (std::sscanf(line.c_str(), "; TOOLCHANGE %d->%d", &from, &to) != 2)
+            continue;
+        INFO(line);
+        REQUIRE((from >= 0 && from < 2 && to >= 0 && to < 2));
+        CHECK(line == "; TOOLCHANGE " + std::to_string(from) + "->" + std::to_string(to) + " park_z=" + z_hop[from] +
+                          " retract=" + retract[to]);
+        changed_tool |= from != to;
+        lines.push_back(std::move(line));
+    }
+    REQUIRE(changed_tool);
+    return lines;
+}
+
+static std::vector<TriangleMesh> two_tool_changer_cubes()
+{
+    std::vector<TriangleMesh> meshes { make_cube(10., 10., 2.), make_cube(10., 10., 2.) };
+    meshes[0].translate(120.f, 120.f, 0.f);
+    meshes[1].translate(150.f, 120.f, 0.f);
+    return meshes;
+}
+
+// Print::apply used to rebuild the placeholder parser with only the overrides whose value had changed,
+// so after an unrelated process edit the tool-change template read the printer's z_hop and retraction
+// until the project was reopened (Tinman Test, CORE One+ INDX, 2026-11-23 and 2026-11-25).
+TEST_CASE("Filament retract overrides reach the tool-change G-code after a process-only edit", "[Print][Regression]")
+{
+    const bool filaments_override = GENERATE(true, false);
+    const bool prime_tower        = GENERATE(false, true);
+    CAPTURE(filaments_override, prime_tower);
+    DynamicPrintConfig config = tool_changer_retract_config(filaments_override);
+    config.set_key_value("enable_prime_tower", new ConfigOptionBool(prime_tower));
+    DynamicPrintConfig edited = config;
+    edited.set_key_value("staggered_inner_seams", new ConfigOptionBool(true));
+    const std::vector<std::vector<ConfigBase::SetDeserializeItem>> per_object = { {}, { { "extruder", 2 } } };
+
+    Print print;
+    Model model;
+    init_print(two_tool_changer_cubes(), print, model, config, &per_object, false);
+    checked_toolchange_lines(gcode(print), filaments_override);
+
+    print.apply(model, edited);
+    const std::vector<std::string> after_edit = checked_toolchange_lines(gcode(print), filaments_override);
+
+    Print reopened;
+    Model reopened_model;
+    init_print(two_tool_changer_cubes(), reopened, reopened_model, edited, &per_object, false);
+    CHECK(after_edit == checked_toolchange_lines(gcode(reopened), filaments_override));
+}
+
+// A plate that prints one filament has its prime tower turned off. Giving an object the second filament
+// turns it back on in Print::apply's late normalization pass, with no config edit; that pass cleared the
+// placeholder parser without putting the filament overrides back.
+TEST_CASE("Filament retract overrides reach the tool-change G-code after a second filament is assigned", "[Print][Regression]")
+{
+    const bool filaments_override = GENERATE(true, false);
+    CAPTURE(filaments_override);
+    DynamicPrintConfig config = tool_changer_retract_config(filaments_override);
+    config.set_key_value("enable_prime_tower", new ConfigOptionBool(true));
+
+    Print print;
+    Model model;
+    init_print(two_tool_changer_cubes(), print, model, config, nullptr, false);
+    REQUIRE_FALSE(print.config().enable_prime_tower.value);
+    REQUIRE_FALSE(gcode(print).empty());
+
+    model.objects[1]->config.set_key_value("extruder", new ConfigOptionInt(2));
+    print.apply(model, config);
+    REQUIRE(print.config().enable_prime_tower.value);
+    checked_toolchange_lines(gcode(print), filaments_override);
 }
 
 TEST_CASE("Sequential printing follows model order", "[Print]")

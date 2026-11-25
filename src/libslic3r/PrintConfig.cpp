@@ -13865,8 +13865,6 @@ void DynamicPrintConfig::update_diff_values_to_child_config(DynamicPrintConfig& 
 void compute_filament_override_value(const std::string& opt_key, const ConfigOption *opt_old_machine, const ConfigOption *opt_new_machine, const ConfigOption *opt_new_filament, const DynamicPrintConfig& new_full_config,
     t_config_option_keys& diff_keys, DynamicPrintConfig& filament_overrides, std::vector<int>& f_map_indices)
 {
-    bool is_nil = opt_new_filament->is_nil();
-
     // ugly code, for these params, we should ignore the value in filament params
     ConfigOptionBoolsNullable opt_long_retraction_default;
     if (opt_key == "long_retractions_when_cut" && new_full_config.option<ConfigOptionInt>("enable_long_retraction_when_cut")->value != LongRectrationLevel::EnableFilament) {
@@ -13888,10 +13886,14 @@ void compute_filament_override_value(const std::string& opt_key, const ConfigOpt
     opt_copy->apply_override(opt_new_filament, f_map_indices);
     bool changed = *opt_old_machine != *opt_copy;
 
-    if (changed) {
+    if (changed)
         diff_keys.emplace_back(opt_key);
+    // Tinman: keep a value a filament sets even when it has not changed, as PrusaSlicer does
+    // (changed || overridden). Print::apply rebuilds the placeholder parser from filament_overrides
+    // after any config change; keeping only the changed ones let custom G-code such as a tool-change
+    // template read the printer's z_hop and retraction_length after an unrelated edit.
+    if (changed || !opt_new_filament->is_nil())
         filament_overrides.set_key_value(opt_key, opt_copy);
-    }
     else
         delete opt_copy;
 }
