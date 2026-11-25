@@ -84,6 +84,54 @@ CalibrationBrim calibration_brim(BrimType calib_type, double calib_width, const 
     }
 }
 
+// Tinman: the chats tuning filaments built these tests by hand, because the Calibration menu had none
+// of them (K2 Plus, Qidi Plus4, CORE One L and INDX reports, 2026-11-17 to 2026-11-25).
+std::vector<TuningGuidePart> tuning_guide_parts(TuningGuideTest test, const BoundingBoxf &bed)
+{
+    const std::string dir = "calib/tuning_guide/";
+    const Vec2d       mid = bed.center();
+    auto part = [&mid](std::string file, std::string name, const Vec2d &from_mid = Vec2d::Zero()) {
+        return TuningGuidePart{std::move(file), std::move(name), mid + from_mid, {}};
+    };
+    switch (test) {
+    case TuningGuideTest::Benchy: return {part("handy_models/3DBenchy.drc", "3DBenchy")};
+    case TuningGuideTest::FirstLayer: {
+        // One square at the centre and, where the bed has room, one 20 mm in from each corner.
+        constexpr double side = 40., inset = 20., gap = 5.;
+        const std::string file = dir + "first_layer_square.stl";
+        std::vector<TuningGuidePart> parts{part(file, "First layer - centre")};
+        if (std::min(bed.size().x(), bed.size().y()) / 2. - side / 2. >= inset + side + gap) {
+            const double left = bed.min.x() + inset + side / 2., right = bed.max.x() - inset - side / 2.;
+            const double front = bed.min.y() + inset + side / 2., back = bed.max.y() - inset - side / 2.;
+            parts.push_back({file, "First layer - front left", {left, front}, {}});
+            parts.push_back({file, "First layer - front right", {right, front}, {}});
+            parts.push_back({file, "First layer - back left", {left, back}, {}});
+            parts.push_back({file, "First layer - back right", {right, back}, {}});
+        }
+        return parts;
+    }
+    case TuningGuideTest::BondCheck: return {part(dir + "bond_bars.stl", "Bond bars")};
+    case TuningGuideTest::Cooling: return {part(dir + "cooling_and_bridges.stl", "Cooling and bridges")};
+    case TuningGuideTest::Dimensional: return {part(dir + "dims01_frames_and_holes.stl", "DIMS01 frames and holes")};
+    case TuningGuideTest::Seams: return {part(dir + "seam_test.stl", "Seam test")};
+    case TuningGuideTest::TopSurface: {
+        // The guide's two rows, 24 mm apart; only the top-surface path differs between them.
+        std::vector<TuningGuidePart> parts{part(dir + "top_surface_a.stl", "Top A - Monotonic Line", {0., 25.}),
+                                           part(dir + "top_surface_b.stl", "Top B - Monotonic", {0., -25.})};
+        parts[0].settings.set_key_value("top_surface_pattern", new ConfigOptionEnum<InfillPattern>(ipMonotonicLine));
+        parts[1].settings.set_key_value("top_surface_pattern", new ConfigOptionEnum<InfillPattern>(ipMonotonic));
+        return parts;
+    }
+    case TuningGuideTest::VAL01: {
+        // Its two 40 mm bridges are part of the test, so a profile with support on must not support them.
+        TuningGuidePart val01 = part(dir + "val01_v2.stl", "VAL01 v2");
+        val01.settings.set_key_value("enable_support", new ConfigOptionBool(false));
+        return {val01};
+    }
+    }
+    return {};
+}
+
 float calibration_value_for_ratio(float start, float end, float step, float ratio)
 {
     ratio = std::clamp(ratio, 0.f, 1.f);
