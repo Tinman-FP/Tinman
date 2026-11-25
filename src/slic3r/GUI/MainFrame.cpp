@@ -1,5 +1,6 @@
 #include "MainFrame.hpp"
 #include "libslic3r/TuningGuide.hpp"
+#include "libslic3r/calib.hpp"
 
 #include <wx/event.h>
 #include "slic3r/GUI/Event.hpp"
