@@ -84,6 +84,22 @@ struct CalibrationBrim
 };
 CalibrationBrim calibration_brim(BrimType calib_type, double calib_width, const DynamicPrintConfig &print_config);
 
+// Tests from Tinmans Tuning Guide that Calibration > Tuning Guide tests adds to a new project, in the
+// guide's order. Unlike the calibrations above, they print with the profiles as they are: nothing
+// changes from layer to layer, and only the settings a test needs go on its objects.
+enum class TuningGuideTest : int { Benchy, FirstLayer, BondCheck, Cooling, Dimensional, Seams, TopSurface, VAL01 };
+
+struct TuningGuidePart
+{
+    std::string        file;     // relative to resources_dir()
+    std::string        name;     // object name
+    Vec2d              center;   // where the part's centre goes, in bed coordinates (mm)
+    DynamicPrintConfig settings; // object settings the test needs
+};
+
+// The parts of a test, placed on a bed whose printable area spans bed (mm).
+std::vector<TuningGuidePart> tuning_guide_parts(TuningGuideTest test, const BoundingBoxf &bed);
+
 struct VfaCalibrationPlan {
     double layer_height;
     double end_speed;

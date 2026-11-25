@@ -19231,6 +19231,38 @@ void Plater::calib_VFA(const Calib_Params& params)
     p->background_process.fff_print()->set_calib_params(calib_params);
 }
 
+void Plater::add_tuning_guide_test(TuningGuideTest test, const wxString& project_name)
+{
+    if (new_project(false, false, project_name) == wxID_CANCEL)
+        return;
+    wxGetApp().mainframe->select_tab(TAB_ID_PREPARE);
+
+    const auto&        printer_config = wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    const BoundingBoxf bed            = get_extents(printer_config.option<ConfigOptionPoints>("printable_area")->values);
+    const Vec3d        origin         = p->partplate_list.get_curr_plate()->get_origin();
+    std::vector<size_t> added;
+    for (const TuningGuidePart& part : tuning_guide_parts(test, bed)) {
+        const size_t first_new = model().objects.size();
+        if (!add_model(false, Slic3r::resources_dir() + "/" + part.file))
+            break;
+        for (size_t idx = first_new; idx < model().objects.size(); ++idx) {
+            ModelObject* obj = model().objects[idx];
+            obj->name = part.name;
+            obj->config.apply(part.settings);
+            // Move the part so its centre lands where the test puts it, whatever place loading gave it.
+            const Vec3d    bb_center = obj->instance_bounding_box(0).center();
+            ModelInstance* instance  = obj->instances.front();
+            instance->set_offset(instance->get_offset() + Vec3d(origin.x() + part.center.x() - bb_center.x(),
+                                                                 origin.y() + part.center.y() - bb_center.y(), 0.));
+            p->partplate_list.notify_instance_update(int(idx), 0);
+            ObjectDataViewModel* list = sidebar().obj_list()->GetModel();
+            list->SetName(from_u8(part.name), list->GetItemById(int(idx)));
+            added.push_back(idx);
+        }
+    }
+    changed_objects(added);
+}
+
 void Plater::calib_input_shaping_freq(const Calib_Params& params)
 {
     const auto calib_input_shaping_name = _L("Input shaping Frequency test");

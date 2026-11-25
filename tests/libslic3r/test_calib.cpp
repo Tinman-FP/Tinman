@@ -404,6 +404,87 @@ TEST_CASE("A calibration keeps a wider outer brim from the print profile", "[Cal
     check(calibration_brim(btOuterOnly, 5., DynamicPrintConfig()), btOuterOnly, 5.);
 }
 
+TEST_CASE("Tuning Guide tests load the guide's models onto the bed", "[Calib][TuningGuide][Regression]")
+{
+    const std::string  resources = std::string(PROFILES_DIR) + "/..";
+    const BoundingBoxf bed(Vec2d(0., 0.), Vec2d(250., 220.)); // the smallest bed the guide's runs used
+    struct Expected { TuningGuideTest test; size_t parts; Vec3d size; };
+    const Expected expected[] = {
+        {TuningGuideTest::Benchy, 1, {60., 31., 48.}},
+        {TuningGuideTest::FirstLayer, 5, {40., 40., 0.8}},
+        {TuningGuideTest::BondCheck, 1, {50., 5.39, 45.}},
+        {TuningGuideTest::Cooling, 1, {100., 90., 20.8}},
+        {TuningGuideTest::Dimensional, 1, {227., 126., 6.}},
+        {TuningGuideTest::Seams, 1, {120., 75., 15.}},
+        {TuningGuideTest::TopSurface, 2, {145., 25.98, 4.}},
+        {TuningGuideTest::VAL01, 1, {70., 85., 38.}},
+    };
+    for (const Expected &test : expected) {
+        const std::vector<TuningGuidePart> parts = tuning_guide_parts(test.test, bed);
+        REQUIRE(parts.size() == test.parts);
+        for (const TuningGuidePart &part : parts) {
+            CAPTURE(part.file, part.name);
+            Model model = Model::read_from_file(resources + "/" + part.file);
+            REQUIRE(model.objects.size() == 1);
+            const Vec3d size = model.objects.front()->mesh().bounding_box().size();
+            CHECK_THAT(size.x(), Catch::Matchers::WithinAbs(test.size.x(), 0.05));
+            CHECK_THAT(size.y(), Catch::Matchers::WithinAbs(test.size.y(), 0.05));
+            CHECK_THAT(size.z(), Catch::Matchers::WithinAbs(test.size.z(), 0.05));
+            // The whole part lands on the bed.
+            CHECK(part.center.x() - size.x() / 2. >= bed.min.x());
+            CHECK(part.center.x() + size.x() / 2. <= bed.max.x());
+            CHECK(part.center.y() - size.y() / 2. >= bed.min.y());
+            CHECK(part.center.y() + size.y() / 2. <= bed.max.y());
+        }
+    }
+}
+
+TEST_CASE("Tuning Guide tests set only the object settings each test needs", "[Calib][TuningGuide][Regression]")
+{
+    const BoundingBoxf bed(Vec2d(0., 0.), Vec2d(300., 300.));
+    for (const TuningGuideTest test : {TuningGuideTest::Benchy, TuningGuideTest::FirstLayer, TuningGuideTest::BondCheck,
+                                       TuningGuideTest::Cooling, TuningGuideTest::Dimensional, TuningGuideTest::Seams}) {
+        CAPTURE(int(test));
+        for (const TuningGuidePart &part : tuning_guide_parts(test, bed))
+            CHECK(part.settings.empty());
+    }
+    // VAL01's bridges are part of the test: support stays off even when the profile turns it on.
+    const std::vector<TuningGuidePart> val01 = tuning_guide_parts(TuningGuideTest::VAL01, bed);
+    REQUIRE(val01.size() == 1);
+    CHECK(val01[0].settings.keys() == t_config_option_keys{"enable_support"});
+    CHECK_FALSE(val01[0].settings.opt_bool("enable_support"));
+    // The top-surface A/B differs only in the top-surface path.
+    const std::vector<TuningGuidePart> top = tuning_guide_parts(TuningGuideTest::TopSurface, bed);
+    REQUIRE(top.size() == 2);
+    CHECK(top[0].settings.keys() == t_config_option_keys{"top_surface_pattern"});
+    CHECK(top[1].settings.keys() == t_config_option_keys{"top_surface_pattern"});
+    CHECK(top[0].settings.opt_enum<InfillPattern>("top_surface_pattern") == ipMonotonicLine);
+    CHECK(top[1].settings.opt_enum<InfillPattern>("top_surface_pattern") == ipMonotonic);
+    CHECK(top[0].center.y() > top[1].center.y()); // A is the back row
+}
+
+TEST_CASE("The first-layer check spreads its squares across the bed", "[Calib][TuningGuide][Regression]")
+{
+    // On a 180 mm bed there is just room for the four corner squares beside the centre one.
+    const BoundingBoxf small_bed(Vec2d(0., 0.), Vec2d(180., 180.));
+    const std::vector<TuningGuidePart> squares = tuning_guide_parts(TuningGuideTest::FirstLayer, small_bed);
+    REQUIRE(squares.size() == 5);
+    CHECK(squares[0].center.isApprox(Vec2d(90., 90.)));
+    for (size_t i = 0; i < squares.size(); ++i) {
+        CAPTURE(squares[i].name);
+        CHECK(squares[i].center.x() - 20. >= small_bed.min.x() + (i ? 20. : 0.) - EPSILON);
+        CHECK(squares[i].center.y() + 20. <= small_bed.max.y() - (i ? 20. : 0.) + EPSILON);
+        for (size_t j = i + 1; j < squares.size(); ++j) {
+            const Vec2d apart = (squares[i].center - squares[j].center).cwiseAbs();
+            CHECK(std::max(apart.x(), apart.y()) >= 45.); // never overlapping, and at least 5 mm apart
+        }
+    }
+    // A bed too small for the corners gets the centre square only.
+    const std::vector<TuningGuidePart> tiny = tuning_guide_parts(TuningGuideTest::FirstLayer, BoundingBoxf(Vec2d(0., 0.), Vec2d(160., 200.)));
+    REQUIRE(tiny.size() == 1);
+    CHECK(tiny[0].center.isApprox(Vec2d(80., 100.)));
+}
+
 TEST_CASE("PA pattern role tags follow its printer, not the last slice", "[Calib][Regression]")
 {
     DynamicPrintConfig config = DynamicPrintConfig::full_print_config();

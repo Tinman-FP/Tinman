@@ -425,6 +425,8 @@ public:
     void calib_input_shaping_freq(const Calib_Params& params);
     void calib_input_shaping_damp(const Calib_Params& params);
     void Calib_Cornering(const Calib_Params& params);
+    // A new project holding one of Tinmans Tuning Guide's tests, printed with the profiles as they are.
+    void add_tuning_guide_test(TuningGuideTest test, const wxString& project_name);
 
     BuildVolume_Type get_build_volume_type() const;
 

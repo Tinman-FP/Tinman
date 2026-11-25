@@ -3411,6 +3411,32 @@ void MainFrame::add_common_view_menu_items(wxMenu* view_menu, std::function<bool
         "", nullptr, [can_change_view]() { return can_change_view(); }, this);
 }
 
+// Tinman: Tinmans Tuning Guide's own tests, in the guide's order, so the chats tuning a filament no
+// longer build them by hand. A new filament starts with 3DBenchy and ends with VAL01 v2.
+static wxMenu* create_tuning_guide_menu(MainFrame* frame)
+{
+    struct Item { TuningGuideTest test; wxString label; wxString help; };
+    const Item items[] = {
+        {TuningGuideTest::Benchy, _L("3DBenchy"), _L("Tuning Guide chapter 24: the first test of a new filament")},
+        {TuningGuideTest::FirstLayer, _L("First layer"), _L("Tuning Guide chapter 01: five squares across the bed, measured with calipers")},
+        {TuningGuideTest::BondCheck, _L("Bond check"), _L("Tuning Guide chapter 02: three bars to break, one setting per print")},
+        {TuningGuideTest::Cooling, _L("Cooling and bridges"), _L("Tuning Guide chapter 06: bridges, overhang fins and pins")},
+        {TuningGuideTest::Dimensional, _L("Dimensional accuracy"), _L("Tuning Guide chapter 07: DIMS01 frames and hole bar")},
+        {TuningGuideTest::Seams, _L("Seams"), _L("Tuning Guide chapter 08: five shapes for seams and travel")},
+        {TuningGuideTest::TopSurface, _L("Top surface A/B"), _L("Tuning Guide chapter 08: Monotonic Line against Monotonic")},
+        {TuningGuideTest::VAL01, _L("VAL01 v2"), _L("Tuning Guide chapter 09: the last test before a filament is tuned, printed without support")},
+    };
+    auto* menu = new wxMenu();
+    for (const Item& item : items) {
+        const TuningGuideTest test  = item.test;
+        const wxString        label = item.label;
+        append_menu_item(menu, wxID_ANY, item.label, item.help,
+            [frame, test, label](wxCommandEvent&) { frame->plater()->add_tuning_guide_test(test, label); }, "", nullptr,
+            [frame]() { return frame->plater()->is_view3D_shown(); }, frame);
+    }
+    return menu;
+}
+
 void MainFrame::init_menubar_as_editor()
 {
 #ifdef __APPLE__
@@ -4129,6 +4155,8 @@ void MainFrame::init_menubar_as_editor()
         [this](wxCommandEvent&) { run_calibration(CalibKind::VFA); }, "", nullptr,
         [this]() {return m_plater->is_view3D_shown();; }, this);
 
+    m_topbar->GetCalibMenu()->AppendSubMenu(create_tuning_guide_menu(this), _L("Tuning Guide tests"));
+
     // help
     append_menu_item(m_topbar->GetCalibMenu(), wxID_ANY, _L("Calibration Guide"), _L("Calibration Guide"), [](wxCommandEvent &)
                      { wxLaunchDefaultBrowser(from_u8(Slic3r::tuning_guide_url("calibration_guide")), wxBROWSER_NEW_WINDOW); }, "", nullptr, [this]()
@@ -4234,6 +4262,7 @@ void MainFrame::init_menubar_as_editor()
     append_menu_item(calib_menu, wxID_ANY, _L("VFA"), _L("VFA"),
         [this](wxCommandEvent&) { run_calibration(CalibKind::VFA); }, "", nullptr,
         [this]() {return m_plater->is_view3D_shown();; }, this);
+    calib_menu->AppendSubMenu(create_tuning_guide_menu(this), _L("Tuning Guide tests"));
     // help
     append_menu_item(calib_menu, wxID_ANY, _L("Calibration Guide"), _L("Calibration Guide"),
         [](wxCommandEvent&) { wxLaunchDefaultBrowser(from_u8(Slic3r::tuning_guide_url("calibration_guide")), wxBROWSER_NEW_WINDOW); }, "", nullptr,
