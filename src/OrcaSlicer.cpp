@@ -2223,8 +2223,15 @@ int CLI::run(int argc, char **argv)
         return Slic3r::escape_strings_cstyle(keys);
     };
 
-    auto load_config_file = [&resolve_preset, &sliced_info](const std::string& file, DynamicPrintConfig& config, std::string& config_type,
+    // Tinman: why the last load_config_file() failed, for result.json. Its callers record only the generic
+    // "invalid preset file" message otherwise, and the reason reaches stderr alone.
+    std::string config_file_error;
+    auto config_file_error_message = [&config_file_error](int code) {
+        return config_file_error.empty() ? cli_errors[code] : cli_errors[code] + " " + config_file_error;
+    };
+    auto load_config_file = [&resolve_preset, &sliced_info, &config_file_error](const std::string& file, DynamicPrintConfig& config, std::string& config_type,
                                 std::string& config_name, std::string& filament_id, std::string& config_from) {
+        config_file_error.clear();
         if (! boost::filesystem::exists(file)) {
             boost::nowide::cerr << __FUNCTION__<< ": can not find setting file: " << file << std::endl;
             return CLI_FILE_NOTFOUND;
@@ -2238,6 +2245,7 @@ int CLI::run(int argc, char **argv)
             config_substitutions = config.load_from_json(file, config_substitution_rule, key_values, reason);
             if (!reason.empty()) {
                 BOOST_LOG_TRIVIAL(error) <<__FUNCTION__<<  ":Can not load config from file "<<file<<"\n";
+                config_file_error = file + ": " + reason;
                 return CLI_CONFIG_FILE_ERROR;
             }
 
@@ -2248,6 +2256,7 @@ int CLI::run(int argc, char **argv)
             }
             if ((config_from != "system")&&(config_from != "User")&&(config_from != "user")) {
                 boost::nowide::cerr <<__FUNCTION__ << boost::format(":file %1%'s from %2% unsupported") % file % config_from;
+                config_file_error = (boost::format("%1%: \"from\" is \"%2%\", not \"system\" or \"User\".") % file % config_from).str();
                 return CLI_CONFIG_FILE_ERROR;
             }
 
@@ -2258,6 +2267,15 @@ int CLI::run(int argc, char **argv)
 
             if (!resolve_preset(file, config, config_type, config_from, probe_type, reason)) {
                 boost::nowide::cerr << __FUNCTION__ << boost::format(": can not resolve preset %1%: %2%") % file % reason << std::endl;
+                // Name the parent and where it was looked for: a user preset's parent comes from the presets
+                // loaded from the data folder, a system preset's from the vendor profiles around its file.
+                const auto       *inherits = config.option<ConfigOptionString>(BBL_JSON_KEY_INHERITS);
+                const std::string where    = config_from == "system" ? std::string("the vendor profiles around it") :
+                                                                       "the data folder " + data_dir();
+                config_file_error = inherits != nullptr && !inherits->value.empty() ?
+                    (boost::format("%1% names the parent preset \"%2%\", which could not be resolved from %3%: %4%") %
+                     file % inherits->value % where % reason).str() :
+                    (boost::format("%1% has no \"type\", and its type could not be resolved from %2%: %3%") % file % where % reason).str();
                 return CLI_CONFIG_FILE_ERROR;
             }
 
@@ -2276,6 +2294,7 @@ int CLI::run(int argc, char **argv)
             }
             else {
                 boost::nowide::cerr <<__FUNCTION__ << boost::format(": unknown config type %1% of file %2% in load-settings") % config_type % file;
+                config_file_error = (boost::format("%1%: unknown preset type \"%2%\".") % file % config_type).str();
                 return CLI_CONFIG_FILE_ERROR;
             }
             config.normalize_fdm();
@@ -2291,6 +2310,7 @@ int CLI::run(int argc, char **argv)
             //BOOST_LOG_TRIVIAL(info) << "got printable_area "<< config.option("printable_area")->serialize() << std::endl;
         } catch (std::exception &ex) {
             boost::nowide::cerr << __FUNCTION__<< ":Loading setting file \"" << file << "\" failed: " << ex.what() << std::endl;
+            config_file_error = file + ": " + ex.what();
             return CLI_CONFIG_FILE_ERROR;
         }
         return 0;
@@ -2303,7 +2323,7 @@ int CLI::run(int argc, char **argv)
         std::string config_type, config_name, filament_id, config_from;
         int ret = load_config_file(file, config, config_type, config_name, filament_id, config_from);
         if (ret) {
-            record_exit_reson(outfile_dir, ret, 0, cli_errors[ret], sliced_info);
+            record_exit_reson(outfile_dir, ret, 0, config_file_error_message(ret), sliced_info);
             flush_and_exit(ret);
         }
 
@@ -2406,7 +2426,7 @@ int CLI::run(int argc, char **argv)
                 std::string config_type, config_name, filament_id, config_from;
                 int ret = load_config_file(file, config, config_type, config_name, filament_id, config_from);
                 if (ret) {
-                    record_exit_reson(outfile_dir, ret, 0, cli_errors[ret], sliced_info);
+                    record_exit_reson(outfile_dir, ret, 0, config_file_error_message(ret), sliced_info);
                     flush_and_exit(ret);
                 }
 
@@ -2444,7 +2464,7 @@ int CLI::run(int argc, char **argv)
             std::string config_type, config_name, filament_id, config_from;
             int ret = load_config_file(file, config, config_type, config_name, filament_id, config_from);
             if (ret) {
-                record_exit_reson(outfile_dir, ret, 0, cli_errors[ret], sliced_info);
+                record_exit_reson(outfile_dir, ret, 0, config_file_error_message(ret), sliced_info);
                 flush_and_exit(ret);
             }
 
@@ -2565,7 +2585,7 @@ int CLI::run(int argc, char **argv)
                 std::string config_type, config_name, filament_id, config_from;
                 int ret = load_config_file(file, config, config_type, config_name, filament_id, config_from);
                 if (ret) {
-                    record_exit_reson(outfile_dir, ret, 0, cli_errors[ret], sliced_info);
+                    record_exit_reson(outfile_dir, ret, 0, config_file_error_message(ret), sliced_info);
                     flush_and_exit(ret);
                 }
 
@@ -2657,7 +2677,7 @@ int CLI::run(int argc, char **argv)
                     std::string config_type, config_name, filament_id, config_from;
                     int ret = load_config_file(system_printer_path, config, config_type, config_name, filament_id, config_from);
                     if (ret) {
-                        record_exit_reson(outfile_dir, ret, 0, cli_errors[ret], sliced_info);
+                        record_exit_reson(outfile_dir, ret, 0, config_file_error_message(ret), sliced_info);
                         flush_and_exit(ret);
                     }
 
@@ -2698,7 +2718,7 @@ int CLI::run(int argc, char **argv)
                     std::string config_type, config_name, filament_id, config_from;
                     int ret = load_config_file(system_process_path, config, config_type, config_name, filament_id, config_from);
                     if (ret) {
-                        record_exit_reson(outfile_dir, ret, 0, cli_errors[ret], sliced_info);
+                        record_exit_reson(outfile_dir, ret, 0, config_file_error_message(ret), sliced_info);
                         flush_and_exit(ret);
                     }
                     current_print_compatible_printers  = config.option<ConfigOptionStrings>("compatible_printers", true)->values;
@@ -2729,7 +2749,7 @@ int CLI::run(int argc, char **argv)
                     int ret = load_config_file(file, config, config_type, config_name, filament_id, config_from);
                     if (ret) {
                         BOOST_LOG_TRIVIAL(error) << boost::format("load uptodate_filaments %1% fail, index %2%!")%file %index;
-                        record_exit_reson(outfile_dir, ret, 0, cli_errors[ret], sliced_info);
+                        record_exit_reson(outfile_dir, ret, 0, config_file_error_message(ret), sliced_info);
                         flush_and_exit(ret);
                     }
 
@@ -2768,7 +2788,7 @@ int CLI::run(int argc, char **argv)
                     std::string config_type, config_name, filament_id, config_from;
                     int ret = load_config_file(system_filament_path, config, config_type, config_name, filament_id, config_from);
                     if (ret) {
-                        record_exit_reson(outfile_dir, ret, 0, cli_errors[ret], sliced_info);
+                        record_exit_reson(outfile_dir, ret, 0, config_file_error_message(ret), sliced_info);
                         flush_and_exit(ret);
                     }
 
@@ -2852,7 +2872,7 @@ int CLI::run(int argc, char **argv)
                 std::string config_type, config_name, filament_id, config_from;
                 int ret = load_config_file(system_printer_path, config, config_type, config_name, filament_id, config_from);
                 if (ret) {
-                    record_exit_reson(outfile_dir, ret, 0, cli_errors[ret], sliced_info);
+                    record_exit_reson(outfile_dir, ret, 0, config_file_error_message(ret), sliced_info);
                     flush_and_exit(ret);
                 }
                 upward_compatible_printers = config.option<ConfigOptionStrings>("upward_compatible_machine", true)->values;
@@ -2876,7 +2896,7 @@ int CLI::run(int argc, char **argv)
                 std::string config_type, config_name, filament_id, config_from;
                 int ret = load_config_file(system_process_path, config, config_type, config_name, filament_id, config_from);
                 if (ret) {
-                    record_exit_reson(outfile_dir, ret, 0, cli_errors[ret], sliced_info);
+                    record_exit_reson(outfile_dir, ret, 0, config_file_error_message(ret), sliced_info);
                     flush_and_exit(ret);
                 }
                 current_print_compatible_printers  = config.option<ConfigOptionStrings>("compatible_printers", true)->values;
@@ -3515,7 +3535,7 @@ int CLI::run(int argc, char **argv)
                 std::string config_type, config_name, filament_id, config_from, downward_printer;
                 int ret = load_config_file(file_path, config, config_type, config_name, filament_id, config_from);
                 if (ret) {
-                    record_exit_reson(outfile_dir, ret, 0, cli_errors[ret], sliced_info);
+                    record_exit_reson(outfile_dir, ret, 0, config_file_error_message(ret), sliced_info);
                     flush_and_exit(ret);
                 }
                 if ((config_type != "process") || (config_from != "system")) {
@@ -4790,7 +4810,7 @@ int CLI::run(int argc, char **argv)
             std::string file_path = use_default?(default_path+file+".json"):file;
             int ret = load_config_file(file_path, config, config_type, config_name, filament_id, config_from);
             if (ret) {
-                record_exit_reson(outfile_dir, ret, 0, cli_errors[ret], sliced_info);
+                record_exit_reson(outfile_dir, ret, 0, config_file_error_message(ret), sliced_info);
                 flush_and_exit(ret);
             }
             if ((config_type != "machine") || (config_from != "system")) {
