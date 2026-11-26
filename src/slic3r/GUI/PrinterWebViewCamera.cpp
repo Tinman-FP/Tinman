@@ -2,7 +2,13 @@
 
 #include "PrinterWebViewAuth.hpp"
 
-#include <boost/algorithm/string.hpp>
+#include <cstddef>
+#include <map>
+#include <string>
+#include <vector>
+
+#include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string/trim.hpp>
 
 namespace Slic3r {
 namespace GUI {
