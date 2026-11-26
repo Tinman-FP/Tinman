@@ -2335,8 +2335,9 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
             m_placeholder_parser.set("print_preset",              new_full_config.option("print_settings_id")->clone());
             m_placeholder_parser.set("filament_preset",           new_full_config.option("filament_settings_id")->clone());
             m_placeholder_parser.set("printer_preset",            new_full_config.option("printer_settings_id")->clone());
-
-            //m_placeholder_parser.apply_config(filament_overrides);
+            // Tinman: the filament overrides must survive the clear, as in the full_config_diff branch
+            // above; this pass only changes enable_prime_tower and independent_support_layer_height.
+            m_placeholder_parser.apply_config(filament_overrides);
         }
         // It is also safe to change m_config now after this->invalidate_state_by_config_options() call.
         m_config.apply_only(new_full_config, new_changed_keys, true);
