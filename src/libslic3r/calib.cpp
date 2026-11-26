@@ -93,8 +93,16 @@ std::vector<TuningGuidePart> tuning_guide_parts(TuningGuideTest test, const Boun
     auto part = [&mid](std::string file, std::string name, const Vec2d &from_mid = Vec2d::Zero()) {
         return TuningGuidePart{std::move(file), std::move(name), mid + from_mid, {}};
     };
+    // The bridges and overhangs of these tests are what they grade, so a profile with support on must
+    // not support them (Qidi Plus4 reports, 2026-11-25: its process has support on, and the cooling plate
+    // needed it turned off by hand).
+    auto unsupported = [&part](std::string file, std::string name) {
+        TuningGuidePart unsupported_part = part(std::move(file), std::move(name));
+        unsupported_part.settings.set_key_value("enable_support", new ConfigOptionBool(false));
+        return unsupported_part;
+    };
     switch (test) {
-    case TuningGuideTest::Benchy: return {part("handy_models/3DBenchy.drc", "3DBenchy")};
+    case TuningGuideTest::Benchy: return {unsupported("handy_models/3DBenchy.drc", "3DBenchy")};
     case TuningGuideTest::FirstLayer: {
         // One square at the centre and, where the bed has room, one 20 mm in from each corner.
         constexpr double side = 40., inset = 20., gap = 5.;
@@ -111,7 +119,7 @@ std::vector<TuningGuidePart> tuning_guide_parts(TuningGuideTest test, const Boun
         return parts;
     }
     case TuningGuideTest::BondCheck: return {part(dir + "bond_bars.stl", "Bond bars")};
-    case TuningGuideTest::Cooling: return {part(dir + "cooling_and_bridges.stl", "Cooling and bridges")};
+    case TuningGuideTest::Cooling: return {unsupported(dir + "cooling_and_bridges.stl", "Cooling and bridges")};
     case TuningGuideTest::Dimensional: return {part(dir + "dims01_frames_and_holes.stl", "DIMS01 frames and holes")};
     case TuningGuideTest::Seams: return {part(dir + "seam_test.stl", "Seam test")};
     case TuningGuideTest::TopSurface: {
@@ -122,12 +130,8 @@ std::vector<TuningGuidePart> tuning_guide_parts(TuningGuideTest test, const Boun
         parts[1].settings.set_key_value("top_surface_pattern", new ConfigOptionEnum<InfillPattern>(ipMonotonic));
         return parts;
     }
-    case TuningGuideTest::VAL01: {
-        // Its two 40 mm bridges are part of the test, so a profile with support on must not support them.
-        TuningGuidePart val01 = part(dir + "val01_v2.stl", "VAL01 v2");
-        val01.settings.set_key_value("enable_support", new ConfigOptionBool(false));
-        return {val01};
-    }
+    // The pieces are spread along Y, about 35 mm apart, so a wide brim can't fill another piece's holes.
+    case TuningGuideTest::VAL01: return {unsupported(dir + "val01_v2.stl", "VAL01 v2")};
     }
     return {};
 }

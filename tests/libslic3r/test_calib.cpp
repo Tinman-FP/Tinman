@@ -419,7 +419,7 @@ TEST_CASE("Tuning Guide tests load the guide's models onto the bed", "[Calib][Tu
         {TuningGuideTest::Dimensional, 1, {227., 126., 6.}},
         {TuningGuideTest::Seams, 1, {120., 75., 15.}},
         {TuningGuideTest::TopSurface, 2, {145., 25.98, 4.}},
-        {TuningGuideTest::VAL01, 1, {70., 85., 38.}},
+        {TuningGuideTest::VAL01, 1, {70., 132., 38.}}, // its pieces spread along Y
     };
     for (const Expected &test : expected) {
         const std::vector<TuningGuidePart> parts = tuning_guide_parts(test.test, bed);
@@ -444,17 +444,20 @@ TEST_CASE("Tuning Guide tests load the guide's models onto the bed", "[Calib][Tu
 TEST_CASE("Tuning Guide tests set only the object settings each test needs", "[Calib][TuningGuide][Regression]")
 {
     const BoundingBoxf bed(Vec2d(0., 0.), Vec2d(300., 300.));
-    for (const TuningGuideTest test : {TuningGuideTest::Benchy, TuningGuideTest::FirstLayer, TuningGuideTest::BondCheck,
-                                       TuningGuideTest::Cooling, TuningGuideTest::Dimensional, TuningGuideTest::Seams}) {
+    for (const TuningGuideTest test : {TuningGuideTest::FirstLayer, TuningGuideTest::BondCheck,
+                                       TuningGuideTest::Dimensional, TuningGuideTest::Seams}) {
         CAPTURE(int(test));
         for (const TuningGuidePart &part : tuning_guide_parts(test, bed))
             CHECK(part.settings.empty());
     }
-    // VAL01's bridges are part of the test: support stays off even when the profile turns it on.
-    const std::vector<TuningGuidePart> val01 = tuning_guide_parts(TuningGuideTest::VAL01, bed);
-    REQUIRE(val01.size() == 1);
-    CHECK(val01[0].settings.keys() == t_config_option_keys{"enable_support"});
-    CHECK_FALSE(val01[0].settings.opt_bool("enable_support"));
+    // Their bridges and overhangs are what they grade: support stays off even when the profile turns it on.
+    for (const TuningGuideTest test : {TuningGuideTest::Benchy, TuningGuideTest::Cooling, TuningGuideTest::VAL01}) {
+        CAPTURE(int(test));
+        const std::vector<TuningGuidePart> parts = tuning_guide_parts(test, bed);
+        REQUIRE(parts.size() == 1);
+        CHECK(parts[0].settings.keys() == t_config_option_keys{"enable_support"});
+        CHECK_FALSE(parts[0].settings.opt_bool("enable_support"));
+    }
     // The top-surface A/B differs only in the top-surface path.
     const std::vector<TuningGuidePart> top = tuning_guide_parts(TuningGuideTest::TopSurface, bed);
     REQUIRE(top.size() == 2);
@@ -463,6 +466,28 @@ TEST_CASE("Tuning Guide tests set only the object settings each test needs", "[C
     CHECK(top[0].settings.opt_enum<InfillPattern>("top_surface_pattern") == ipMonotonicLine);
     CHECK(top[1].settings.opt_enum<InfillPattern>("top_surface_pattern") == ipMonotonic);
     CHECK(top[0].center.y() > top[1].center.y()); // A is the back row
+}
+
+TEST_CASE("VAL01's pieces stand far enough apart for a wide brim", "[Calib][TuningGuide][Regression]")
+{
+    // In the guide's layout the pins stood 8 mm from the coupon plate, so a 30 mm brim filled the plate's
+    // 8 mm holes and the bracket's M5 holes (CORE One L report, 2026-11-25).
+    const std::string resources = std::string(PROFILES_DIR) + "/..";
+    Model model = Model::read_from_file(resources + "/calib/tuning_guide/val01_v2.stl");
+    REQUIRE(model.objects.size() == 1);
+    std::vector<BoundingBoxf3> pieces;
+    for (const TriangleMesh &piece : model.objects.front()->mesh().split())
+        pieces.push_back(piece.bounding_box());
+    REQUIRE(pieces.size() == 6); // bracket, coupon plate and four pins
+    double closest = std::numeric_limits<double>::max();
+    for (size_t i = 0; i < pieces.size(); ++i)
+        for (size_t j = i + 1; j < pieces.size(); ++j) {
+            // Pieces side by side in X (the pins) overlap in Y; the gap that matters is the one along Y.
+            const double gap = std::max(pieces[i].min.y() - pieces[j].max.y(), pieces[j].min.y() - pieces[i].max.y());
+            if (gap > 0.)
+                closest = std::min(closest, gap);
+        }
+    CHECK(closest >= 30.);
 }
 
 TEST_CASE("The first-layer check spreads its squares across the bed", "[Calib][TuningGuide][Regression]")
