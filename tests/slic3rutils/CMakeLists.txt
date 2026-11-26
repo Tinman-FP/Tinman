@@ -47,6 +47,7 @@ add_executable(${_TEST_NAME}_tests
     test_post_processor.cpp
     test_printhost.cpp
     test_printer_webview_auth.cpp
+    test_printer_webview_camera.cpp
     test_fibreseek_send.cpp
     test_slicing_pipeline_bindings.cpp
     test_slicing_pipeline_config.cpp

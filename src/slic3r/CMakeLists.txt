@@ -483,6 +483,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/PrinterWebView.cpp
     GUI/PrinterWebViewAuth.cpp
     GUI/PrinterWebViewAuth.hpp
+    GUI/PrinterWebViewCamera.cpp
+    GUI/PrinterWebViewCamera.hpp
     GUI/PrinterWebViewHandler.cpp
     GUI/PrinterWebViewHandler.hpp
     GUI/PrinterWebView.hpp

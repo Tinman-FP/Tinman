@@ -1,6 +1,7 @@
 #include "PrinterWebView.hpp"
 
 #include "PrinterWebViewAuth.hpp"
+#include "PrinterWebViewCamera.hpp"
 #include "PrinterWebViewHandler.hpp"
 #include "I18N.hpp"
 #include "GUI.hpp"
@@ -46,6 +47,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -146,21 +148,6 @@ bool is_legacy_router_path(std::string url)
     // network cache and website data have been rebuilt. If allowed, the
     // navigation suspends all active Mainsail/Moonraker WebSockets.
     return path == "/top.html" || path == "/accesscontrol_show.htm";
-}
-
-std::string normalize_prusa_camera_url(std::string url)
-{
-    boost::algorithm::trim(url);
-    if (url.empty())
-        return {};
-    if (!boost::algorithm::istarts_with(url, "rtsp://") &&
-        !boost::algorithm::istarts_with(url, "rtsps://"))
-        url = "rtsp://" + url;
-
-    const size_t authority = url.find("://") + 3;
-    if (url.find('/', authority) == std::string::npos)
-        url += "/live";
-    return url;
 }
 
 std::vector<std::string> discover_rtsp_hosts(const std::string& printer_host)
@@ -520,7 +507,9 @@ void PrinterWebView::load_url(wxString& url, wxString apikey)
 void PrinterWebView::update_prusa_camera(const wxString& printer_url)
 {
     m_prusa_printer_host = host_from_printer_url(into_u8(printer_url));
-    const std::string saved_url = wxGetApp().app_config->get("prusa_camera", m_prusa_printer_host);
+    // A saved blank address means the printer has no camera; only a printer with none saved is searched.
+    std::string saved_url;
+    const bool  saved = wxGetApp().app_config->get("prusa_camera", m_prusa_printer_host, saved_url);
     const bool is_prusa = active_printer_is_prusa() || !saved_url.empty();
     m_prusa_camera_panel->Show(is_prusa);
     if (!is_prusa) {
@@ -530,7 +519,7 @@ void PrinterWebView::update_prusa_camera(const wxString& printer_url)
         return;
     }
 
-    if (!saved_url.empty())
+    if (saved)
         set_prusa_camera_url(saved_url, false);
     else
         start_prusa_camera_discovery();
@@ -564,7 +553,7 @@ void PrinterWebView::set_prusa_camera_url(const std::string& camera_url, bool pe
 
     const std::string identity = "prusa-camera:" + m_prusa_printer_host;
     m_prusa_camera_player->SetDirectStreamURL(normalized, identity,
-        normalized.empty() ? _L("Enable Local RTSP in Prusa App, then refresh.") : wxString());
+        normalized.empty() ? _L("No camera set for this printer. Find camera or Camera address adds one.") : wxString());
 }
 
 void PrinterWebView::start_prusa_camera_discovery()
@@ -587,14 +576,21 @@ void PrinterWebView::start_prusa_camera_discovery()
         wxGetApp().CallAfter([this, token, generation, hosts] {
             if (token.expired() || generation != m_prusa_camera_generation)
                 return;
-            if (hosts.size() == 1) {
-                set_prusa_camera_url("rtsp://" + hosts.front() + "/live", true);
-            } else if (hosts.empty()) {
-                m_prusa_camera_player->SetDirectStreamURL({}, "prusa-camera:" + m_prusa_printer_host,
-                    _L("Buddy3D stream not found. Enable Local RTSP in Prusa App, then refresh."));
-            } else {
+            const AppConfig*           config = wxGetApp().app_config;
+            const PrusaCameraDiscovery found  = choose_discovered_prusa_camera(hosts,
+                config->has_section("prusa_camera") ? config->get_section("prusa_camera") : std::map<std::string, std::string>{},
+                m_prusa_printer_host);
+            if (!found.url.empty()) {
+                set_prusa_camera_url(found.url, true);
+            } else if (found.available > 1) {
                 m_prusa_camera_player->SetDirectStreamURL({}, "prusa-camera:" + m_prusa_printer_host,
                     _L("Multiple camera streams found. Set the Buddy3D camera address."));
+            } else if (found.other_printers > 0) {
+                m_prusa_camera_player->SetDirectStreamURL({}, "prusa-camera:" + m_prusa_printer_host,
+                    _L("Only other printers' cameras found. Set this printer's camera address."));
+            } else {
+                m_prusa_camera_player->SetDirectStreamURL({}, "prusa-camera:" + m_prusa_printer_host,
+                    _L("Buddy3D stream not found. Enable Local RTSP in Prusa App, then refresh."));
             }
         });
     }).detach();
@@ -603,7 +599,7 @@ void PrinterWebView::start_prusa_camera_discovery()
 void PrinterWebView::prompt_for_prusa_camera_url()
 {
     wxTextEntryDialog dialog(this,
-        _L("Enter the Buddy3D Local RTSP address or camera IP address."),
+        _L("Enter the Buddy3D Local RTSP address or camera IP address. Leave it blank if this printer has no camera."),
         m_prusa_camera_title->GetLabel(), from_u8(m_prusa_camera_url));
     if (dialog.ShowModal() != wxID_OK)
         return;
