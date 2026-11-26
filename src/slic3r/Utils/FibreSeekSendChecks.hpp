@@ -29,6 +29,8 @@ struct JobInfo
     double              plastic_nozzle   = 0.;   // plastic_nozzle_diameter (T1, polymer)
     double              composite_nozzle = 0.;   // composite_nozzle_diameter (T0, matrix + fibre)
     bool                continuous_fiber = false; // has fibre load (M1001), cut (M2800) or finish (M1002) commands
+    bool                selects_t0       = false; // has a T0 tool select
+    bool                selects_t1       = false; // has a T1 tool select
     uint64_t            size = 0;
     std::string         sha256;                  // lowercase hex digest of the whole file
 };
@@ -37,6 +39,16 @@ struct JobInfo
 // whether it contains continuous-fibre commands. Refuses binary G-code and
 // zip (3MF) files: the Seeker 3 prints plain G-code.
 bool read_job(const boost::filesystem::path &path, JobInfo &job, std::string &reason);
+
+// The Seeker 3 tools a job uses: T1 (polymer) when it selects T1; T0 (matrix and fibre) when it selects
+// T0 or has fibre commands. A job that selects neither counts as using both, so the send never leaves a
+// tool out of what it tells the user to load.
+struct JobTools
+{
+    bool t0 = true;
+    bool t1 = true;
+};
+JobTools job_tools(const JobInfo &job);
 
 // True for printer_model names of Seeker 3 profiles ("FibreSeek Seeker 3", with any suffix).
 bool is_seeker3_model(const std::string &printer_model);

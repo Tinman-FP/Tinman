@@ -209,6 +209,7 @@
 #include "GUI_Utils.hpp"
 #include "GUI_Factories.hpp"
 #include "wxExtensions.hpp"
+#include "../Utils/FibreSeekSendChecks.hpp"
 #include "../Utils/PrintHost.hpp"
 #include "MainFrame.hpp"
 #ifdef SLIC3R_CAD
@@ -22562,12 +22563,23 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn)
 
         if (host_type == htFibreSeek) {
             // Klipper does not report loaded materials, so the send cannot check them; say what the job needs.
-            const auto &materials = wxGetApp().preset_bundle->filament_presets;
-            wxString    note;
-            if (materials.size() >= 2)
+            // Material 1 prints on T1 and material 2 on T0. Only the tools the sliced G-code uses are named, so a
+            // plastic-only job doesn't ask for the composite; when the G-code can't be read, both are.
+            const auto             &materials = wxGetApp().preset_bundle->filament_presets;
+            FibreSeekSend::JobTools tools;
+            if (PartPlate *plate = get_partplate_list().get_plate(resolved_plate_idx); plate != nullptr && plate->is_slice_result_valid()) {
+                FibreSeekSend::JobInfo job;
+                std::string            reason;
+                if (FibreSeekSend::read_job(plate->get_tmp_gcode_path(), job, reason))
+                    tools = FibreSeekSend::job_tools(job);
+            }
+            wxString note;
+            if (tools.t1 && tools.t0 && materials.size() >= 2)
                 note = GUI::format_wxstr(_L("This job needs %1% on T1 and %2% on T0."), from_u8(materials[0]), from_u8(materials[1]));
-            else if (!materials.empty())
+            else if (tools.t1 && !materials.empty())
                 note = GUI::format_wxstr(_L("This job needs %1% on T1."), from_u8(materials[0]));
+            else if (tools.t0 && materials.size() >= 2)
+                note = GUI::format_wxstr(_L("This job needs %1% on T0."), from_u8(materials[1]));
             if (!note.empty())
                 pDlg->set_note(note + " " + _L("Tinman cannot see which materials are loaded: check them on the printer before printing."));
         }

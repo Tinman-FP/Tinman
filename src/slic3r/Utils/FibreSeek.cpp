@@ -354,16 +354,18 @@ bool FibreSeek::upload(PrintHostUpload upload_data, ProgressFn progress_fn, Erro
                             << (dispatch == Dispatch::Accepted ? "accepted" : dispatch == Dispatch::Refused ? "refused" : "unknown");
     if (dispatch == Dispatch::Refused)
         return not_started(GUI::format_wxstr(_L("the printer refused the start (%1%). Check the printer before trying again."), error));
-    if (dispatch == Dispatch::Unknown)
-        return fail(GUI::format_wxstr(_L("The start request for \"%1%\" got no clear answer, so the outcome is unknown. "
-                                         "Check the printer; Tinman does not send the start again.%2%"),
-                                      from_u8(remote_name), error.empty() ? wxString() : "\n" + error));
 
-    // 9. Watch until the printer reports printing this exact file.
+    // 9. Watch until the printer reports printing this exact file. An unclear answer is watched too: the
+    //    Seeker 3 holds the start request open while it prepares the job, so the request times out on a
+    //    printer that took it. Watching sends nothing to the printer but status queries.
     percent                = pWatch;
     std::string last_state = "no state reported";
-    for (auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(m_timeouts.start_watch);
-         std::chrono::steady_clock::now() < deadline;) {
+    const auto  watching   = std::chrono::steady_clock::now();
+    const auto  watch_over = [&] {
+        const int limit = last_state == "preprinting" ? m_timeouts.preprint_watch : m_timeouts.start_watch;
+        return std::chrono::steady_clock::now() >= watching + std::chrono::seconds(limit);
+    };
+    while (!watch_over()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(m_timeouts.poll_ms));
         if (cancelled(percent))
             return fail(GUI::format_wxstr(_L("Stopped watching \"%1%\". The start was sent, so the printer may be printing it. Check the printer."),
@@ -384,6 +386,14 @@ bool FibreSeek::upload(PrintHostUpload upload_data, ProgressFn progress_fn, Erro
         case FibreSeekSend::StartState::Waiting: last_state = detail; break;
         }
     }
+    if (last_state == "preprinting")
+        return fail(GUI::format_wxstr(_L("The printer is still preparing a job (preprinting) and has not yet reported printing \"%1%\". "
+                                         "Check the printer before doing anything: Tinman does not send the start again."),
+                                      from_u8(remote_name)));
+    if (dispatch == Dispatch::Unknown)
+        return fail(GUI::format_wxstr(_L("The start request for \"%1%\" got no clear answer, and the printer has not reported printing it "
+                                         "(last state: %2%). The outcome is unknown: check the printer. Tinman does not send the start again.%3%"),
+                                      from_u8(remote_name), from_u8(last_state), error.empty() ? wxString() : "\n" + error));
     return fail(GUI::format_wxstr(_L("The printer accepted the start of \"%1%\" but has not reported printing it (last state: %2%). "
                                      "The outcome is unknown: check the printer. Tinman does not send the start again."),
                                   from_u8(remote_name), from_u8(last_state)));

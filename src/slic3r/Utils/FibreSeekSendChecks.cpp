@@ -98,6 +98,10 @@ void scan_line(std::string line, JobInfo &job)
         value = line.substr(prefix.size());
         return true;
     };
+    // A tool select: "T0" or "T1", alone or before a comment ("T1 ; switch extruder type to:PLASTIC").
+    if (line.size() >= 2 && line[0] == 'T' && (line[1] == '0' || line[1] == '1') &&
+        (line.size() == 2 || line[2] == ' ' || line[2] == '\t' || line[2] == ';'))
+        (line[1] == '0' ? job.selects_t0 : job.selects_t1) = true;
     // Tinman's config block. Later values win, so the config block at the end
     // of the file overrides any header comment.
     if (is("printer_model"))
@@ -179,6 +183,13 @@ std::string sha256_hex(const std::string &bytes)
     Sha256 sha;
     sha.update(bytes.data(), bytes.size());
     return sha.hex();
+}
+
+JobTools job_tools(const JobInfo &job)
+{
+    if (!job.selects_t0 && !job.selects_t1 && !job.continuous_fiber)
+        return {};
+    return {job.selects_t0 || job.continuous_fiber, job.selects_t1};
 }
 
 bool read_job(const boost::filesystem::path &path, JobInfo &job, std::string &reason)
