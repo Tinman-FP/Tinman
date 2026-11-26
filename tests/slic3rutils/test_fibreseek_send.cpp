@@ -760,10 +760,10 @@ TEST_CASE("Sending to a mock Seeker 3", "[FibreSeek][Mock]")
     }
     SECTION("a pending cancel cannot hide an unclear start")
     {
-        // Cancel arrives while the start reply is lost: it must not turn into "Canceled".
-        printer.set({{"drop", {"/printer/print/start"}}});
+        // Cancel arrives while Tinman watches after a lost start reply: it must not turn into "Canceled".
+        printer.set({{"drop", {"/printer/print/start"}}, {"state_after_start", "preparing"}});
         const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint,
-                                       [&](const Http::Progress &p) { return at_percent(p, 95) && printer.starts() > 0; });
+                                       [&](const Http::Progress &p) { return at_percent(p, 97) && printer.starts() > 0; });
         CHECK_FALSE(result.ok);
         CHECK(result.error.Contains("may be printing"));
         CHECK_FALSE(result.acknowledged_cancel);
