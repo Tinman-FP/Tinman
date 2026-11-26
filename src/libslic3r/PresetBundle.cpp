@@ -1485,13 +1485,25 @@ void PresetBundle::reset_project_embedded_presets()
     if (inherits) {
         prefer_printer = dynamic_cast<ConfigOptionString *>(inherits)->value;
     }
+    // Tinman: a project's copy of a library preset hands its place back to that preset once the copies
+    // are gone, if the preset is still there and fits the printer; otherwise the defaults below apply.
+    // The sources are read from the copies' names, so before they go.
+    const std::string printer_source = this->printers.project_copy_source(this->printers.get_selected_preset_name());
+    const std::string print_source   = this->prints.project_copy_source(this->prints.get_selected_preset_name());
+    std::vector<std::string> filament_sources;
+    filament_sources.reserve(filament_presets.size());
+    for (const std::string &name : filament_presets)
+        filament_sources.push_back(this->filaments.project_copy_source(name));
+
     //first printer, then filament, then print
     bool printer_reselect = this->printers.reset_project_embedded_presets();
     bool filament_reselect = this->filaments.reset_project_embedded_presets();
     bool print_reselect = this->prints.reset_project_embedded_presets();
 
     if (printer_reselect) {
-        if (!prefer_printer.empty())
+        if (!printer_source.empty())
+           this->printers.select_preset_by_name(printer_source, true);
+        else if (!prefer_printer.empty())
            this->printers.select_preset_by_name(prefer_printer, true);
         else
            this->printers.select_preset(this->printers.first_visible_idx());
@@ -1515,12 +1527,25 @@ void PresetBundle::reset_project_embedded_presets()
         this->update_compatible(PresetSelectCompatibleType::Never);
     }
 
+    if (print_reselect && !print_source.empty()) {
+        const Preset *source = this->prints.find_preset(print_source, false);
+        if (source != nullptr && source->is_compatible)
+            this->prints.select_preset_by_name(print_source, true);
+    }
+
     //this->update_multi_material_filament_presets();
 
     //update filament_presets
     for (size_t i = 0; i < filament_presets.size(); ++ i)
     {
         Preset* selected_filament = this->filaments.find_preset(filament_presets[i], false);
+        if (!selected_filament && !filament_sources[i].empty()) {
+            const Preset *source = this->filaments.find_preset(filament_sources[i], false);
+            if (source != nullptr && source->is_visible && source->is_compatible) {
+                filament_presets[i] = source->name;
+                continue;
+            }
+        }
         if (!selected_filament) {
             //it should be the project embedded presets
             Preset& current_printer = this->printers.get_selected_preset();
