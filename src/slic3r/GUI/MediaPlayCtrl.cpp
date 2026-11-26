@@ -394,9 +394,11 @@ void MediaPlayCtrl::SetDirectStreamURL(const std::string& stream_url, const std:
     m_last_failed_codes.clear();
     Enable(true);
 
+    // The previous source's message goes now: Play() may not run yet (the strip is hidden), and the
+    // message must not stay under another printer's camera.
+    SetStatus(idle_message, false);
     if (stream_url.empty()) {
         m_next_retry = wxDateTime();
-        SetStatus(idle_message, false);
         return;
     }
 

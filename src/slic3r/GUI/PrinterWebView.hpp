@@ -76,6 +76,7 @@ private:
     void update_prusa_camera_title();
     void start_prusa_camera_discovery();
     void set_prusa_camera_url(const std::string& camera_url, bool persist);
+    void play_prusa_camera();
     void prompt_for_prusa_camera_url();
 
     wxWebView* m_browser;
