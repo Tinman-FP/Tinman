@@ -33,6 +33,21 @@ std::string project_copy(PresetCollection &presets, const std::string &source, c
     return copy->name;
 }
 
+// A project-embedded copy as a saved project restores it, selected.
+std::string selected_embedded_copy(PresetCollection &presets, Preset::Type type, const std::string &name)
+{
+    Preset copy(type, name, false);
+    copy.config = presets.default_preset().config;
+    copy.config.set_key_value(type == Preset::TYPE_PRINTER ? "printer_settings_id" : "print_settings_id", new ConfigOptionString(name));
+    copy.is_project_embedded = true;
+    copy.is_external         = true;
+    std::vector<Preset *>      inputs{&copy};
+    PresetsConfigSubstitutions substitutions;
+    presets.load_project_embedded_presets(inputs, Preset::get_type_string(type), substitutions, ForwardCompatibilitySubstitutionRule::Disable);
+    REQUIRE(presets.select_preset_by_name(name, true));
+    return presets.get_selected_preset_name();
+}
+
 } // namespace
 
 TEST_CASE("Clearing a project's filament copies gives each slot back the filament it was copied from", "[Preset][ProjectCopy]")
@@ -102,17 +117,13 @@ TEST_CASE("Clearing a selected process or printer copy selects the preset it was
     PresetBundle bundle;
     bundle.filament_presets = {bundle.filaments.default_preset().name};
 
-    const std::string process      = library_preset(bundle.prints, "PRODUCTION - 0.20mm - r1").name;
-    const std::string process_copy = project_copy(bundle.prints, process, "job.3mf", "layer_height", new ConfigOptionFloat(0.17),
-                                                  PresetCollection::LoadAndSelect::Always);
-    REQUIRE(bundle.prints.get_selected_preset_name() == process_copy);
+    const std::string process = library_preset(bundle.prints, "PRODUCTION - 0.20mm - r1").name;
+    REQUIRE(selected_embedded_copy(bundle.prints, Preset::TYPE_PRINT, process + "(job.3mf)") == process + "(job.3mf)");
     bundle.reset_project_embedded_presets();
     CHECK(bundle.prints.get_selected_preset_name() == process);
 
-    const std::string printer      = library_preset(bundle.printers, "My printer 0.4").name;
-    const std::string printer_copy = project_copy(bundle.printers, printer, "job.3mf", "retraction_length", new ConfigOptionFloats{0.6},
-                                                  PresetCollection::LoadAndSelect::Always);
-    REQUIRE(bundle.printers.get_selected_preset_name() == printer_copy);
+    const std::string printer = library_preset(bundle.printers, "My printer 0.4").name;
+    REQUIRE(selected_embedded_copy(bundle.printers, Preset::TYPE_PRINTER, printer + "(job.3mf)") == printer + "(job.3mf)");
     bundle.reset_project_embedded_presets();
     CHECK(bundle.printers.get_selected_preset_name() == printer);
 }
