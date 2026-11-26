@@ -9,7 +9,12 @@
 // Fit coupon: four 8.0 mm holes and four pins at 7.9 / 7.8 / 7.7 / 7.6 mm (0.1 / 0.2 / 0.3 /
 //   0.4 mm diametral clearance), pins marked with 1-4 dimples on top.
 // To label your own copy, change only `label` (about 8 characters) and export a new STL.
+// Tinman spreads the pieces along Y (spread = true): in the guide's layout the pins stand 8 mm
+// behind the coupon plate and 15 mm in front of the bracket, so a brim wider than about 8 mm fills
+// the coupon's 8 mm holes and the bracket's M5 holes. Spread, the pins move 20 mm and the plate
+// 47 mm toward the front, about 35 mm apart, and no part changes (CORE One L report, 2026-11-25).
 label = "VAL01";
+spread = true;
 $fn = 128;
 
 module gusset(x) {
@@ -34,16 +39,17 @@ module bracket() {
   }
 }
 
-module fit_coupon() {
+module fit_coupon(pin_y) {
   difference() {
     cube([60, 14, 5]);
     for (i = [0:3]) translate([9 + i * 14, 7, -1]) cylinder(d = 8.0, h = 7);
   }
-  for (i = [0:3]) translate([9 + i * 14, 26, 0]) difference() {
+  for (i = [0:3]) translate([9 + i * 14, pin_y, 0]) difference() {
     cylinder(d = 7.9 - i * 0.1, h = 12);
     for (k = [0:i]) translate([-1.5 + k * 1.0, 0, 11.4]) cylinder(d = 0.8, h = 1, $fn = 24);  // 1-4 dimples
   }
 }
 
 bracket();
-translate([0, -45, 0]) fit_coupon();
+if (spread) translate([0, -92, 0]) fit_coupon(53);
+else translate([0, -45, 0]) fit_coupon(26);
