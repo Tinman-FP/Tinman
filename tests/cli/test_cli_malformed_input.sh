@@ -12,6 +12,9 @@
 #   and paired with one that does in either order.
 # - A filament that omits a long-retraction key next to one that sets it follows the first filament
 #   in the flush volumes, as the slice reads it, not a read past the end of its values.
+# - A preset the CLI cannot resolve, because its parent or its type needs presets the data folder
+#   doesn't have, or whose "from" is unsupported, fails as a config error whose error_string names
+#   the file, the parent and the data folder it looked in.
 #
 # usage: test_cli_malformed_input.sh <orca-slicer binary> <python3>
 set -u
@@ -155,6 +158,20 @@ if want_rc != 0 and not result.get("error_string"):
 EOF
 }
 
+# expect_error <tag> <text>...: result.json's error_string mentions every text.
+expect_error() {
+    "$PY" - "$WORK/$1/result.json" "${@:2}" <<'EOF' || fail "$1: error_string"
+import json, sys
+
+with open(sys.argv[1]) as f:
+    reason = json.load(f).get("error_string", "")
+print("    error_string: " + reason)
+missing = [text for text in sys.argv[2:] if text not in reason]
+if missing:
+    sys.exit("error_string does not mention %s" % missing)
+EOF
+}
+
 # expect_log <tag> <text>
 expect_log() {
     grep -qF -- "$2" "$WORK/$1/log" || fail "$1: log does not mention \"$2\""
@@ -252,6 +269,46 @@ for filaments in '[]' '[-1]'; do
     expect_status "$tag" $CLI_CONFIG_FILE_ERROR
     expect_result "$tag" $CLI_CONFIG_FILE_ERROR
 done
+
+echo "== a preset whose parent or type can't be resolved says which, and where it looked"
+# The data folder has no system presets, so nothing can be resolved from it.
+cat > "$WORK/filament_parent.json" <<'EOF'
+{
+    "type": "filament",
+    "from": "User",
+    "name": "CLI malformed input test child filament",
+    "inherits": "CLI malformed input test missing parent"
+}
+EOF
+cat > "$WORK/filament_untyped.json" <<'EOF'
+{
+    "from": "User",
+    "name": "CLI malformed input test untyped filament"
+}
+EOF
+cat > "$WORK/filament_from.json" <<'EOF'
+{
+    "type": "filament",
+    "from": "Vendor",
+    "name": "CLI malformed input test vendor filament"
+}
+EOF
+run unresolved_parent --load-settings "$WORK/machine.json;$WORK/process.json" \
+    --load-filaments "$WORK/filament_parent.json" --slice 0 "$WORK/cube.stl"
+expect_status unresolved_parent $CLI_CONFIG_FILE_ERROR
+expect_result unresolved_parent $CLI_CONFIG_FILE_ERROR
+expect_error unresolved_parent "The input preset file is invalid" "$WORK/filament_parent.json" \
+    '"CLI malformed input test missing parent"' "the data folder $WORK/datadir"
+run unresolved_type --load-settings "$WORK/machine.json;$WORK/process.json" \
+    --load-filaments "$WORK/filament_untyped.json" --slice 0 "$WORK/cube.stl"
+expect_status unresolved_type $CLI_CONFIG_FILE_ERROR
+expect_result unresolved_type $CLI_CONFIG_FILE_ERROR
+expect_error unresolved_type "$WORK/filament_untyped.json" 'has no "type"' "the data folder $WORK/datadir"
+run unsupported_from --load-settings "$WORK/machine.json;$WORK/process.json" \
+    --load-filaments "$WORK/filament_from.json" --slice 0 "$WORK/cube.stl"
+expect_status unsupported_from $CLI_CONFIG_FILE_ERROR
+expect_result unsupported_from $CLI_CONFIG_FILE_ERROR
+expect_error unsupported_from "$WORK/filament_from.json" '"from" is "Vendor"'
 
 echo "== --assemble with no input model is rejected"
 for action in "--slice 0" "--export-3mf out.3mf"; do
