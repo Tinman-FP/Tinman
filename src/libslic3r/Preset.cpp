@@ -58,6 +58,7 @@
 #endif /* L */
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <fstream>
 #include <stdexcept>
@@ -2729,6 +2730,36 @@ bool PresetCollection::reset_project_embedded_presets()
     unlock();
 
     return re_select;
+}
+
+std::string PresetCollection::project_copy_source(const std::string &copy_name) const
+{
+    const Preset *copy = this->find_preset(copy_name, false);
+    if (copy == nullptr || !copy->is_project_embedded || copy_name.size() < 3 || copy_name.back() != ')')
+        return {};
+    const auto library = [this](const std::string &name) {
+        const Preset *preset = this->find_preset(name, false);
+        return preset != nullptr && preset->name == name && !preset->is_project_embedded;
+    };
+    // Either name may hold parentheses, so each "(" is tried from the right.
+    for (size_t open = copy_name.rfind('('); open != std::string::npos && open > 0;
+         open = copy_name.rfind('(', open - 1)) {
+        const std::string file = copy_name.substr(open + 1, copy_name.size() - open - 2);
+        if (!boost::algorithm::iends_with(file, ".3mf") && !is_gcode_file(file))
+            continue;
+        std::string source = copy_name.substr(0, open);
+        if (library(source))
+            return source;
+        // "-<n>" tells apart several copies of one preset from one project.
+        const size_t dash = source.rfind('-');
+        if (dash != std::string::npos && dash > 0 && dash + 1 < source.size() &&
+            std::all_of(source.begin() + dash + 1, source.end(), [](unsigned char c) { return std::isdigit(c) != 0; })) {
+            source.erase(dash);
+            if (library(source))
+                return source;
+        }
+    }
+    return {};
 }
 
 void PresetCollection::set_sync_info_and_save(std::string name, std::string setting_id, std::string syncinfo, long long update_time, const std::string& user_id)

@@ -678,6 +678,10 @@ public:
     void load_project_embedded_presets(std::vector<Preset*>& project_presets, const std::string& type, PresetsConfigSubstitutions& substitutions, ForwardCompatibilitySubstitutionRule rule);
     std::vector<Preset*> get_project_embedded_presets();
     bool reset_project_embedded_presets();
+    // Tinman: the library preset a project-embedded copy was made from. A project's preset that differs
+    // from the library preset of the same name loads as "<name>(<project file>)", or "<name>-<n>(<project
+    // file>)" (load_external_preset). Empty when copy_name is no such copy or that preset is gone.
+    std::string project_copy_source(const std::string &copy_name) const;
 
     // Load a preset from an already parsed config file, insert it into the sorted sequence of presets
     // and select it, losing previous modifications.
