@@ -122,6 +122,25 @@ TEST_CASE("A plastic-only job is not marked as continuous fibre", "[FibreSeek]")
     CHECK_FALSE(info.continuous_fiber);
 }
 
+TEST_CASE("A job uses the tools it selects, and T0 for any fibre", "[FibreSeek]")
+{
+    const auto tools = [](const std::string &gcode) {
+        JobInfo     info;
+        std::string reason;
+        REQUIRE(read_job(TempFile(gcode).path, info, reason));
+        const JobTools used = job_tools(info);
+        return std::make_pair(used.t0, used.t1);
+    };
+    // A plastic-only job selects the polymer tool only; a heater command naming T0 is not a tool select.
+    CHECK(tools("M104 T0 S0\nT1 ; switch extruder type to:PLASTIC\nG1 X1 E1\n") == std::make_pair(false, true));
+    CHECK(tools("T0\nG1 X1 E1\n") == std::make_pair(true, false));
+    CHECK(tools("T1\nG1 X1\nT0\nG1 X2\n") == std::make_pair(true, true));
+    // Fibre commands print on T0 whatever the tool selects say.
+    CHECK(tools("T1\nM1001\nG1 X1\n") == std::make_pair(true, true));
+    // T10 is another tool, and a comment naming T0 is no select: with no select at all, both tools count.
+    CHECK(tools("T10\n; T0 is the fibre tool\nG1 X1 E1\n") == std::make_pair(true, true));
+}
+
 TEST_CASE("Binary G-code and 3MF archives are refused", "[FibreSeek]")
 {
     JobInfo     info;
@@ -499,7 +518,7 @@ struct SendResult
 bool at_percent(const Http::Progress &p, size_t percent) { return p.ultotal == 100 && p.ulnow == percent; }
 
 // A FibreSeek host for the mock, with short timeouts.
-std::unique_ptr<FibreSeek> make_host(const MockPrinter &printer, int start_watch = 3)
+std::unique_ptr<FibreSeek> make_host(const MockPrinter &printer, int start_watch = 3, int preprint_watch = 6)
 {
     DynamicPrintConfig config;
     config.set_deserialize_strict({{"print_host", printer.address()}, {"printhost_apikey", "test-key"},
@@ -508,17 +527,18 @@ std::unique_ptr<FibreSeek> make_host(const MockPrinter &printer, int start_watch
     FibreSeek::Timeouts timeouts;
     timeouts.query       = 2;
     timeouts.start       = 2;
-    timeouts.start_watch = start_watch;
-    timeouts.poll_ms     = 200;
+    timeouts.start_watch    = start_watch;
+    timeouts.preprint_watch = preprint_watch;
+    timeouts.poll_ms        = 200;
     host->set_timeouts(timeouts);
     return host;
 }
 
 // cancel_when(progress) returning true cancels the send at that progress call.
 SendResult send(const MockPrinter &printer, const fs::path &file, PrintHostPostUploadAction action,
-                std::function<bool(const Http::Progress &)> cancel_when = nullptr)
+                std::function<bool(const Http::Progress &)> cancel_when = nullptr, int start_watch = 3, int preprint_watch = 6)
 {
-    const auto host = make_host(printer);
+    const auto host = make_host(printer, start_watch, preprint_watch);
     PrintHostUpload upload;
     upload.source_path = file;
     upload.upload_path = file.filename();
@@ -696,40 +716,56 @@ TEST_CASE("Sending to a mock Seeker 3", "[FibreSeek][Mock]")
         CHECK(result.error.Contains("not started"));
         CHECK(printer.starts() == 1);
     }
-    SECTION("a 502 after the printer took the start is an unknown outcome, not a refusal")
+    SECTION("a 502 after the printer took the start is watched, and the print is confirmed")
     {
         printer.set({{"start_reply_status", 502}});
         const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint);
-        CHECK_FALSE(result.ok);
-        CHECK(result.error.Contains("unknown"));
-        CHECK_FALSE(result.error.Contains("not started"));
+        CHECK(result.ok);
         CHECK(printer.starts() == 1);
         CHECK(printer.log()["state"]["print_state"] == "printing");
     }
-    SECTION("a start whose reply is lost has an unknown outcome and is not retried")
+    SECTION("a start whose reply is lost is watched, confirmed and not retried")
     {
         printer.set({{"drop", {"/printer/print/start"}}});
         const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint);
+        CHECK(result.ok);
+        CHECK(printer.starts() == 1);
+    }
+    SECTION("a start held open while the printer preprints is confirmed once it prints")
+    {
+        // As on the Seeker 3: the start request outlasts its timeout (2 s here), and print_stats reports
+        // "preprinting" with no file for longer than the ordinary watch (1 s here) before printing it.
+        printer.set({{"delay", {{"/printer/print/start", 4}}}, {"preprint_seconds", 4}});
+        const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint, nullptr, 1, 8);
+        CHECK(result.ok);
+        CHECK(printer.starts() == 1);
+    }
+    SECTION("a printer still preprinting when the watch ends is reported as preparing, not retried")
+    {
+        printer.set({{"delay", {{"/printer/print/start", 4}}}, {"preprint_seconds", 60}});
+        const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint, nullptr, 1, 3);
         CHECK_FALSE(result.ok);
+        CHECK(result.error.Contains("preparing a job"));
+        CHECK(printer.starts() == 1);
+    }
+    SECTION("an unclear start the printer never takes has an unknown outcome")
+    {
+        // The reply is lost and print_stats never names the file.
+        printer.set({{"drop", {"/printer/print/start"}}, {"state_after_start", "standby"}});
+        const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint, nullptr, 1);
+        CHECK_FALSE(result.ok);
+        CHECK(result.error.Contains("no clear answer"));
         CHECK(result.error.Contains("unknown"));
         CHECK(printer.starts() == 1);
     }
-    SECTION("a stalled start reply has an unknown outcome")
+    SECTION("a pending cancel cannot hide an unclear start")
     {
-        printer.set({{"delay", {{"/printer/print/start", 4}}}});
-        const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint);
-        CHECK_FALSE(result.ok);
-        CHECK(result.error.Contains("unknown"));
-        CHECK(printer.starts() == 1);
-    }
-    SECTION("a pending cancel cannot hide an unknown start outcome")
-    {
-        // Cancel arrives while the start reply is lost: it must not turn into "Canceled".
-        printer.set({{"drop", {"/printer/print/start"}}});
+        // Cancel arrives while Tinman watches after a lost start reply: it must not turn into "Canceled".
+        printer.set({{"drop", {"/printer/print/start"}}, {"state_after_start", "preparing"}});
         const SendResult result = send(printer, job.path, PrintHostPostUploadAction::StartPrint,
-                                       [&](const Http::Progress &p) { return at_percent(p, 95) && printer.starts() > 0; });
+                                       [&](const Http::Progress &p) { return at_percent(p, 97) && printer.starts() > 0; });
         CHECK_FALSE(result.ok);
-        CHECK(result.error.Contains("unknown"));
+        CHECK(result.error.Contains("may be printing"));
         CHECK_FALSE(result.acknowledged_cancel);
         CHECK(printer.starts() == 1);
     }
@@ -949,7 +985,8 @@ TEST_CASE("The upload queue never turns a dispatched FibreSeek job into Canceled
         queue.cancel(first_job);
         queue.cancel(first_job);
         REQUIRE(log->wait_finished(20));
-        CHECK(log->any("error", "unknown"));
+        // The Cancel stops the watch that follows the unclear start, and says the printer may be printing.
+        CHECK(log->any("error", "may be printing"));
         CHECK_FALSE(log->any("cancel"));
     }
     SECTION("a Cancel before the start is sent still cancels")

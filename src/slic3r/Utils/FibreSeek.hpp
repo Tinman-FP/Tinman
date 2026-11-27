@@ -33,9 +33,12 @@ namespace Slic3r {
 //   7. for "Upload and print": idle and the host name are checked again, one
 //      start request is sent (POST /printer/print/start, never retried) and
 //      print_stats is watched until it reports "printing" for that file.
-//      Only Moonraker's own 400/401/403/404 counts as "not started"; a 5xx, a
-//      proxy error, no reply or no confirmation is "outcome unknown, check
-//      the printer".
+//      Only Moonraker's own 400/401/403/404 counts as "not started". A 5xx, a
+//      proxy error or no reply may come after the printer took the start (the
+//      Seeker 3 holds the request open while it prepares the job), so
+//      print_stats is watched then too; only no confirmation is "outcome
+//      unknown, check the printer". While print_stats reports "preprinting",
+//      the watch runs longer.
 //
 // Every request has a bounded timeout, follows no redirects (an API key or a
 // start must not move to another host) and verifies TLS for https addresses.
@@ -53,9 +56,10 @@ public:
         long query       = 30;
         long upload      = 30 * 60;
         long download    = 10 * 60;
-        long start       = 30;
-        int  start_watch = 10 * 60; // preparing a fibre job (heating, levelling) takes minutes
-        int  poll_ms     = 2000;
+        long start          = 30;
+        int  start_watch    = 10 * 60; // preparing a fibre job (heating, levelling) takes minutes
+        int  preprint_watch = 30 * 60; // while print_stats is "preprinting": the Seeker 3's takes 10-15 minutes
+        int  poll_ms        = 2000;
     };
 
     explicit FibreSeek(DynamicPrintConfig *config) : Moonraker(config) {}

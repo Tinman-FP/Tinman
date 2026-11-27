@@ -46,6 +46,7 @@ DEFAULT_STATE = {
     "start_status": 200,               # Moonraker refusing POST /printer/print/start before running it
     "start_reply_status": None,        # reply status (e.g. 502 from a proxy) after the start was applied
     "state_after_start": "printing",   # print_stats.state once a print is started
+    "preprint_seconds": 0,             # first report "preprinting" with no filename for this long, as the Seeker 3 does
     "corrupt_stored_copy": False,      # serve different bytes than were uploaded
     "start_on_upload": False,          # claim print_started in the upload reply
     "rename_upload": None,             # store the upload under this name and report it
@@ -59,6 +60,7 @@ STATE: dict = {}
 FILES: dict[str, bytes] = {}
 LOG: list[dict] = []
 STARTS: list[str] = []
+PREPRINT: dict = {}  # {"name": file, "until": monotonic time} while a started job is preprinting
 
 
 def reset() -> None:
@@ -67,6 +69,7 @@ def reset() -> None:
     FILES.clear()
     LOG.clear()
     STARTS.clear()
+    PREPRINT.clear()
 
 
 def status_objects(query: str) -> dict:
@@ -125,6 +128,10 @@ def error(status: int, message: str):
 
 def route(method: str, path: str, query: str, headers, data: bytes):
     """Apply a request's effect and return (status, json payload, raw bytes)."""
+    if PREPRINT and time.monotonic() >= PREPRINT["until"]:
+        STATE["print_state"] = STATE["state_after_start"]
+        STATE["print_filename"] = PREPRINT["name"]
+        PREPRINT.clear()
     if method == "GET":
         if path == "/server/info":
             return 200, {"result": {"klippy_connected": True, "klippy_state": STATE["klippy_state"]}}, None
@@ -173,8 +180,13 @@ def route(method: str, path: str, query: str, headers, data: bytes):
             return error(STATE["start_status"], "Start refused by mock")
         if name not in FILES:
             return error(400, f"File {name} does not exist")
-        STATE["print_state"] = STATE["state_after_start"]
-        STATE["print_filename"] = name
+        if STATE["preprint_seconds"]:
+            STATE["print_state"] = "preprinting"
+            STATE["print_filename"] = ""
+            PREPRINT.update({"name": name, "until": time.monotonic() + STATE["preprint_seconds"]})
+        else:
+            STATE["print_state"] = STATE["state_after_start"]
+            STATE["print_filename"] = name
         if STATE["start_reply_status"]:  # e.g. a proxy timing out after the printer took the start
             return STATE["start_reply_status"], None, b"<html><body>502 Bad Gateway</body></html>"
         return 200, {"result": "ok"}, None
