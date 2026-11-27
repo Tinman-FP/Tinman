@@ -556,6 +556,16 @@ void PrinterWebView::set_prusa_camera_url(const std::string& camera_url, bool pe
         normalized.empty() ? _L("No camera set for this printer. Find camera or Camera address adds one.") : wxString());
 }
 
+void PrinterWebView::play_prusa_camera()
+{
+    // The player starts a stream only while it is on screen, so a camera set while the Device tab was
+    // hidden (another printer selected from Prepare) starts here, once the tab shows. Same address,
+    // same printer: SetDirectStreamURL only plays it if it isn't playing.
+    if (m_prusa_camera_url.empty() || !m_prusa_camera_panel->IsShown() || !m_prusa_camera_panel->IsShownOnScreen())
+        return;
+    m_prusa_camera_player->SetDirectStreamURL(m_prusa_camera_url, "prusa-camera:" + m_prusa_printer_host, wxString());
+}
+
 void PrinterWebView::start_prusa_camera_discovery()
 {
     if (m_prusa_printer_host.empty()) {
@@ -627,7 +637,11 @@ bool PrinterWebView::Show(bool show)
         m_url_deferred.clear();
         m_browser->LoadURL(url);
     }
-    return wxPanel::Show(show);
+    const bool changed = wxPanel::Show(show);
+    // After the tab's own show, when the strip is on screen.
+    if (show)
+        CallAfter([this] { play_prusa_camera(); });
+    return changed;
 }
 
 void PrinterWebView::reload()
